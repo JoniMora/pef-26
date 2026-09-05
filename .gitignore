@@ -38,6 +38,12 @@ data/corpus/*
 *.zip
 /corpus/
 
+# Red de seguridad: el corpus se genera en <repo>/data/corpus (ver
+# DIRECTORIO_CORPUS_DEFAULT en src/baseline.py). Si igualmente se
+# invoca el script desde src/ con una ruta relativa manual, esto evita
+# que un corpus mal ubicado en src/data/ termine versionado.
+/src/data/
+
 # ─────────────────────────────────────────────────────────────
 #  Índices serializados y caché en disco
 #  Artefactos derivados del corpus: siempre reconstruibles.
