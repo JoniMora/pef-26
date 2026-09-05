@@ -6,7 +6,7 @@ Motor de búsqueda local (full-text) sobre una colección masiva de documentos d
 
 ## Objetivo del Proyecto
 
-Construir un motor de recuperación de información que, dada una consulta de uno o más términos, devuelva los `k` documentos más relevantes de un corpus de escala no trivial (objetivo: **≥ 50.000 documentos / ≥ 1 GB de texto**), y demostrar empíricamente la mejora de rendimiento entre una implementación secuencial ingenua y una versión optimizada.
+Construir un motor de recuperación de información que, dada una consulta de uno o más términos, devuelva los `k` documentos más relevantes de un corpus de escala no trivial (corpus de prueba actual: **50.000 documentos sintéticos / 68,7 MB de texto**), y demostrar empíricamente la mejora de rendimiento entre una implementación secuencial ingenua y una versión optimizada.
 
 El sistema se compone de cuatro etapas:
 
@@ -17,7 +17,7 @@ El sistema se compone de cuatro etapas:
 | **Indexación / Búsqueda** | Resolución de los términos de la consulta contra la estructura de datos de acceso. |
 | **Ranking** | Puntuación de los documentos candidatos (TF-IDF) y selección del *top-k*. |
 
-El requisito central de la asignatura no es la funcionalidad —ambas versiones devuelven **resultados idénticos**, verificado por test de equivalencia—, sino la **evidencia cuantificada de la mejora**. Cada optimización debe estar justificada por su complejidad algorítmica y validada con mediciones reproducibles de tiempo y memoria obtenidas mediante herramientas de perfilado formales.
+El requisito central de la asignatura no es la funcionalidad —ambas versiones deben devolver **resultados idénticos**, lo que se verificará por test de equivalencia—, sino la **evidencia cuantificada de la mejora**. Cada optimización debe estar justificada por su complejidad algorítmica y validada con mediciones reproducibles de tiempo y memoria obtenidas mediante herramientas de perfilado formales.
 
 El proyecto se versiona en cuatro incrementos medibles y comparables entre sí:
 
@@ -35,23 +35,25 @@ La primera implementación resuelve la consulta por **fuerza bruta**, sin ningun
 **Algoritmo:**
 
 ```
-para cada consulta:
-    para cada documento del corpus:
-        leer el archivo desde disco
-        tokenizar y normalizar su contenido completo
-        verificar la presencia de cada término de la consulta
-        si coincide: calcular su score y acumular en una lista
-    ordenar la lista completa de coincidencias por score
-    devolver los primeros k elementos
+para cada archivo .txt del directorio:
+    abrir el archivo y leer TODO su contenido en memoria (.read())
+    convertir el contenido completo a minúsculas (.lower())
+    si la query aparece como subcadena (.find() != -1):
+        acumular el nombre del archivo en una lista
+devolver la lista de coincidencias
 ```
+
+Implementado en [`src/baseline.py`](src/baseline.py) (`busqueda_secuencial`). Sin índices, `dict` de caché, `set`, generadores ni concurrencia: la ineficiencia es deliberada.
+
+> **Alcance actual.** La línea base resuelve **presencia por subcadena**, no relevancia: no tokeniza ni puntúa, y por lo tanto **no produce un ranking *top-k***. Las etapas de Normalización y Ranking descritas en el objetivo se incorporan en la versión optimizada. Esto tiene una consecuencia directa sobre el test de equivalencia: `.find()` sobre el texto crudo hace que `"algo"` matchee dentro de `"algoritmo"`, mientras que un índice invertido sobre tokens no lo haría. Para que la comparación sea válida, **ambas versiones deben acordar la misma semántica de coincidencia** antes de medir; se adoptará la de tokens y se ajustará la línea base en consecuencia.
 
 **Análisis de complejidad:**
 
 | Dimensión | Costo | Observación |
 | :--- | :--- | :--- |
 | Búsqueda por consulta | **O(n · m)** | `n` = documentos del corpus, `m` = tokens promedio por documento. |
-| Comprobación de pertenencia | **O(m)** | Recorrido lineal sobre `list` de tokens por cada término. |
-| Ordenamiento del ranking | **O(r · log r)** | `r` = documentos coincidentes; se ordena el conjunto completo aun cuando solo se necesitan `k`. |
+| Comprobación de pertenencia | **O(m)** | Búsqueda de subcadena con `str.find()` sobre el contenido completo del documento. |
+| Ordenamiento del ranking | — | No implementado en la línea base: devuelve todas las coincidencias sin puntuar ni ordenar. |
 | E/S de disco | **O(n)** lecturas | El corpus completo se lee y decodifica **en cada consulta**. |
 | Memoria | **O(m)** | Bajo consumo residente, a costa de re-procesar todo el corpus. |
 
@@ -61,7 +63,9 @@ para cada consulta:
 - **Escalado lineal:** el tiempo de respuesta crece proporcionalmente al tamaño del corpus, no al tamaño del resultado. Duplicar los documentos duplica la latencia.
 - **Saturación de E/S:** con corpus superiores a la memoria disponible, el proceso queda limitado por el ancho de banda del disco, no por la CPU.
 
-Esta versión es funcionalmente correcta y actúa como **oráculo de validación** de las versiones optimizadas.
+- **Dominancia de la E/S sobre el algoritmo.** Medido sobre el corpus de 50.000 documentos, el tiempo por consulta oscila entre **2.408 ms** y **14.040 ms** según el estado del *page cache* del sistema operativo: una dispersión de **5,8×** sobre código idéntico. Los 195 MB que el corpus ocupa en disco (68,7 MB de contenido, inflado por el bloque mínimo de 4 KB en 50.000 archivos) compiten con los 8 GB de RAM de la máquina de pruebas. Sin estabilizar el caché, cualquier comparación contra la versión optimizada mediría el disco, no el algoritmo.
+
+Esta versión actúa como **oráculo de validación** de las versiones optimizadas, una vez unificada la semántica de coincidencia.
 
 ---
 
@@ -187,7 +191,7 @@ El cuello de botella medido en la versión optimizada se desplaza de la consulta
 
 ### Justificación de la técnica: procesos, no hilos
 
-En CPython 3.11 el **GIL** (*Global Interpreter Lock*) serializa la ejecución de bytecode: los hilos de `threading` no producen paralelismo real en cargas *CPU-bound*. Como la tokenización y el *stemming* son operaciones de CPU sobre estructuras Python, la técnica correcta es el **paralelismo por múltiples procesos**, donde cada intérprete posee su propio GIL y se aprovechan todos los núcleos físicos.
+En el build utilizado (CPython 3.14.0, con **GIL activo** — verificado con `sys._is_gil_enabled()`) el **GIL** (*Global Interpreter Lock*) serializa la ejecución de bytecode: los hilos de `threading` no producen paralelismo real en cargas *CPU-bound*. Como la tokenización y el *stemming* son operaciones de CPU sobre estructuras Python, la técnica correcta es el **paralelismo por múltiples procesos**, donde cada intérprete posee su propio GIL y se aprovechan todos los núcleos físicos.
 
 ```python
 from concurrent.futures import ProcessPoolExecutor
@@ -218,7 +222,7 @@ La fase *Map* no comparte estado mutable entre procesos: cada worker opera sobre
 - **Granularidad por lotes, no por documento.** La comunicación entre procesos exige serialización con `pickle`; despachar un archivo por tarea haría que el costo de IPC dominara sobre el trabajo útil. Se agrupan los documentos en lotes (`chunksize` calculado como `ceil(n / (P · 4))`) para amortizar ese *overhead*.
 - **Payload de retorno compacto.** Los workers devuelven las *postings* con `doc_id` enteros y no cadenas de texto, minimizando el volumen serializado en el canal de retorno.
 - **`spawn` como método de arranque.** En macOS el método por defecto es `spawn`: cada proceso hijo reimporta el módulo principal, por lo que todo el código de arranque queda protegido bajo `if __name__ == "__main__":`. Sin esta guarda, el programa entra en recursión infinita de procesos.
-- **Grado de paralelismo.** `P = os.cpu_count()` por defecto, ajustable con `--workers`. La escalabilidad está acotada por la **ley de Amdahl**: la fase *Reduce* es inherentemente secuencial y fija el techo del *speedup* alcanzable.
+- **Grado de paralelismo.** `P = os.cpu_count()` por defecto, ajustable con `--workers`. En la máquina de pruebas `os.cpu_count()` devuelve **4** (lógicos), pero solo hay **2 núcleos físicos**: al ser la indexación una carga CPU-bound, el *Hyper-Threading* aporta poco y el techo realista de *speedup* ronda **2×**, no 4×. Se medirán ambos valores de `P`. La escalabilidad está además acotada por la **ley de Amdahl**: la fase *Reduce* es inherentemente secuencial y fija el techo del *speedup* alcanzable.
 
 ---
 
@@ -241,30 +245,52 @@ Las métricas de esta sección **no se estiman ni se derivan teóricamente**: se
 
 - **Corpus:** idéntico en todas las corridas; se documentan cantidad de documentos y tamaño total en disco.
 - **Repeticiones:** 10 corridas por versión; se reporta la **mediana** para descartar valores atípicos.
-- **Caché de sistema operativo:** se ejecuta una corrida de calentamiento previa, descartada, para que la comparación no dependa del *page cache* del SO.
+- **Caché de sistema operativo:** se descartan las corridas hasta alcanzar el régimen estacionario. Una única corrida de calentamiento resultó **insuficiente**: sobre este corpus hicieron falta **3 corridas** para que el *page cache* se estabilizara (13.570 → 14.040 → 10.795 ms, y recién a partir de la cuarta ~2.450 ms). Se reporta la mediana del régimen estacionario y se declara además el rango frío.
 - **Aislamiento:** las mediciones de tiempo se toman **sin** el perfilador activo, dado que `cProfile` introduce sobrecarga; el perfilador se usa para atribuir costo, no para cronometrar.
 - **Métricas separadas:** se registran por separado el **tiempo de construcción del índice** (costo único) y el **tiempo de consulta** (costo recurrente).
 
 ### Resultados
 
+Consulta de referencia: `"algoritmo"` sobre 50.000 documentos (47.797 coincidencias).
+
 | Versión | Tiempo de ejecución (ms) | Consumo de Memoria (MB) | Observaciones |
 | :--- | ---: | ---: | :--- |
-| Inicial (Baseline) | | | |
-| Estructura Optimizada | | | |
-| Algoritmo Optimizado | | | |
-| Concurrente | | | |
+| Inicial (Baseline) | 2.485 | 18,3 | Mediana de 10 corridas en régimen estacionario (min 2.408 / max 2.569, ±3%). Con *page cache* frío: **10.795–14.040 ms**. Lectura completa del corpus en cada consulta; sin ranking. |
+| Estructura Optimizada | | | *Pendiente de implementación.* |
+| Algoritmo Optimizado | | | *Pendiente de implementación.* |
+| Concurrente | | | *Pendiente de implementación.* |
+
+**Cómo se obtuvieron los valores de la fila medida**
+
+- **Tiempo:** `time.perf_counter()` alrededor de `busqueda_secuencial()`, 10 repeticiones tras estabilizar el *page cache*; se reporta la mediana.
+- **Memoria:** pico de *resident set size* vía `/usr/bin/time -l` (19.165.184 bytes = 18,3 MB). El bajo consumo es consistente con el análisis O(m): la línea base mantiene un solo documento en memoria por vez, a costa de releer todo el corpus.
+
+### *Hotspots* de la línea base
+
+Salida de `cProfile` ordenada por tiempo acumulado (corrida instrumentada, 23,1 s por la sobrecarga del perfilador):
+
+```
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.717    0.717   23.112   23.112 src/baseline.py:71(busqueda_secuencial)
+    50000   16.008    0.000   16.434    0.000 {method 'read' of '_io.TextIOWrapper'}
+    50000    4.307    0.000    4.408    0.000 {built-in method _io.open}
+```
+
+El perfil confirma cuantitativamente el diagnóstico de la sección Línea Base: **`read()` concentra el 69% del tiempo y `open()` el 19%** — en conjunto, el **88% del costo es E/S**, contra apenas 0,7 s (3%) de lógica de coincidencia propiamente dicha. La consecuencia es directa sobre la estrategia de optimización: **eliminar las 50.000 aperturas de archivo por consulta rinde más que cualquier mejora sobre el algoritmo de matching**, y es exactamente lo que provee el índice invertido al trasladar la lectura del corpus a una fase única de indexación.
+
+Nótese además que la corrida instrumentada tarda **23,1 s frente a 2,5 s sin perfilador** (~9× de sobrecarga, atribuible a los 100.000 eventos de llamada que `cProfile` intercepta). Esto justifica la regla del protocolo: el perfilador sirve para **atribuir** costo, nunca para **cronometrar**.
 
 **Entorno de pruebas**
 
 | Parámetro | Valor |
 | :--- | :--- |
-| CPU (modelo / núcleos) | |
-| Memoria RAM | |
-| Almacenamiento | |
-| Sistema Operativo | |
-| Versión de Python | |
-| Documentos del corpus | |
-| Tamaño total del corpus | |
+| CPU (modelo / núcleos) | Intel Core i5-7267U @ 3,10 GHz — 2 físicos / 4 lógicos |
+| Memoria RAM | 8 GB |
+| Almacenamiento | SSD |
+| Sistema Operativo | macOS 13.7.8 (x86_64) |
+| Versión de Python | CPython 3.14.0 (GIL activo) |
+| Documentos del corpus | 50.000 archivos `.txt` |
+| Tamaño total del corpus | 68,7 MB de contenido — 195 MB ocupados en disco |
 
 ---
 
@@ -281,57 +307,68 @@ cd pef-26
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
-# Instalar dependencias de ejecución y de perfilado
-pip install -r requirements.txt
+# Instalar las herramientas de perfilado
+# (la línea base NO tiene dependencias: usa solo la biblioteca estándar)
+pip install snakeviz line_profiler memory_profiler
 ```
+
+> Los comandos se ejecutan desde cualquier directorio: `src/baseline.py` resuelve la ruta del corpus a partir de la ubicación del script (`<repo>/data/corpus`), no del directorio de trabajo.
 
 ### Preparación del corpus
 
-```bash
-# Descarga y descompresión del corpus de prueba en ./data/corpus/
-python -m src.tools.fetch_corpus --output ./data/corpus
+El corpus es **sintético**: se genera localmente con `generar_corpus_prueba()`, no se descarga.
 
-# Verificación de la integridad del corpus (cantidad y tamaño de los documentos)
-python -m src.tools.fetch_corpus --verify --output ./data/corpus
+```bash
+# Genera 50.000 documentos .txt en <repo>/data/corpus
+python3 src/baseline.py --generar --num-docs 50000
+
+# Verificación rápida del corpus generado
+find data/corpus -name '*.txt' | wc -l
+du -sh data/corpus
 ```
 
 ### Prueba de línea base
 
 ```bash
-python -m src.main \
-    --mode baseline \
-    --corpus ./data/corpus \
-    --query "programacion eficiente" \
-    --top-k 10
+# Consulta sobre el corpus completo; imprime tiempo (ms) y coincidencias
+python3 src/baseline.py --query "algoritmo"
+
+# Sobre un corpus en otra ubicación
+python3 src/baseline.py --query "algoritmo" --directorio /ruta/al/corpus
+```
+
+Salida esperada:
+
+```
+Tiempo de ejecucion: 2558.302 ms
+Documentos encontrados: 47797
 ```
 
 ### Prueba optimizada
 
+> **Pendiente de implementación.** Los comandos de esta sección quedan definidos como contrato de la interfaz a construir en los incrementos 2 a 4.
+
 ```bash
 # Versión optimizada, secuencial (índice invertido + heap + caché)
-python -m src.main \
-    --mode optimized \
-    --corpus ./data/corpus \
-    --query "programacion eficiente" \
-    --top-k 10
+python3 src/optimizado.py --query "algoritmo" --top-k 10
 
 # Versión optimizada con construcción concurrente del índice
-python -m src.main \
-    --mode optimized \
-    --concurrent \
-    --workers 8 \
-    --corpus ./data/corpus \
-    --query "programacion eficiente" \
-    --top-k 10
+python3 src/optimizado.py --query "algoritmo" --top-k 10 --concurrent --workers 4
 ```
 
 ### Comparativa automatizada
 
+> **Pendiente de implementación.** Hasta entonces, la comparativa se reproduce a mano repitiendo la consulta y tomando la mediana en régimen estacionario:
+
 ```bash
-# Ejecuta las cuatro versiones sobre el mismo corpus y el mismo set de consultas,
-# y emite la tabla de resultados en formato Markdown
-python -m benchmarks.run_all \
-    --corpus ./data/corpus \
+# 10 corridas de la línea base; descartar las primeras hasta estabilizar el page cache
+for i in $(seq 1 10); do python3 src/baseline.py --query "algoritmo"; done
+```
+
+El *runner* automatizado ejecutará las cuatro versiones sobre el mismo corpus y set de consultas:
+
+```bash
+python3 -m benchmarks.run_all \
     --queries ./benchmarks/queries.txt \
     --repeat 10 \
     --output ./benchmarks/results.md
@@ -341,25 +378,30 @@ python -m benchmarks.run_all \
 
 ```bash
 # Perfilado de CPU: genera el archivo de estadísticas y lo visualiza
-python -m cProfile -o ./profiles/baseline.prof -m src.main --mode baseline --corpus ./data/corpus --query "programacion eficiente"
-python -m cProfile -o ./profiles/optimized.prof -m src.main --mode optimized --corpus ./data/corpus --query "programacion eficiente"
-snakeviz ./profiles/optimized.prof
+python3 -m cProfile -o ./profiles/baseline.prof src/baseline.py --query "algoritmo"
+snakeviz ./profiles/baseline.prof
 
-# Perfilado de CPU línea a línea sobre las funciones decoradas con @profile
-kernprof -l -v -m src.main --mode optimized --corpus ./data/corpus --query "programacion eficiente"
+# Top de funciones por tiempo acumulado, sin salir de la terminal
+python3 -c "import pstats; pstats.Stats('./profiles/baseline.prof').sort_stats('cumtime').print_stats(15)"
 
-# Perfilado de memoria: pico de asignaciones (tracemalloc)
-python -m src.profiling.memory --mode optimized --corpus ./data/corpus
+# Perfilado línea a línea (requiere decorar busqueda_secuencial con @profile)
+kernprof -l -v src/baseline.py --query "algoritmo"
 
-# Perfilado de memoria: evolución del RSS en el tiempo
-mprof run python -m src.main --mode optimized --corpus ./data/corpus --query "programacion eficiente"
+# Pico de memoria residente (RSS)
+/usr/bin/time -l python3 src/baseline.py --query "algoritmo"     # macOS
+/usr/bin/time -v python3 src/baseline.py --query "algoritmo"     # Linux
+
+# Evolución del RSS en el tiempo
+mprof run python3 src/baseline.py --query "algoritmo"
 mprof plot
 ```
 
 ### Validación de equivalencia
 
+> **Pendiente de implementación.** Requiere unificar previamente la semántica de coincidencia entre ambas versiones (ver la nota de alcance en [Línea Base](#línea-base-baseline)): la línea base matchea por subcadena y el índice invertido lo hará por token.
+
 ```bash
-# Verifica que la versión optimizada devuelve exactamente los mismos resultados
-# que la línea base para todas las consultas del set de pruebas
+# Verificará que la versión optimizada devuelve exactamente los mismos
+# resultados que la línea base para todas las consultas del set de pruebas
 pytest tests/test_equivalence.py -v
 ```
