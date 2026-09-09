@@ -24,9 +24,11 @@ El proyecto se versiona en cuatro incrementos medibles y comparables entre sí:
 1. **Inicial** — búsqueda secuencial sobre el corpus crudo. ✅ [`src/baseline.py`](src/baseline.py)
 2. **Estructura Optimizada** — índice invertido con `dict` y `set`. ✅ [`src/optimizado.py`](src/optimizado.py)
 3. **Algoritmo Optimizado** — ranking parcial con *heap* y caching de consultas. ✅ [`src/optimizado.py`](src/optimizado.py)
-4. **Concurrente** — construcción del índice en paralelo mediante múltiples procesos. ⏳ *Pendiente.*
+4. **Concurrente** — construcción del índice en paralelo mediante múltiples procesos. ✅ [`src/concurrente.py`](src/concurrente.py)
 
 > Los incrementos 2 y 3 conviven en un mismo script: el índice invertido y el ranking con *heap* + caché se miden por separado (tiempo de indexación vs. tiempo de consulta), no por archivo.
+>
+> El incremento 4 vive en un script propio: [`src/concurrente.py`](src/concurrente.py) importa el *pipeline* de normalización, consulta y ranking de `optimizado.py` y **solo** reemplaza `construir_indice()`. Así la comparación aísla el efecto del paralelismo: todo lo demás es literalmente el mismo código.
 
 ---
 
@@ -272,11 +274,18 @@ Esta política es **conservadora**: ante la duda, se invalida. Un fallo de cach�
 
 ## Concurrencia y Paralelismo
 
-> ⏳ **Incremento 4 — pendiente de implementación.** Esta sección documenta el diseño y la justificación de la técnica; el código correspondiente (`--concurrent`, `--workers`) todavía no existe en `src/optimizado.py`.
+> ✅ **Incremento 4 — implementado** en [`src/concurrente.py`](src/concurrente.py) (`--workers`, `--comparar`).
 
-El cuello de botella medido en la versión optimizada se desplaza de la consulta a la **construcción del índice**: 33,6 s frente a los ~12 ms de una consulta. Ese costo se reparte entre **E/S** (lectura y decodificación de 50.000 archivos, ~12 s) y **CPU** (tokenización, normalización y *stemming*, ~5 s de trabajo neto), y es perfectamente descomponible por documento.
+El cuello de botella de la versión optimizada se desplaza de la consulta a la **construcción del índice**: 8,6 s frente a los ~9 ms de una consulta. Ese costo es perfectamente descomponible por documento, y medido en régimen estacionario se reparte así:
 
-> **Techo realista.** Como la fase de lectura sigue siendo la porción mayor y el corpus vive en un único SSD, paralelizar solo la CPU deja intacto más de la mitad del costo. La ley de Amdahl acota el *speedup* alcanzable bastante por debajo del número de núcleos: la medición deberá reportar el reparto E/S–CPU real, no solo el tiempo total.
+| Fase de la indexación | Tiempo (ms) | Proporción | ¿Paraleliza? |
+| :--- | ---: | ---: | :--- |
+| Lectura + decodificación de 50.000 archivos | 2.234 | 26,3 % | Sí, por solapamiento de E/S |
+| Tokenización + *stopwords* + *stemming* | 4.616 | 54,4 % | Sí, es CPU pura |
+| Conteo (`Counter`) + construcción de *postings* | 1.628 | 19,2 % | Sí en el *Map*; la fusión final no |
+| **Total** | **8.478** | **100 %** | |
+
+> **Techo realista.** El reparto real invierte la expectativa inicial: con el corpus residente en *page cache* la E/S es solo un cuarto del costo y la **CPU domina con ~74 %**. Aplicando la ley de Amdahl sobre esa fracción con 2 núcleos físicos, el techo es `1 / (0,263 + 0,737/2) ≈ 1,58×`. La medición confirma la cota: **1,84×** con `P = 4`, algo por encima del cálculo porque la E/S también se solapa entre procesos y el *Hyper-Threading* aporta un margen residual.
 
 ### Justificación de la técnica: procesos, no hilos
 
@@ -288,30 +297,65 @@ from concurrent.futures import ProcessPoolExecutor
 
 Se elige `concurrent.futures.ProcessPoolExecutor` sobre `multiprocessing.Pool` por su API de `Future`, su propagación limpia de excepciones desde los procesos hijos y su integración con `as_completed()` para el reporte de progreso incremental.
 
-`ThreadPoolExecutor` se reserva exclusivamente para la fase de **lectura de archivos**, que es *I/O-bound* y libera el GIL durante las llamadas al sistema.
+**No se usa `threading` en ninguna fase**, tampoco para la lectura. El diseño previo reservaba un `ThreadPoolExecutor` para la E/S, y se descartó: cada worker ya abre sus propios archivos, de modo que las lecturas se solapan entre procesos sin agregar una segunda capa de planificación. La medición respalda la decisión — la lectura es el 26 % del costo y la tokenización el 54 %, así que el trabajo que un pool de hilos podría ganar es minoritario y ya está cubierto.
 
 ### Arquitectura: MapReduce sobre particiones del corpus
 
 ```
-                    ┌─── Worker 1 ──> índice parcial 1 ───┐
-   Corpus  ──particiona──> Worker 2 ──> índice parcial 2 ──── merge ──> Índice global
-   (n docs)         └─── Worker P ──> índice parcial P ───┘
+                          ┌─ Worker 1 ─> parcial ─┐
+   Corpus  ──> P · 4 lotes ├─ Worker 2 ─> parcial ─┤ as_completed ──> Índice global
+   (n docs)    equitativos └─ Worker P ─> parcial ─┘   (_fusionar)
+
+   50.000 docs  ──>  16 lotes de 3.125  ──>  4 procesos  ──>  1 dict
 ```
 
-| Fase | Operación | Complejidad |
-| :--- | :--- | :--- |
-| **Particionado** | División del corpus en `P` lotes contiguos de documentos. | O(n) |
-| **Map** (paralelo) | Cada worker construye un índice invertido parcial sobre su lote. | O(N / P) |
-| **Reduce** | Fusión de los `P` índices parciales en el índice global. | O(V · P), `V` = vocabulario |
+| Fase | Función | Operación | Complejidad |
+| :--- | :--- | :--- | :--- |
+| **Particionado** | `_lotes_equitativos()` | División de la lista de documentos en `P · 4` lotes contiguos de tamaño equitativo. | O(n) |
+| **Map** (paralelo) | `_procesar_lote()` | Cada worker lee sus archivos, tokeniza y construye un índice invertido parcial. | O(N / P) |
+| **Reduce** | `_fusionar()` | Volcado de cada parcial sobre el índice global, en orden de finalización. | O(V · P · 4), `V` = vocabulario |
 
 La fase *Map* no comparte estado mutable entre procesos: cada worker opera sobre un subconjunto disjunto de archivos y devuelve una estructura independiente. Al no existir escritura concurrente, **no se requieren locks**, eliminando la contención y las condiciones de carrera por construcción.
 
+El determinismo no depende del orden de llegada: los `doc_id` se asignan en el proceso padre sobre la lista ya ordenada, antes de despachar, de modo que `as_completed()` puede fusionar en cualquier orden y el índice resultante es **idéntico bit a bit** al secuencial (verificado con `--comparar`).
+
 ### Decisiones de implementación
 
-- **Granularidad por lotes, no por documento.** La comunicación entre procesos exige serialización con `pickle`; despachar un archivo por tarea haría que el costo de IPC dominara sobre el trabajo útil. Se agrupan los documentos en lotes (`chunksize` calculado como `ceil(n / (P · 4))`) para amortizar ese *overhead*.
-- **Payload de retorno compacto.** Los workers devuelven las *postings* con `doc_id` enteros y no cadenas de texto, minimizando el volumen serializado en el canal de retorno.
+- **Granularidad por lotes, no por documento.** La comunicación entre procesos exige serialización con `pickle`; despachar un archivo por tarea haría que el costo de IPC dominara sobre el trabajo útil. Se agrupan los documentos en `P · 4` lotes equitativos (`LOTES_POR_PROCESO = 4`). La medición justifica la escala: un lote de 1/16 del corpus cuesta **487 ms** de trabajo útil, tres órdenes de magnitud por encima del costo de despachar la tarea.
+- **Más lotes que workers.** Con `K = 4` hay 16 tareas para 4 procesos, así el pool **reequilibra** cuando un lote resulta más pesado que otro. Con exactamente `P` lotes, el worker más lento fija el tiempo total.
+- **`doc_id` asignado en el padre.** El worker recibe pares `(doc_id, ruta)` ya numerados sobre la lista ordenada. Es lo que permite fusionar por `as_completed()` —en orden de finalización, no de despacho— sin perder determinismo.
+- **Fusión sin sumar frecuencias.** Como los lotes son disjuntos, ningún `doc_id` se repite entre parciales: `_fusionar()` hace `dict.update()` y adopta por referencia el primer diccionario de *postings* de cada término, sin copiarlo.
+- **Payload de retorno compacto.** Los workers devuelven las *postings* con `doc_id` enteros y no cadenas de texto; las rutas viajan de ida como `str` y no como `Path`, que se serializa más caro.
+- **Umbral de paralelismo.** Por debajo de `UMBRAL_PARALELO = 512` documentos —o con `P = 1`— se ejecuta el *Map* en el propio proceso: levantar el pool y serializar los parciales costaría más que el trabajo ahorrado.
 - **`spawn` como método de arranque.** En macOS el método por defecto es `spawn`: cada proceso hijo reimporta el módulo principal, por lo que todo el código de arranque queda protegido bajo `if __name__ == "__main__":`. Sin esta guarda, el programa entra en recursión infinita de procesos.
-- **Grado de paralelismo.** `P = os.cpu_count()` por defecto, ajustable con `--workers`. En la máquina de pruebas `os.cpu_count()` devuelve **4** (lógicos), pero solo hay **2 núcleos físicos**: al ser la indexación una carga CPU-bound, el *Hyper-Threading* aporta poco y el techo realista de *speedup* ronda **2×**, no 4×. Se medirán ambos valores de `P`. La escalabilidad está además acotada por la **ley de Amdahl**: la fase *Reduce* es inherentemente secuencial y fija el techo del *speedup* alcanzable.
+- **Grado de paralelismo.** `P = os.cpu_count()` por defecto, ajustable con `--workers`. En la máquina de pruebas `os.cpu_count()` devuelve **4** (lógicos) sobre solo **2 núcleos físicos**; se midieron ambos valores y el resultado confirma la sospecha: pasar de `P = 2` a `P = 4` solo aporta un **11 %** adicional, porque el *Hyper-Threading* no agrega unidades de ejecución reales para una carga CPU-bound.
+
+### Resultados de la paralelización
+
+Mediana de 6 corridas por configuración sobre 50.000 documentos, **alternando** las versiones dentro de cada ronda y descartando 2 rondas de calentamiento:
+
+| Configuración | Mediana (ms) | min / max | *Speedup* | Eficiencia |
+| :--- | ---: | ---: | ---: | :--- |
+| Secuencial (`optimizado.py`) | 8.607 | 8.477 / 8.667 | 1,00× | — |
+| `--workers 2` | 5.189 | 5.104 / 5.269 | **1,66×** | 83 % sobre 2 núcleos físicos |
+| `--workers 4` | 4.689 | 4.660 / 4.759 | **1,84×** | 92 % sobre físicos — 46 % sobre lógicos |
+
+La varianza es inferior al 3 % en las tres configuraciones. El resultado valida la predicción del diseño: pasar de `P = 2` a `P = 4` mejora el *speedup* solo un **11 %** (1,66× → 1,84×), porque los 4 procesadores lógicos son 2 núcleos físicos con *Hyper-Threading* y la carga es CPU-bound.
+
+**Conservación del trabajo.** Un lote aislado (1/16 del corpus) cuesta 487 ms; los 16 lotes suman 7.792 ms, el **92 %** del costo secuencial de 8.478 ms. El 8 % restante es el arranque del pool, la serialización de los parciales y la fusión: el paralelismo no crea trabajo nuevo de forma significativa.
+
+**Advertencia metodológica: el *page cache* cambia el resultado por un factor de 3.**
+
+| Régimen | Secuencial | `--workers 4` | *Speedup* observado |
+| :--- | ---: | ---: | ---: |
+| Frío (corpus fuera de *page cache*) | 27.608–34.151 ms | 5.051–7.229 ms | **≈5,6×** |
+| Estacionario (corpus residente) | 8.607 ms | 4.689 ms | **1,84×** |
+
+La primera tanda de mediciones se tomó en bloques —10 corridas secuenciales, después 10 paralelas— y arrojó un *speedup* de **5,63×** sobre una máquina de 2 núcleos físicos. Un resultado superlineal es la señal de que se está midiendo otra cosa: el bloque secuencial corrió con el corpus fuera de caché y el paralelo, ya caliente.
+
+El mecanismo es la **latencia de E/S por archivo**, no la CPU. Leer los 50.000 archivos en frío, sin tokenizar nada, cuesta **18.193 ms** —0,36 ms por archivo— contra 2.234 ms en caliente. Un solo proceso paga esa latencia en serie; cuatro procesos emiten lecturas simultáneas y la ocultan. La aceleración en frío es real y es un beneficio genuino del diseño, pero **no es *speedup* de paralelización de CPU** y reportarla como tal sería engañoso. De ahí que el protocolo pase a alternar las versiones dentro de cada ronda.
+
+**Hipótesis descartada.** Se sospechó del *garbage collector*: un proceso secuencial que acumula ~2 millones de entradas podría estar pagando barridos generacionales que los workers, con 1/16 de los datos, evitan. Se midió con `gc.disable()` y la diferencia es de **0,4 %** (8.478 ms contra 8.447 ms). El GC no participa del efecto.
 
 ---
 
@@ -335,6 +379,7 @@ Las métricas de esta sección **no se estiman ni se derivan teóricamente**: se
 - **Corpus:** idéntico en todas las corridas; se documentan cantidad de documentos y tamaño total en disco.
 - **Repeticiones:** 10 corridas por versión; se reporta la **mediana** para descartar valores atípicos.
 - **Caché de sistema operativo:** se descartan las corridas hasta alcanzar el régimen estacionario. Una única corrida de calentamiento resultó **insuficiente**: sobre este corpus hicieron falta **3 corridas** para que el *page cache* se estabilizara (13.570 → 14.040 → 10.795 ms, y recién a partir de la cuarta ~2.450 ms). Se reporta la mediana del régimen estacionario y se declara además el rango frío.
+- **Orden de las corridas:** las versiones se miden **alternadas** dentro de cada ronda (secuencial → `P = 4` → `P = 2` → repetir), nunca en bloques. Medirlas en bloque produjo un *speedup* aparente de 5,63× que era un artefacto del *page cache*; ver [Resultados de la paralelización](#resultados-de-la-paralelización).
 - **Aislamiento:** las mediciones de tiempo se toman **sin** el perfilador activo, dado que `cProfile` introduce sobrecarga; el perfilador se usa para atribuir costo, no para cronometrar.
 - **Métricas separadas:** se registran por separado el **tiempo de construcción del índice** (costo único) y el **tiempo de consulta** (costo recurrente).
 
@@ -345,9 +390,11 @@ Consulta de referencia: `"algoritmo"` sobre 50.000 documentos (47.797 coincidenc
 | Versión | Tiempo por consulta (ms) | Costo único de indexación (ms) | Pico de memoria (MB) | Observaciones |
 | :--- | ---: | ---: | ---: | :--- |
 | Inicial (Baseline) | **2.485** | — | 18,3 | Mediana de 10 corridas en régimen estacionario (min 2.408 / max 2.569, ±3 %). Con *page cache* frío: **10.795–14.040 ms**. Lectura completa del corpus en cada consulta; sin ranking. |
-| Estructura + Algoritmo Optimizado | **9,06** | 33.225 | 177,7 | Mediana de 10 consultas con caché forzada a fallo. Índice invertido + intersección de `set` + ranking TF-IDF en O(k) con `heapq.nlargest`. |
+| Estructura + Algoritmo Optimizado | **9,06** | 8.607 | 177,7 | Mediana de 10 consultas con caché forzada a fallo. Índice invertido + intersección de `set` + ranking TF-IDF en O(k) con `heapq.nlargest`. |
 | ↳ *con acierto de caché* | **0,0020** | — | — | Misma consulta repetida sobre el mismo proceso (`QueryCache`). |
-| Concurrente | — | — | — | *Pendiente de implementación.* |
+| Concurrente (`P = 4`) | *sin cambio* | **4.689** | 323,6 | MapReduce con `ProcessPoolExecutor` sobre 16 lotes. Solo cambia la indexación: la consulta usa el mismo `Buscador`, de modo que su tiempo es el de la fila anterior por construcción. |
+
+> **Corrección respecto de la medición previa.** El costo de indexación de la versión optimizada figuraba como **33.225 ms**. Ese valor corresponde al **régimen frío**, no al estacionario que el protocolo exige: remedido con el corpus residente en *page cache* son **8.607 ms**. La cifra vieja no era incorrecta como observación, pero estaba mal etiquetada, y comparar contra ella habría inflado el *speedup* del incremento 4 de 1,84× a 5,6×.
 
 **Lectura de los resultados**
 
@@ -356,8 +403,9 @@ Consulta de referencia: `"algoritmo"` sobre 50.000 documentos (47.797 coincidenc
 | Consulta indexada vs. línea base | **274×** más rápida (2.485 → 9,06 ms) |
 | Consulta cacheada vs. línea base | **≈1.264.000×** más rápida (2.485 → 0,0020 ms) |
 | Costo de memoria | **9,7×** más (18,3 → 177,7 MB) |
+| Indexación paralela vs. secuencial | **1,84×** más rápida (8.607 → 4.689 ms), a costa de **1,8×** de memoria (177,7 → 323,6 MB) |
 
-El intercambio es explícito y es el punto central del trabajo: **se compra tiempo con memoria y con un costo único de arranque.** La indexación cuesta 33,2 s, y cada consulta ahorra 2.476 ms respecto de la línea base; el **punto de equilibrio está en ~14 consultas**. Por debajo de eso la línea base gana; por encima, la diferencia crece sin cota. Para un motor de búsqueda —donde el índice se construye una vez y se consulta indefinidamente— el intercambio es favorable por varios órdenes de magnitud.
+El intercambio es explícito y es el punto central del trabajo: **se compra tiempo con memoria y con un costo único de arranque.** La indexación cuesta 8,6 s en régimen estacionario, y cada consulta ahorra 2.476 ms respecto de la línea base: el **punto de equilibrio está en ~4 consultas** (8.607 / 2.476). Con la indexación paralela baja a **~2** (4.689 / 2.476). Por debajo de eso la línea base gana; por encima, la diferencia crece sin cota. Para un motor de búsqueda —donde el índice se construye una vez y se consulta indefinidamente— el intercambio es favorable por varios órdenes de magnitud.
 
 **Efecto del ranking en O(k).** Reescribir `rankear()` para puntuar al vuelo no solo acotó la memoria: también resultó **más rápido** que la versión con `dict scores`. La primera implementación en O(k) usaba un generador anidado por candidato (`sum(... for ... in pesos)`) y costaba 29,5 ms; desdoblarlo en un bucle explícito con atajo para el caso de un solo término lo llevó a 7,6 ms sobre el mismo índice.
 
@@ -385,6 +433,7 @@ El crecimiento es lineal en la cantidad de términos, no en el tamaño del corpu
 - **Tiempo (línea base):** `time.perf_counter()` alrededor de `busqueda_secuencial()`, 10 repeticiones tras estabilizar el *page cache*; se reporta la mediana.
 - **Tiempo (optimizado):** índice construido una sola vez; luego 10 repeticiones por consulta reinicializando `QueryCache` antes de cada una para forzar el fallo y medir el costo real de resolución. La fila de acierto se mide sobre 1.000 repeticiones consecutivas sin reinicializar.
 - **Memoria (línea base):** pico de *resident set size* vía `/usr/bin/time -l` (19.165.184 bytes = 18,3 MB). El bajo consumo es consistente con el análisis O(m): mantiene un solo documento en memoria por vez, a costa de releer todo el corpus.
+- **Memoria (concurrente):** pico de RSS vía `/usr/bin/time -l` (339.337.216 bytes = **323,6 MB**). El sobrecosto de 1,8× no es el índice —que es el mismo objeto que en la versión secuencial— sino los **parciales en vuelo**: mientras el padre fusiona, conviven el índice global ya poblado y los índices parciales todavía no liberados, sumado al espacio propio de cada intérprete hijo. Es el precio de memoria del paralelismo y escala con `P`, no con el corpus.
 - **Memoria (optimizado):** pico de RSS vía `/usr/bin/time -l` (186.318.848 bytes = 177,7 MB). De ese total, `tracemalloc` atribuye **132,2 MB al índice invertido en sí**; el resto corresponde al intérprete, a la lista de 50.000 objetos `Path` y a los picos transitorios de decodificación. La memoria auxiliar del ranking no participa de este pico: es O(k), del orden de los kilobytes.
 
 > La consulta de 4 términos pasó de 42.787 a **44.107** coincidencias respecto de la medición anterior. No es ruido: al corregirse el *stemmer*, `datos` dejó de indexarse como `dat` y se fusionó con `dato` (df = 49.702), de modo que la intersección AND ahora incluye los documentos que solo contenían la forma singular.
@@ -419,7 +468,7 @@ Perfilado de la fase de indexación (`cProfile` sobre un lote de 5.000 documento
 
 El diagnóstico es el mismo que en la línea base —**`read()` + `open()` concentran el 61 % del tiempo**— pero con una diferencia decisiva: **ahora ese costo se paga una sola vez**, no en cada consulta. Es exactamente la inversión de costo que motivaba el índice invertido.
 
-La lógica propia (`tokenizar`, 1,16 s acumulados) es el único candidato real a paralelización por CPU, y las dos funciones memoizadas ya no aparecen en el perfil: con 8,77 millones de aciertos de `lru_cache` contra 41 fallos, su costo neto es el de una consulta de tabla hash. Reescribir el *stemmer* no movió este perfil: las reglas nuevas son más numerosas pero se ejecutan 41 veces en total, una por término distinto. Medido aisladamente y sin perfilador, tokenizar el corpus completo cuesta **~4,8 s**, contra ~12 s de E/S.
+La lógica propia (`tokenizar`, 1,16 s acumulados) es el único candidato real a paralelización por CPU, y las dos funciones memoizadas ya no aparecen en el perfil: con 8,77 millones de aciertos de `lru_cache` contra 41 fallos, su costo neto es el de una consulta de tabla hash. Reescribir el *stemmer* no movió este perfil: las reglas nuevas son más numerosas pero se ejecutan 41 veces en total, una por término distinto. Medido aisladamente y sin perfilador, tokenizar el corpus completo cuesta **4,6 s**, contra **2,2 s de E/S** con el corpus residente en *page cache* (18,2 s en frío). El diagnóstico inicial de este perfil —que la E/S era la porción mayor y acotaría el paralelismo— se invierte en régimen estacionario: **la CPU es el 74 % del costo**, y por eso la paralelización por procesos rinde lo que rinde. Ver [Concurrencia y Paralelismo](#concurrencia-y-paralelismo).
 
 ### Defectos corregidos
 
@@ -474,13 +523,13 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install snakeviz line_profiler memory_profiler
 ```
 
-> Los comandos se ejecutan desde cualquier directorio: ambos scripts resuelven la ruta del corpus a partir de la ubicación del propio archivo (`<repo>/data/corpus`), no del directorio de trabajo.
+> Los comandos se ejecutan desde cualquier directorio: los tres scripts resuelven la ruta del corpus a partir de la ubicación del propio archivo (`<repo>/data/corpus`), no del directorio de trabajo.
 
 ### Preparación del corpus
 
 El corpus es **sintético**: se genera localmente con `generar_corpus_prueba()`, no se descarga.
 
-La generación vive únicamente en `src/baseline.py`; `src/optimizado.py` solo consume el corpus ya generado.
+La generación vive únicamente en `src/baseline.py`; `src/optimizado.py` y `src/concurrente.py` solo consumen el corpus ya generado.
 
 ```bash
 # Genera 50.000 documentos .txt en <repo>/data/corpus
@@ -527,9 +576,9 @@ Salida esperada:
 Construyendo índice invertido...
 Documentos indexados: 50000
 Términos en el índice: 39
-Tiempo de construcción del índice: 33224.97 ms
+Tiempo de construcción del índice: 8537.13 ms
 
-Tiempo de búsqueda: 11.0926 ms
+Tiempo de búsqueda: 9.5199 ms
 Documentos encontrados: 47797 (se muestran los 10 mejores)
 
 Resultados:
@@ -549,15 +598,53 @@ Información de caché:
 >
 > La caché siempre reporta `misses: 1` porque el proceso resuelve una sola consulta y termina (ver la limitación del *harness* en [Caching Inteligente](#caching-inteligente)).
 
-**Versión concurrente** — ⏳ *pendiente*. La interfaz prevista queda definida como contrato del incremento 4:
+### Prueba concurrente
 
 ```bash
-python3 src/optimizado.py --query "algoritmo" --top-k 10 --concurrent --workers 4
+# Indexación MapReduce con ProcessPoolExecutor; P = os.cpu_count() por defecto
+python3 src/concurrente.py --query "algoritmo" --top-k 10
+
+# Grado de paralelismo explícito
+python3 src/concurrente.py --query "algoritmo" --top-k 10 --workers 4
+
+# Contrasta la indexación paralela contra la secuencial en una sola corrida
+python3 src/concurrente.py --workers 4 --comparar
 ```
+
+Salida esperada:
+
+```
+Construyendo índice invertido con 4 procesos...
+Documentos indexados: 50000
+Términos en el índice: 39
+Tiempo de construcción del índice: 4698.22 ms
+
+Tiempo de búsqueda: 9.2928 ms
+Documentos encontrados: 47797 (se muestran los 10 mejores)
+
+Resultados:
+------------------------------------------------------------
+1. doc_013616.txt (score=0.8561)
+2. doc_014443.txt (score=0.8111)
+3. doc_034857.txt (score=0.8111)
+...
+```
+
+Con `--comparar` se agrega el contraste contra la ruta secuencial:
+
+```
+Índice secuencial: 8701.79 ms
+Speedup: 1.86x
+Índices idénticos: True
+```
+
+> `Índices idénticos: True` compara los dos diccionarios completos, no un resumen: términos, `doc_id` y frecuencias. Es la verificación de equivalencia del incremento 4.
+>
+> El `--comparar` construye el índice **dos veces** en el mismo proceso, así que su tiempo total es la suma de ambas rutas. Para cronometrar, usar las corridas por separado.
 
 ### Comparativa automatizada
 
-> **Pendiente de implementación.** Hasta entonces, la comparativa se reproduce a mano repitiendo la consulta y tomando la mediana en régimen estacionario:
+> **Parcialmente implementada.** `src/concurrente.py --comparar` ya contrasta la indexación paralela contra la secuencial en una corrida —tiempo, *speedup* e identidad del índice—, pero construye ambos índices en el mismo proceso y no promedia repeticiones. El *runner* que barra las cuatro versiones sobre un set de consultas sigue pendiente. Hasta entonces, la comparativa se reproduce a mano tomando la mediana en régimen estacionario:
 
 ```bash
 # 10 corridas de la línea base; descartar las primeras hasta estabilizar el page cache
@@ -566,6 +653,15 @@ for i in $(seq 1 10); do python3 src/baseline.py --query "algoritmo"; done
 # 10 corridas de la versión optimizada
 # (cada corrida reconstruye el índice: separar los dos tiempos que imprime)
 for i in $(seq 1 10); do python3 src/optimizado.py --query "algoritmo" --top-k 10; done
+
+# Indexación secuencial vs. paralela: ALTERNADAS dentro de cada ronda, nunca
+# en bloques —medirlas en bloque contamina el resultado con el page cache—.
+# Se descartan las 2 primeras rondas y se toma la mediana del resto.
+for i in $(seq 1 8); do
+    python3 src/optimizado.py             | grep construcción
+    python3 src/concurrente.py --workers 4 | grep construcción
+    python3 src/concurrente.py --workers 2 | grep construcción
+done
 ```
 
 Para medir el tiempo de consulta sin repetir la indexación —que es como se obtuvieron las cifras de la tabla— hay que reutilizar el índice dentro de un mismo proceso:
@@ -639,9 +735,12 @@ mprof plot
 > **Test automatizado pendiente.** La equivalencia se verifica hoy a mano, comparando el total de coincidencias que informa cada versión:
 
 ```bash
-python3 src/baseline.py   --query "algoritmo"                 # Documentos encontrados: 47797
-python3 src/optimizado.py --query "algoritmo" --top-k 10      # Documentos encontrados: 47797 (...)
+python3 src/baseline.py    --query "algoritmo"                # Documentos encontrados: 47797
+python3 src/optimizado.py  --query "algoritmo" --top-k 10     # Documentos encontrados: 47797 (...)
+python3 src/concurrente.py --query "algoritmo" --top-k 10     # Documentos encontrados: 47797 (...)
 ```
+
+La equivalencia **concurrente ↔ optimizado** no depende de esta comparación por totales: `--comparar` verifica la igualdad estructural de los dos índices completos (`indice == indice_secuencial` → `True`), que es una condición estrictamente más fuerte y cubre términos, `doc_id` y frecuencias. La coincidencia está garantizada por diseño —los `doc_id` se asignan en el padre antes de despachar— y se comprueba en cada corrida con `--comparar`.
 
 **Resultado sobre el corpus actual:**
 
