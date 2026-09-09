@@ -21,6 +21,7 @@ el corpus siempre se genera/lee en <repo>/data/corpus):
 
 import argparse
 import heapq
+import math
 import re
 import time
 from collections import Counter, OrderedDict
@@ -34,6 +35,9 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_CORPUS = BASE_DIR / "data" / "corpus"
+
+VOCALES = frozenset("aeiouáéíóúü")
+CONSONANTES_FINALES = frozenset("dlnrz")
 
 STOPWORDS = {
     "el", "la", "los", "las",
@@ -69,32 +73,41 @@ def normalize(token):
 @lru_cache(maxsize=10000)
 def stem(token):
     """
-    Stemming muy sencillo.
+    Normaliza plurales del español a su forma singular.
 
-    No utilizamos una librería externa.
-    El objetivo es agrupar algunas variantes simples
-    de una palabra.
+    Regla general: el plural se forma con -s tras vocal y con -es
+    tras consonante. Se invierte esa regla en lugar de recortar
+    sufijos a ciegas, que era lo que separaba "datos" de "dato".
     """
 
-    if len(token) <= 4:
+    if len(token) > 8 and token.endswith("mente"):
+        token = token[:-5]
+
+    if len(token) <= 3 or not token.endswith("s"):
         return token
 
-    sufijos = (
-        "amientos",
-        "imientos",
-        "aciones",
-        "mente",
-        "ando",
-        "iendo",
-        "es",
-        "os",
-        "as",
-        "s"
-    )
+    # Invariables: corpus, analisis, crisis, virus.
+    if token.endswith(("is", "us")):
+        return token
 
-    for sufijo in sufijos:
-        if token.endswith(sufijo) and len(token) - len(sufijo) >= 3:
-            return token[:-len(sufijo)]
+    # Alternancia z/c: luz -> luces, vez -> veces.
+    if len(token) <= 5 and token.endswith("ces"):
+        return token[:-3] + "z"
+
+    # -es solo si el singular termina en consonante final válida
+    # precedida de vocal: redes -> red, vectores -> vector.
+    # El chequeo de la vocal evita romper "variables" -> "variab".
+    if (
+        len(token) >= 5
+        and token.endswith("es")
+        and token[-3] in CONSONANTES_FINALES
+        and token[-4] in VOCALES
+    ):
+        return token[:-2]
+
+    # Plural sobre vocal: datos -> dato, clases -> clase.
+    if token[-2] in VOCALES:
+        return token[:-1]
 
     return token
 
@@ -293,43 +306,48 @@ def buscar(indice, terminos):
 # RANKING TOP-K
 # ============================================================
 
-def rankear(indice, terminos, candidatos, k):
+def rankear(indice, terminos, candidatos, k, total_docs):
     """
-    Calcula un score simple basado en la frecuencia
-    de aparición de los términos.
+    Puntúa los candidatos con TF-IDF y devuelve los k mejores.
 
-    Luego utiliza heapq para obtener solamente
-    los k mejores documentos.
+    Memoria auxiliar O(k): los scores se evalúan al vuelo y
+    heapq.nlargest mantiene solo k elementos en el heap. No se
+    materializa ningún diccionario de tamaño O(r).
     """
 
-    scores = {}
-
-    for doc_id in candidatos:
-
-        score = 0
-
-        for termino in terminos:
-
-            frecuencia = indice[termino].get(doc_id, 0)
-
-            score += frecuencia
-
-        scores[doc_id] = score
-
-    if not scores:
+    if not candidatos or k <= 0:
         return []
 
-    # heapq.nlargest evita ordenar completamente
-    # todos los candidatos.
-    mejores = heapq.nlargest(
-        k,
-        scores.keys(),
-        key=lambda doc_id: scores[doc_id]
-    )
+    pesos = [
+        (indice[termino], math.log(total_docs / len(indice[termino])))
+        for termino in terminos
+    ]
 
+    def puntuados():
+        # El caso de un solo término es el más frecuente y evita
+        # el bucle interno por candidato.
+        if len(pesos) == 1:
+            postings, idf = pesos[0]
+
+            for doc_id in candidatos:
+                yield (postings.get(doc_id, 0) * idf, -doc_id)
+
+            return
+
+        for doc_id in candidatos:
+
+            score = 0.0
+
+            for postings, idf in pesos:
+                score += postings.get(doc_id, 0) * idf
+
+            yield (score, -doc_id)
+
+    # El doc_id va negado para desempatar por el documento más
+    # antiguo y hacer el orden determinista.
     return [
-        (doc_id, scores[doc_id])
-        for doc_id in mejores
+        (-doc_id_invertido, score)
+        for score, doc_id_invertido in heapq.nlargest(k, puntuados())
     ]
 
 
@@ -378,7 +396,8 @@ class Buscador:
                 self.indice,
                 terminos,
                 candidatos,
-                top_k
+                top_k,
+                len(self.archivos)
             )
         )
 
@@ -411,7 +430,7 @@ def mostrar_resultados(resultados, archivos):
 
         print(
             f"{posicion}. {nombre} "
-            f"(score={score})"
+            f"(score={score:.4f})"
         )
 
 

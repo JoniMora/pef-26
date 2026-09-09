@@ -15,7 +15,7 @@ El sistema se compone de cuatro etapas:
 | **Ingesta** | Lectura y decodificación de los documentos del corpus desde disco. |
 | **Normalización** | Tokenización, *casefolding*, remoción de puntuación, filtrado de *stopwords* y *stemming*. |
 | **Indexación / Búsqueda** | Resolución de los términos de la consulta contra la estructura de datos de acceso. |
-| **Ranking** | Puntuación de los documentos candidatos y selección del *top-k*. |
+| **Ranking** | Puntuación TF-IDF de los documentos candidatos y selección del *top-k*. |
 
 El requisito central de la asignatura no es la funcionalidad —ambas versiones deben devolver **resultados idénticos**, lo que se verificará por test de equivalencia—, sino la **evidencia cuantificada de la mejora**. Cada optimización debe estar justificada por su complejidad algorítmica y validada con mediciones reproducibles de tiempo y memoria obtenidas mediante herramientas de perfilado formales.
 
@@ -77,6 +77,37 @@ Esta versión actúa como **oráculo de validación** de las versiones optimizad
 
 La optimización clave consiste en **invertir el costo**: se paga una única indexación *offline* de complejidad **O(N)** sobre el total de tokens del corpus, para que cada consulta *online* pase de **O(n · m)** a un costo proporcional al tamaño del resultado, no al del corpus.
 
+### Normalización: *stemming* por reglas del español
+
+Antes de indexar, cada token se reduce a una forma canónica para que las variantes de una misma palabra compartan entrada en el índice. El *stemmer* es propio —sin dependencias externas— y opera **invirtiendo la regla de pluralización del español** en lugar de recortar sufijos por longitud:
+
+| Regla | Condición | Ejemplo |
+| :--- | :--- | :--- |
+| Invariables | termina en `-is` / `-us` | `corpus → corpus`, `analisis → analisis` |
+| Alternancia z/c | `-ces` en palabras cortas | `luces → luz`, `veces → vez` |
+| Plural sobre consonante | `-es` con consonante final válida (`d l n r z`) **precedida de vocal** | `redes → red`, `vectores → vector`, `funciones → funcion` |
+| Plural sobre vocal | `-s` tras vocal | `datos → dato`, `clases → clase`, `indices → indice` |
+| Adverbios | `-mente` en palabras largas | `rapidamente → rapida` |
+
+La condición de **vocal previa** en la regla de `-es` es la que evita el error clásico de los *stemmers* ingenuos: `variables` termina en `-les`, igual que `papeles`, pero su raíz es `variab-`, un grupo consonántico que no puede cerrar una palabra en español. Al exigir vocal antes de la consonante final, `papeles → papel` (correcto) y `variables → variable` (correcto), en vez de `variab`.
+
+**Versión anterior — defecto corregido.** El *stemmer* original recortaba sufijos por longitud (`if len(token) > 4`), lo que **separaba** singulares de plurales en lugar de unificarlos:
+
+| Token | *Stemmer* anterior | Actual |
+| :--- | :--- | :--- |
+| `dato` / `datos` | `dato` / **`dat`** ❌ | `dato` / `dato` ✅ |
+| `indice` / `indices` | `indice` / **`indic`** ❌ | `indice` / `indice` ✅ |
+| `lista` / `listas` | `lista` / **`list`** ❌ | `lista` / `lista` ✅ |
+| `clase` / `clases` | `clase` / **`clas`** ❌ | `clase` / `clase` ✅ |
+| `corpus` | **`corpu`** ❌ | `corpus` ✅ |
+| `analisis` | **`analisi`** ❌ | `analisis` ✅ |
+
+La causa era el retorno temprano `len(token) <= 4`: protegía los singulares cortos mientras sus plurales, que sí superaban el umbral, quedaban truncados **por debajo** de la forma singular. Consecuencia funcional: una consulta por `"dato"` no devolvía los documentos que contenían `"datos"`.
+
+Validado sobre 16 pares singular/plural (`dato`, `indice`, `lista`, `clase`, `red`, `vector`, `variable`, `funcion`, `metodo`, `papel`, `arbol`, `usuario`, `servidor`, `documento`, `luz`, `vez`): **16/16 unifican** y ninguna palabra invariable se altera. El efecto sobre el corpus es visible en el tamaño del vocabulario indexado, que baja de **40 a 39 términos** por la fusión de `dato` y `datos` en una sola entrada.
+
+> Caso conocido: `tres → tre` (numeral de 4 letras terminado en `-es`). No colisiona con ningún otro término del vocabulario.
+
 ### Índice invertido con `dict` (HashMap) — búsqueda O(1) promedio
 
 La estructura central es un **índice invertido**: un mapeo de cada término a la lista de documentos donde aparece.
@@ -134,7 +165,45 @@ top_k = heapq.nlargest(k, candidatos, key=lambda d: scores[d])
 
 Con `r = 47.797` candidatos y `k = 10`, `log₂(r) ≈ 15,5` frente a `log₂(k) ≈ 3,3`: una reducción teórica de ~4,7× en las comparaciones del ranking.
 
-> **Salvedad medida.** La cota O(k) aplica al *heap*, no a la consulta completa: `rankear()` materializa antes un `dict scores` con los `r` candidatos, de modo que el pico real de la consulta es **O(r)**. Es lo que explica que una consulta con 47.797 coincidencias tarde ~12 ms y no microsegundos — el costo es proporcional al resultado, no al corpus, que es exactamente la propiedad buscada, pero la memoria auxiliar no es constante. Suprimir el `dict` intermedio (puntuar en streaming contra un heap de tamaño `k`) es la próxima optimización pendiente.
+**La cota O(k) es real, no nominal.** Una primera implementación materializaba un `dict scores` con los `r` candidatos antes de llamar a `nlargest`, de modo que el pico efectivo era O(r) y la cota O(k) aplicaba solo al *heap*. `rankear()` evalúa ahora el score **al vuelo** dentro de un generador, y `heapq.nlargest` mantiene únicamente `k` elementos vivos:
+
+```python
+def puntuados():
+    for doc_id in candidatos:
+        score = 0.0
+        for postings, idf in pesos:
+            score += postings.get(doc_id, 0) * idf
+        yield (score, -doc_id)
+
+return [
+    (-doc_id_invertido, score)
+    for score, doc_id_invertido in heapq.nlargest(k, puntuados())
+]
+```
+
+Verificado con `tracemalloc` sobre un índice sintético de **200.000 candidatos**, midiendo solo la memoria auxiliar de `rankear()`:
+
+| `k` | Pico auxiliar | Proporción respecto de `r` |
+| ---: | ---: | :--- |
+| 10 | **2.832 B** | 0,0014 % |
+| 100 | **22.736 B** | 0,011 % |
+
+El pico escala con `k` y es indiferente a `r`: multiplicar `k` por 10 multiplica la memoria por 8, mientras que `r` (200.000 documentos) no aparece en el consumo. El `dict scores` equivalente habría costado del orden de **10 MB**.
+
+> **El `doc_id` se emite negado** (`-doc_id`) para que el desempate entre scores iguales sea determinista y favorezca al documento más antiguo, en lugar de depender del orden de iteración del `set`.
+
+### Ponderación TF-IDF
+
+El score no es la frecuencia cruda del término (TF), que favorece mecánicamente a los documentos largos, sino **TF-IDF**: la frecuencia del término en el documento ponderada por su rareza en el corpus.
+
+```python
+idf = math.log(total_docs / df)      # df = len(indice[termino])
+score += tf * idf
+```
+
+El **IDF se calcula una sola vez por término**, fuera del bucle de candidatos: `df` es la longitud de la *postings list*, un `len()` en O(1) sobre el `dict` que ya está indexado. Un término presente en casi todo el corpus tiende a `log(1) = 0` y deja de aportar señal; uno raro domina el ranking. Es la propiedad que hace útil el ranking sobre lenguaje natural, donde la distribución de términos es fuertemente asimétrica.
+
+Sobre el corpus sintético el efecto es deliberadamente pequeño —las 40 palabras del vocabulario están distribuidas de forma casi uniforme, así que todos los IDF son similares— pero el orden de los resultados no cambia respecto de TF cruda y los scores pasan a ser comparables entre consultas, que es lo que TF no permite.
 
 ### Resumen comparativo
 
@@ -145,6 +214,9 @@ Con `r = 47.797` candidatos y `k = 10`, `log₂(r) ≈ 15,5` frente a `log₂(k)
 | Ranking | `sorted()` O(r · log r) | Heap acotado O(r · log k) |
 | Lecturas de disco | En cada consulta | Una única vez, en indexación |
 | Costo de indexación | Ninguno | O(N) tokens, amortizado |
+| Memoria auxiliar del ranking | — | **O(k)** — generador + heap acotado |
+| Ponderación | Ninguna (presencia) | TF-IDF |
+| Coincidencia | Subcadena cruda | Token normalizado con *stemming*|
 
 ---
 
@@ -194,7 +266,7 @@ La caché de consultas se invalida por **versionado del índice** (*generation c
 
 Esta política es **conservadora**: ante la duda, se invalida. Un fallo de caché cuesta una consulta indexada —del orden de milisegundos—, mientras que un acierto obsoleto devuelve un resultado incorrecto.
 
-> **Limitación del *harness* actual.** El CLI construye el índice, resuelve **una** consulta y termina, por lo que la caché de consultas siempre reporta `{'hits': 0, 'misses': 1}`. Su efecto solo se observa dentro de un mismo proceso: reutilizando el objeto `Buscador`, la consulta `"algoritmo"` baja de **11,86 ms** (fallo) a **0,0020 ms** (acierto) — un factor de **~6.000×**. Para que la caché sea demostrable desde la línea de comandos hace falta un modo interactivo o por lotes (`--queries archivo.txt`), pendiente junto con el *runner* de benchmarks.
+> **Limitación del *harness* actual.** El CLI construye el índice, resuelve **una** consulta y termina, por lo que la caché de consultas siempre reporta `{'hits': 0, 'misses': 1}`. Su efecto solo se observa dentro de un mismo proceso: reutilizando el objeto `Buscador`, la consulta `"algoritmo"` baja de **9,06 ms** (fallo) a **0,0020 ms** (acierto) — un factor de **~4.600×**. Para que la caché sea demostrable desde la línea de comandos hace falta un modo interactivo o por lotes (`--queries archivo.txt`), pendiente junto con el *runner* de benchmarks.
 
 ---
 
@@ -273,7 +345,7 @@ Consulta de referencia: `"algoritmo"` sobre 50.000 documentos (47.797 coincidenc
 | Versión | Tiempo por consulta (ms) | Costo único de indexación (ms) | Pico de memoria (MB) | Observaciones |
 | :--- | ---: | ---: | ---: | :--- |
 | Inicial (Baseline) | **2.485** | — | 18,3 | Mediana de 10 corridas en régimen estacionario (min 2.408 / max 2.569, ±3 %). Con *page cache* frío: **10.795–14.040 ms**. Lectura completa del corpus en cada consulta; sin ranking. |
-| Estructura + Algoritmo Optimizado | **11,86** | 33.572 | 180,3 | Mediana de 10 consultas con caché forzada a fallo. Índice invertido + intersección de `set` + `heapq.nlargest`. |
+| Estructura + Algoritmo Optimizado | **9,06** | 33.225 | 177,7 | Mediana de 10 consultas con caché forzada a fallo. Índice invertido + intersección de `set` + ranking TF-IDF en O(k) con `heapq.nlargest`. |
 | ↳ *con acierto de caché* | **0,0020** | — | — | Misma consulta repetida sobre el mismo proceso (`QueryCache`). |
 | Concurrente | — | — | — | *Pendiente de implementación.* |
 
@@ -281,19 +353,29 @@ Consulta de referencia: `"algoritmo"` sobre 50.000 documentos (47.797 coincidenc
 
 | Comparación | Factor |
 | :--- | ---: |
-| Consulta indexada vs. línea base | **210×** más rápida (2.485 → 11,86 ms) |
-| Consulta cacheada vs. línea base | **≈1.260.000×** más rápida (2.485 → 0,0020 ms) |
-| Costo de memoria | **9,9×** más (18,3 → 180,3 MB) |
+| Consulta indexada vs. línea base | **274×** más rápida (2.485 → 9,06 ms) |
+| Consulta cacheada vs. línea base | **≈1.264.000×** más rápida (2.485 → 0,0020 ms) |
+| Costo de memoria | **9,7×** más (18,3 → 177,7 MB) |
 
-El intercambio es explícito y es el punto central del trabajo: **se compra tiempo con memoria y con un costo único de arranque.** La indexación cuesta 33,6 s, y cada consulta ahorra 2.473 ms respecto de la línea base; el **punto de equilibrio está en ~14 consultas**. Por debajo de eso la línea base gana; por encima, la diferencia crece sin cota. Para un motor de búsqueda —donde el índice se construye una vez y se consulta indefinidamente— el intercambio es favorable por varios órdenes de magnitud.
+El intercambio es explícito y es el punto central del trabajo: **se compra tiempo con memoria y con un costo único de arranque.** La indexación cuesta 33,2 s, y cada consulta ahorra 2.476 ms respecto de la línea base; el **punto de equilibrio está en ~14 consultas**. Por debajo de eso la línea base gana; por encima, la diferencia crece sin cota. Para un motor de búsqueda —donde el índice se construye una vez y se consulta indefinidamente— el intercambio es favorable por varios órdenes de magnitud.
+
+**Efecto del ranking en O(k).** Reescribir `rankear()` para puntuar al vuelo no solo acotó la memoria: también resultó **más rápido** que la versión con `dict scores`. La primera implementación en O(k) usaba un generador anidado por candidato (`sum(... for ... in pesos)`) y costaba 29,5 ms; desdoblarlo en un bucle explícito con atajo para el caso de un solo término lo llevó a 7,6 ms sobre el mismo índice.
+
+| Implementación de `rankear` | Memoria auxiliar | Tiempo (1 término) | Tiempo (4 términos) |
+| :--- | :--- | ---: | ---: |
+| `dict scores` + `nlargest(key=...)` | O(r) | 11,86 ms | 24,43 ms |
+| Generador anidado + `nlargest` | O(k) | 29,53 ms | 38,91 ms |
+| **Bucle explícito + `nlargest`** | **O(k)** | **7,60 ms** | **22,07 ms** |
+
+La lección es que la cota de memoria y la velocidad no estaban en conflicto: el costo de la versión intermedia no venía del *streaming* sino de crear ~48.000 objetos generador, uno por candidato.
 
 **Escalado con la cantidad de términos** (consultas con fallo de caché, mediana de 10):
 
 | Consulta | Términos | Coincidencias | Tiempo (ms) |
 | :--- | ---: | ---: | ---: |
-| `algoritmo` | 1 | 47.797 | 11,86 |
-| `algoritmo estructura` | 2 | 45.892 | 16,19 |
-| `algoritmo estructura datos python` | 4 | 42.787 | 24,43 |
+| `algoritmo` | 1 | 47.797 | 9,06 |
+| `algoritmo estructura` | 2 | 45.892 | 17,45 |
+| `algoritmo estructura datos python` | 4 | 44.107 | 28,51 |
 | `xyzinexistente` | 1 | 0 | **0,003** |
 
 El crecimiento es lineal en la cantidad de términos, no en el tamaño del corpus. El último caso es el más ilustrativo: un término ausente del índice se resuelve con un fallo de `dict` y retorno inmediato en **3 microsegundos**, mientras que la línea base necesita leer los 50.000 archivos —**2.485 ms**— para llegar a la misma conclusión. Es un factor de **~800.000×** sobre el peor caso relativo de la implementación ingenua.
@@ -303,7 +385,9 @@ El crecimiento es lineal en la cantidad de términos, no en el tamaño del corpu
 - **Tiempo (línea base):** `time.perf_counter()` alrededor de `busqueda_secuencial()`, 10 repeticiones tras estabilizar el *page cache*; se reporta la mediana.
 - **Tiempo (optimizado):** índice construido una sola vez; luego 10 repeticiones por consulta reinicializando `QueryCache` antes de cada una para forzar el fallo y medir el costo real de resolución. La fila de acierto se mide sobre 1.000 repeticiones consecutivas sin reinicializar.
 - **Memoria (línea base):** pico de *resident set size* vía `/usr/bin/time -l` (19.165.184 bytes = 18,3 MB). El bajo consumo es consistente con el análisis O(m): mantiene un solo documento en memoria por vez, a costa de releer todo el corpus.
-- **Memoria (optimizado):** pico de RSS vía `/usr/bin/time -l` (189.104.128 bytes = 180,3 MB). De ese total, `tracemalloc` atribuye **134,8 MB al índice invertido en sí**; el resto corresponde al intérprete, a la lista de 50.000 objetos `Path` y a los picos transitorios de decodificación.
+- **Memoria (optimizado):** pico de RSS vía `/usr/bin/time -l` (186.318.848 bytes = 177,7 MB). De ese total, `tracemalloc` atribuye **132,2 MB al índice invertido en sí**; el resto corresponde al intérprete, a la lista de 50.000 objetos `Path` y a los picos transitorios de decodificación. La memoria auxiliar del ranking no participa de este pico: es O(k), del orden de los kilobytes.
+
+> La consulta de 4 términos pasó de 42.787 a **44.107** coincidencias respecto de la medición anterior. No es ruido: al corregirse el *stemmer*, `datos` dejó de indexarse como `dat` y se fusionó con `dato` (df = 49.702), de modo que la intersección AND ahora incluye los documentos que solo contenían la forma singular.
 
 ### *Hotspots* de la línea base
 
@@ -335,16 +419,28 @@ Perfilado de la fase de indexación (`cProfile` sobre un lote de 5.000 documento
 
 El diagnóstico es el mismo que en la línea base —**`read()` + `open()` concentran el 61 % del tiempo**— pero con una diferencia decisiva: **ahora ese costo se paga una sola vez**, no en cada consulta. Es exactamente la inversión de costo que motivaba el índice invertido.
 
-La lógica propia (`tokenizar`, 1,16 s acumulados) es el único candidato real a paralelización por CPU, y las dos funciones memoizadas ya no aparecen en el perfil: con 8,77 millones de aciertos de `lru_cache` contra 41 fallos, su costo neto es el de una consulta de tabla hash. Medido aisladamente y sin perfilador, tokenizar el corpus completo cuesta **~4,8 s**, contra ~12 s de E/S.
+La lógica propia (`tokenizar`, 1,16 s acumulados) es el único candidato real a paralelización por CPU, y las dos funciones memoizadas ya no aparecen en el perfil: con 8,77 millones de aciertos de `lru_cache` contra 41 fallos, su costo neto es el de una consulta de tabla hash. Reescribir el *stemmer* no movió este perfil: las reglas nuevas son más numerosas pero se ejecutan 41 veces en total, una por término distinto. Medido aisladamente y sin perfilador, tokenizar el corpus completo cuesta **~4,8 s**, contra ~12 s de E/S.
 
-### Defectos conocidos
+### Defectos corregidos
+
+Los tres defectos de diseño algorítmico detectados en la revisión fueron corregidos y verificados:
+
+| Defecto | Diagnóstico | Corrección | Verificación |
+| :--- | :--- | :--- | :--- |
+| **Falsa complejidad espacial O(k)** | `rankear()` materializaba un `dict scores` de tamaño O(r) antes de `heapq.nlargest`. La cota O(k) aplicaba al *heap*, no a la consulta. | Los scores se evalúan al vuelo en un generador; `nlargest` mantiene solo `k` elementos. | `tracemalloc` con r = 200.000: **2.832 B** para k = 10, **22.736 B** para k = 100. Escala con `k`, no con `r`. |
+| **Contradicción de ponderación** | El código sumaba TF cruda mientras la arquitectura declaraba TF-IDF, favoreciendo a los documentos largos. | `score += tf * idf` con `idf = math.log(total_docs / df)`; el IDF se precalcula una vez por término. | Orden del *top-10* sin cambios sobre el corpus sintético (IDF casi uniforme), scores ahora comparables entre consultas. |
+| **_Stemmer_ roto** | Recortaba sufijos por longitud y **separaba** singular de plural: `dato` / `dat`, `indice` / `indic`, `corpus` / `corpu`. | Reglas que invierten la pluralización del español, con la condición de vocal previa en `-es`. | **16/16** pares singular/plural unifican; invariables intactas. Vocabulario del corpus: 40 → **39** términos. |
+
+Los tres cambios se aplicaron sin alterar el resultado de la consulta de referencia: `"algoritmo"` sigue devolviendo **47.797** coincidencias, idénticas a la línea base.
+
+### Defectos abiertos
 
 | Defecto | Evidencia | Impacto |
 | :--- | :--- | :--- |
-| **El *stemmer* separa singular y plural en lugar de unificarlos.** | `stem("dato") -> "dato"` pero `stem("datos") -> "dat"`. Lo mismo con `indice`/`indic`, `lista`/`list`, `clase`/`clas`. | Contradice su propósito declarado. Una consulta por `"dato"` **no** devuelve los documentos que contienen `"datos"`. Solo funciona cuando la regla del sufijo `es` deja intacto el singular (`redes -> red`, `vectores -> vector`). |
-| Causa raíz | El retorno temprano `if len(token) <= 4` protege los singulares cortos, mientras que sus plurales sí superan el umbral y quedan truncados **por debajo** de la forma singular. Las reglas `os`/`as`/`s` recortan el radical en vez de mapear plural → singular. | Debe corregirse antes de reportar la relevancia del ranking como válida. No afecta las mediciones de tiempo de esta tabla, que usan `"algoritmo"` (invariante bajo *stemming*). |
-| **El ranking usa TF cruda, no TF-IDF.** | `rankear()` suma las frecuencias de los términos sin ponderar por frecuencia documental inversa. | Con un vocabulario de 40 términos uniformemente distribuidos el IDF es casi constante y el orden apenas cambiaría, pero sobre lenguaje natural el ranking favorecería a los documentos largos. |
-| **La memoria de la consulta es O(r), no O(k).** | `rankear()` construye el `dict scores` completo antes de invocar `heapq.nlargest`. | Ver la salvedad en la sección del *heap*. |
+| El *stemmer* no cubre la alternancia z/c en palabras largas | `matrices → matrice`, no `matriz` | Pérdida de fusión, no corrupción: la regla `-ces → z` se restringe a palabras de hasta 5 letras porque `indices → indiz` sería peor. Desambiguar exige un lexicón. |
+| `tres → tre` | Numeral de 4 letras terminado en `-es` | Nulo sobre este corpus: no colisiona con ningún término del vocabulario. |
+| La caché de consultas no es observable desde el CLI | `{'hits': 0, 'misses': 1}` en toda corrida | Requiere modo interactivo o por lotes. Ver [Caching Inteligente](#caching-inteligente). |
+| Sin invalidación selectiva ni TTL | `QueryCache` solo implementa expulsión LRU | Irrelevante con índice en memoria y corpus estático; necesario para corpus dinámico. |
 
 **Entorno de pruebas**
 
@@ -430,22 +526,24 @@ Salida esperada:
 ```
 Construyendo índice invertido...
 Documentos indexados: 50000
-Términos en el índice: 40
-Tiempo de construcción del índice: 33572.35 ms
+Términos en el índice: 39
+Tiempo de construcción del índice: 33224.97 ms
 
-Tiempo de búsqueda: 15.8151 ms
+Tiempo de búsqueda: 11.0926 ms
 Documentos encontrados: 47797 (se muestran los 10 mejores)
 
 Resultados:
 ------------------------------------------------------------
-1. doc_013616.txt (score=19)
-2. doc_014443.txt (score=18)
-3. doc_034857.txt (score=18)
+1. doc_013616.txt (score=0.8561)
+2. doc_014443.txt (score=0.8111)
+3. doc_034857.txt (score=0.8111)
 ...
 
 Información de caché:
 {'hits': 0, 'misses': 1, 'size': 1}
 ```
+
+> El `score` es TF-IDF, por eso es decimal y no entero. Los valores son bajos porque `algoritmo` aparece en 47.797 de 50.000 documentos: `log(50000/47797) ≈ 0,045` por ocurrencia.
 
 > `Documentos encontrados` informa el **total de coincidencias**, no la cantidad de filas mostradas: es el valor que se compara contra la línea base. `top-k` solo acota la página impresa.
 >
@@ -545,7 +643,19 @@ python3 src/baseline.py   --query "algoritmo"                 # Documentos encon
 python3 src/optimizado.py --query "algoritmo" --top-k 10      # Documentos encontrados: 47797 (...)
 ```
 
-Ambas coinciden sobre el corpus sintético actual. La comparación no es concluyente en el caso general: la línea base matchea por subcadena y el índice invertido por token, y el vocabulario de 40 palabras no contiene prefijos compartidos que expongan la diferencia (ver la nota de alcance en [Línea Base](#línea-base-baseline)).
+**Resultado sobre el corpus actual:**
+
+| Consulta | Línea base | Optimizado | ¿Coinciden? |
+| :--- | ---: | ---: | :--- |
+| `algoritmo` | 47.797 | 47.797 | ✅ |
+| `dato` | 49.702 | 49.702 | ✅ |
+| `datos` | 47.788 | 49.702 | ❌ **divergencia esperada** |
+
+La divergencia en `"datos"` **no es un defecto**: es la consecuencia visible del *stemming*. La línea base busca la subcadena literal `datos` y encuentra 47.788 documentos; la versión optimizada reduce `datos → dato` y devuelve los 49.702 que contienen cualquiera de las dos formas. Es exactamente el comportamiento que se busca en un motor de recuperación, y la línea base no puede reproducirlo por construcción.
+
+El caso `"dato"` es el complementario e ilustra por qué la comparación cruda es engañosa: ahí **coinciden por accidente**, porque `.find("dato")` matchea también dentro de `datos` y llega al mismo conjunto que el *stemmer*, por un camino distinto.
+
+De esto se sigue el criterio para el test automatizado: la equivalencia solo puede exigirse sobre consultas cuyos términos sean **invariantes bajo *stemming*** (como `algoritmo`), o bien tokenizando también la línea base con el mismo *pipeline*. Comparar las dos semánticas tal cual están produce falsos negativos.
 
 ```bash
 # Verificará que la versión optimizada devuelve exactamente los mismos
