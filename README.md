@@ -15,16 +15,18 @@ El sistema se compone de cuatro etapas:
 | **Ingesta** | Lectura y decodificación de los documentos del corpus desde disco. |
 | **Normalización** | Tokenización, *casefolding*, remoción de puntuación, filtrado de *stopwords* y *stemming*. |
 | **Indexación / Búsqueda** | Resolución de los términos de la consulta contra la estructura de datos de acceso. |
-| **Ranking** | Puntuación de los documentos candidatos (TF-IDF) y selección del *top-k*. |
+| **Ranking** | Puntuación de los documentos candidatos y selección del *top-k*. |
 
 El requisito central de la asignatura no es la funcionalidad —ambas versiones deben devolver **resultados idénticos**, lo que se verificará por test de equivalencia—, sino la **evidencia cuantificada de la mejora**. Cada optimización debe estar justificada por su complejidad algorítmica y validada con mediciones reproducibles de tiempo y memoria obtenidas mediante herramientas de perfilado formales.
 
 El proyecto se versiona en cuatro incrementos medibles y comparables entre sí:
 
-1. **Inicial** — búsqueda secuencial sobre el corpus crudo.
-2. **Estructura Optimizada** — índice invertido con `dict` y `set`.
-3. **Algoritmo Optimizado** — ranking parcial con *heap* y caching de consultas.
-4. **Concurrente** — construcción del índice en paralelo mediante múltiples procesos.
+1. **Inicial** — búsqueda secuencial sobre el corpus crudo. ✅ [`src/baseline.py`](src/baseline.py)
+2. **Estructura Optimizada** — índice invertido con `dict` y `set`. ✅ [`src/optimizado.py`](src/optimizado.py)
+3. **Algoritmo Optimizado** — ranking parcial con *heap* y caching de consultas. ✅ [`src/optimizado.py`](src/optimizado.py)
+4. **Concurrente** — construcción del índice en paralelo mediante múltiples procesos. ⏳ *Pendiente.*
+
+> Los incrementos 2 y 3 conviven en un mismo script: el índice invertido y el ranking con *heap* + caché se miden por separado (tiempo de indexación vs. tiempo de consulta), no por archivo.
 
 ---
 
@@ -45,7 +47,9 @@ devolver la lista de coincidencias
 
 Implementado en [`src/baseline.py`](src/baseline.py) (`busqueda_secuencial`). Sin índices, `dict` de caché, `set`, generadores ni concurrencia: la ineficiencia es deliberada.
 
-> **Alcance actual.** La línea base resuelve **presencia por subcadena**, no relevancia: no tokeniza ni puntúa, y por lo tanto **no produce un ranking *top-k***. Las etapas de Normalización y Ranking descritas en el objetivo se incorporan en la versión optimizada. Esto tiene una consecuencia directa sobre el test de equivalencia: `.find()` sobre el texto crudo hace que `"algo"` matchee dentro de `"algoritmo"`, mientras que un índice invertido sobre tokens no lo haría. Para que la comparación sea válida, **ambas versiones deben acordar la misma semántica de coincidencia** antes de medir; se adoptará la de tokens y se ajustará la línea base en consecuencia.
+> **Alcance actual.** La línea base resuelve **presencia por subcadena**, no relevancia: no tokeniza ni puntúa, y por lo tanto **no produce un ranking *top-k***. Las etapas de Normalización y Ranking descritas en el objetivo se incorporan en la versión optimizada. Esto tiene una consecuencia directa sobre el test de equivalencia: `.find()` sobre el texto crudo hace que `"algo"` matchee dentro de `"algoritmo"`, mientras que un índice invertido sobre tokens no lo haría. Para que la comparación sea válida, **ambas versiones deben acordar la misma semántica de coincidencia**; se adopta la de tokens.
+>
+> **Estado de la equivalencia.** Sobre la consulta de referencia `"algoritmo"` ambas versiones coinciden exactamente: **47.797 documentos** en las dos. El corpus sintético hace que las dos semánticas converjan, porque su vocabulario de 40 palabras no contiene ningún término que sea subcadena de otro. La divergencia `"algo"` / `"algoritmo"` sigue siendo real y aparecerá en cuanto el corpus incluya prefijos compartidos: la unificación formal de la semántica y el test automatizado siguen pendientes.
 
 **Análisis de complejidad:**
 
@@ -97,7 +101,7 @@ Los conjuntos resuelven dos problemas distintos con la misma estructura:
 
 **1. Unicidad del vocabulario.** Durante la indexación, un `set` deduplica términos por documento y filtra *stopwords* en **O(1)** por token, frente a la comprobación **O(k)** de una `list`.
 
-**2. Resolución de consultas booleanas.** Las *postings lists* se materializan como `set[int]` de identificadores de documento, permitiendo aplicar operaciones nativas —implementadas en C— para combinar términos:
+**2. Resolución de consultas booleanas.** Las *postings lists* se almacenan como `dict[int, int]` (`doc_id -> frecuencia`, necesario para el ranking) y se combinan a través de su vista `.keys()`, que implementa el protocolo de conjunto de CPython. Esto permite aplicar las operaciones nativas —implementadas en C— sin materializar un `set` intermedio por término:
 
 ```python
 # AND: documentos que contienen todos los términos
@@ -110,7 +114,9 @@ candidatos = postings[t0] | postings[t1]
 candidatos = postings[t0] - postings[t1]
 ```
 
-La intersección de `set` en CPython **itera sobre el conjunto más pequeño** y consulta la pertenencia en el mayor, resultando en **O(min(|A|, |B|))** en lugar del producto cartesiano O(|A| · |B|) de una implementación con listas. Se ordenan los términos de la consulta por frecuencia documental ascendente antes de intersecar, de modo que el conjunto candidato se reduzca lo antes posible.
+La intersección de `set` en CPython **itera sobre el conjunto más pequeño** y consulta la pertenencia en el mayor, resultando en **O(min(|A|, |B|))** en lugar del producto cartesiano O(|A| · |B|) de una implementación con listas. Se ordenan los términos de la consulta por frecuencia documental ascendente (`postings.sort(key=len)`) antes de intersecar, de modo que el conjunto candidato se reduzca lo antes posible, y se corta el bucle apenas la intersección queda vacía.
+
+Implementado en `buscar()`. La consulta se normaliza **una sola vez** en `Buscador.buscar()` y la tupla de términos se propaga a `buscar()` y `rankear()`; tokenizarla en cada etapa repetía el trabajo tres veces por consulta.
 
 ### `heapq` (Heap binario) para el ranking *top-k*
 
@@ -121,12 +127,14 @@ import heapq
 top_k = heapq.nlargest(k, candidatos, key=lambda d: scores[d])
 ```
 
-| Estrategia | Complejidad | Memoria auxiliar |
+| Estrategia | Complejidad | Memoria del heap |
 | :--- | :--- | :--- |
 | `sorted()` completo | O(r · log r) | O(r) |
 | **Heap acotado** | **O(r · log k)** | **O(k)** |
 
-Con `r = 100.000` candidatos y `k = 10`, `log₂(r) ≈ 17` frente a `log₂(k) ≈ 3.3`: una reducción teórica de ~5× en las comparaciones del ranking, y una cota de memoria constante e independiente del tamaño del resultado intermedio.
+Con `r = 47.797` candidatos y `k = 10`, `log₂(r) ≈ 15,5` frente a `log₂(k) ≈ 3,3`: una reducción teórica de ~4,7× en las comparaciones del ranking.
+
+> **Salvedad medida.** La cota O(k) aplica al *heap*, no a la consulta completa: `rankear()` materializa antes un `dict scores` con los `r` candidatos, de modo que el pico real de la consulta es **O(r)**. Es lo que explica que una consulta con 47.797 coincidencias tarde ~12 ms y no microsegundos — el costo es proporcional al resultado, no al corpus, que es exactamente la propiedad buscada, pero la memoria auxiliar no es constante. Suprimir el `dict` intermedio (puntuar en streaming contra un heap de tamaño `k`) es la próxima optimización pendiente.
 
 ### Resumen comparativo
 
@@ -165,29 +173,38 @@ Se implementa una capa de caché en dos niveles:
 Para maximizar la tasa de aciertos, la clave no es la cadena literal de la consulta sino su **forma canónica**:
 
 ```python
-clave = (frozenset(terminos_normalizados), k, modo_booleano)
+clave = (normalizar_consulta(consulta), top_k)
+# normalizar_consulta -> tuple(sorted(set(tokens)))
 ```
 
-Con esto, `"Programación Eficiente"`, `"eficiente programación"` y `"  PROGRAMACION   eficiente "` colapsan en la misma entrada. El `frozenset` es hashable e insensible al orden, e implica que la caché es correcta bajo semántica booleana conmutativa (AND / OR).
+Con esto, `"Programación Eficiente"`, `"eficiente programación"` y `"  PROGRAMACION   eficiente "` colapsan en la misma entrada. La tupla ordenada de términos únicos es hashable e insensible al orden —igual que un `frozenset`, pero además determinista al imprimirla—, e implica que la caché es correcta bajo semántica booleana conmutativa. El `modo_booleano` no forma parte de la clave porque la implementación actual solo resuelve **AND**; debe incorporarse al agregar OR/NOT, o las dos semánticas colisionarían en la misma entrada.
+
+**Eficacia medida del nivel 1.** Sobre la indexación completa del corpus, `normalize()` y `stem()` registran **8.771.763 aciertos contra 41 fallos** cada una (`cache_info()`), es decir un **99,9995 % de tasa de aciertos**: el vocabulario sintético tiene 40 términos, de modo que cada función se ejecuta realmente una vez por término y el resto son lecturas de tabla. En un corpus de lenguaje natural el vocabulario es mucho mayor y `maxsize=10000` pasaría a ser el parámetro determinante.
 
 ### Política de invalidación
 
 La caché de consultas se invalida por **versionado del índice** (*generation counter*), evitando el costo de rastrear dependencias inversas término→consulta:
 
-| Evento | Acción |
-| :--- | :--- |
-| Reconstrucción total del índice | Incremento de `index_generation` → toda entrada con generación anterior se considera obsoleta y se descarta *lazily* en el acceso. |
-| Alta / baja / modificación de documento | Invalidación selectiva de las entradas cuya clave interseca los términos del documento afectado; el `mtime` y el tamaño del archivo actúan como testigo de cambio. |
-| Presión de memoria | Expulsión LRU al alcanzar `maxsize` (por defecto **1024** entradas, configurable vía `--cache-size`). |
-| TTL vencido | Expiración por `monotonic()` para corpus dinámicos (`--cache-ttl`, deshabilitado por defecto en corpus estáticos). |
+| Evento | Acción | Estado |
+| :--- | :--- | :--- |
+| Presión de memoria | Expulsión LRU al alcanzar `maxsize` (por defecto **1024** entradas, configurable vía `--cache-size`). | ✅ Implementado |
+| Reconstrucción total del índice | El índice se construye en memoria al arrancar el proceso y muere con él: no hay estado que invalidar entre corridas. | ✅ Trivial por diseño |
+| Alta / baja / modificación de documento | Invalidación selectiva de las entradas cuya clave interseca los términos del documento afectado; `mtime` y tamaño como testigo de cambio. | ⏳ Pendiente |
+| TTL vencido | Expiración por `monotonic()` para corpus dinámicos (`--cache-ttl`). | ⏳ Pendiente |
 
-Esta política es **conservadora**: ante la duda, se invalida. Un fallo de caché cuesta una consulta indexada —del orden de microsegundos—, mientras que un acierto obsoleto devuelve un resultado incorrecto.
+Esta política es **conservadora**: ante la duda, se invalida. Un fallo de caché cuesta una consulta indexada —del orden de milisegundos—, mientras que un acierto obsoleto devuelve un resultado incorrecto.
+
+> **Limitación del *harness* actual.** El CLI construye el índice, resuelve **una** consulta y termina, por lo que la caché de consultas siempre reporta `{'hits': 0, 'misses': 1}`. Su efecto solo se observa dentro de un mismo proceso: reutilizando el objeto `Buscador`, la consulta `"algoritmo"` baja de **11,86 ms** (fallo) a **0,0020 ms** (acierto) — un factor de **~6.000×**. Para que la caché sea demostrable desde la línea de comandos hace falta un modo interactivo o por lotes (`--queries archivo.txt`), pendiente junto con el *runner* de benchmarks.
 
 ---
 
 ## Concurrencia y Paralelismo
 
-El cuello de botella medido en la versión optimizada se desplaza de la consulta a la **construcción del índice**: tokenizar y normalizar el corpus completo es un trabajo intensivo en CPU, perfectamente descomponible por documento.
+> ⏳ **Incremento 4 — pendiente de implementación.** Esta sección documenta el diseño y la justificación de la técnica; el código correspondiente (`--concurrent`, `--workers`) todavía no existe en `src/optimizado.py`.
+
+El cuello de botella medido en la versión optimizada se desplaza de la consulta a la **construcción del índice**: 33,6 s frente a los ~12 ms de una consulta. Ese costo se reparte entre **E/S** (lectura y decodificación de 50.000 archivos, ~12 s) y **CPU** (tokenización, normalización y *stemming*, ~5 s de trabajo neto), y es perfectamente descomponible por documento.
+
+> **Techo realista.** Como la fase de lectura sigue siendo la porción mayor y el corpus vive en un único SSD, paralelizar solo la CPU deja intacto más de la mitad del costo. La ley de Amdahl acota el *speedup* alcanzable bastante por debajo del número de núcleos: la medición deberá reportar el reparto E/S–CPU real, no solo el tiempo total.
 
 ### Justificación de la técnica: procesos, no hilos
 
@@ -253,17 +270,40 @@ Las métricas de esta sección **no se estiman ni se derivan teóricamente**: se
 
 Consulta de referencia: `"algoritmo"` sobre 50.000 documentos (47.797 coincidencias).
 
-| Versión | Tiempo de ejecución (ms) | Consumo de Memoria (MB) | Observaciones |
-| :--- | ---: | ---: | :--- |
-| Inicial (Baseline) | 2.485 | 18,3 | Mediana de 10 corridas en régimen estacionario (min 2.408 / max 2.569, ±3%). Con *page cache* frío: **10.795–14.040 ms**. Lectura completa del corpus en cada consulta; sin ranking. |
-| Estructura Optimizada | | | *Pendiente de implementación.* |
-| Algoritmo Optimizado | | | *Pendiente de implementación.* |
-| Concurrente | | | *Pendiente de implementación.* |
+| Versión | Tiempo por consulta (ms) | Costo único de indexación (ms) | Pico de memoria (MB) | Observaciones |
+| :--- | ---: | ---: | ---: | :--- |
+| Inicial (Baseline) | **2.485** | — | 18,3 | Mediana de 10 corridas en régimen estacionario (min 2.408 / max 2.569, ±3 %). Con *page cache* frío: **10.795–14.040 ms**. Lectura completa del corpus en cada consulta; sin ranking. |
+| Estructura + Algoritmo Optimizado | **11,86** | 33.572 | 180,3 | Mediana de 10 consultas con caché forzada a fallo. Índice invertido + intersección de `set` + `heapq.nlargest`. |
+| ↳ *con acierto de caché* | **0,0020** | — | — | Misma consulta repetida sobre el mismo proceso (`QueryCache`). |
+| Concurrente | — | — | — | *Pendiente de implementación.* |
 
-**Cómo se obtuvieron los valores de la fila medida**
+**Lectura de los resultados**
 
-- **Tiempo:** `time.perf_counter()` alrededor de `busqueda_secuencial()`, 10 repeticiones tras estabilizar el *page cache*; se reporta la mediana.
-- **Memoria:** pico de *resident set size* vía `/usr/bin/time -l` (19.165.184 bytes = 18,3 MB). El bajo consumo es consistente con el análisis O(m): la línea base mantiene un solo documento en memoria por vez, a costa de releer todo el corpus.
+| Comparación | Factor |
+| :--- | ---: |
+| Consulta indexada vs. línea base | **210×** más rápida (2.485 → 11,86 ms) |
+| Consulta cacheada vs. línea base | **≈1.260.000×** más rápida (2.485 → 0,0020 ms) |
+| Costo de memoria | **9,9×** más (18,3 → 180,3 MB) |
+
+El intercambio es explícito y es el punto central del trabajo: **se compra tiempo con memoria y con un costo único de arranque.** La indexación cuesta 33,6 s, y cada consulta ahorra 2.473 ms respecto de la línea base; el **punto de equilibrio está en ~14 consultas**. Por debajo de eso la línea base gana; por encima, la diferencia crece sin cota. Para un motor de búsqueda —donde el índice se construye una vez y se consulta indefinidamente— el intercambio es favorable por varios órdenes de magnitud.
+
+**Escalado con la cantidad de términos** (consultas con fallo de caché, mediana de 10):
+
+| Consulta | Términos | Coincidencias | Tiempo (ms) |
+| :--- | ---: | ---: | ---: |
+| `algoritmo` | 1 | 47.797 | 11,86 |
+| `algoritmo estructura` | 2 | 45.892 | 16,19 |
+| `algoritmo estructura datos python` | 4 | 42.787 | 24,43 |
+| `xyzinexistente` | 1 | 0 | **0,003** |
+
+El crecimiento es lineal en la cantidad de términos, no en el tamaño del corpus. El último caso es el más ilustrativo: un término ausente del índice se resuelve con un fallo de `dict` y retorno inmediato en **3 microsegundos**, mientras que la línea base necesita leer los 50.000 archivos —**2.485 ms**— para llegar a la misma conclusión. Es un factor de **~800.000×** sobre el peor caso relativo de la implementación ingenua.
+
+**Cómo se obtuvieron los valores**
+
+- **Tiempo (línea base):** `time.perf_counter()` alrededor de `busqueda_secuencial()`, 10 repeticiones tras estabilizar el *page cache*; se reporta la mediana.
+- **Tiempo (optimizado):** índice construido una sola vez; luego 10 repeticiones por consulta reinicializando `QueryCache` antes de cada una para forzar el fallo y medir el costo real de resolución. La fila de acierto se mide sobre 1.000 repeticiones consecutivas sin reinicializar.
+- **Memoria (línea base):** pico de *resident set size* vía `/usr/bin/time -l` (19.165.184 bytes = 18,3 MB). El bajo consumo es consistente con el análisis O(m): mantiene un solo documento en memoria por vez, a costa de releer todo el corpus.
+- **Memoria (optimizado):** pico de RSS vía `/usr/bin/time -l` (189.104.128 bytes = 180,3 MB). De ese total, `tracemalloc` atribuye **134,8 MB al índice invertido en sí**; el resto corresponde al intérprete, a la lista de 50.000 objetos `Path` y a los picos transitorios de decodificación.
 
 ### *Hotspots* de la línea base
 
@@ -279,6 +319,32 @@ Salida de `cProfile` ordenada por tiempo acumulado (corrida instrumentada, 23,1 
 El perfil confirma cuantitativamente el diagnóstico de la sección Línea Base: **`read()` concentra el 69% del tiempo y `open()` el 19%** — en conjunto, el **88% del costo es E/S**, contra apenas 0,7 s (3%) de lógica de coincidencia propiamente dicha. La consecuencia es directa sobre la estrategia de optimización: **eliminar las 50.000 aperturas de archivo por consulta rinde más que cualquier mejora sobre el algoritmo de matching**, y es exactamente lo que provee el índice invertido al trasladar la lectura del corpus a una fase única de indexación.
 
 Nótese además que la corrida instrumentada tarda **23,1 s frente a 2,5 s sin perfilador** (~9× de sobrecarga, atribuible a los 100.000 eventos de llamada que `cProfile` intercepta). Esto justifica la regla del protocolo: el perfilador sirve para **atribuir** costo, nunca para **cronometrar**.
+
+### *Hotspots* de la versión optimizada
+
+Perfilado de la fase de indexación (`cProfile` sobre un lote de 5.000 documentos, ordenado por tiempo propio):
+
+```
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     5000    1.810    0.000    1.865    0.000 {method 'read' of '_io.TextIOWrapper'}
+     5000    0.633    0.000    1.162    0.000 src/optimizado.py:102(tokenizar)
+     5000    0.522    0.000    0.547    0.000 {built-in method _io.open}
+     5000    0.318    0.000    0.318    0.000 {method 'findall' of 're.Pattern'}
+   883159    0.159    0.000    0.159    0.000 {method 'append' of 'list'}
+```
+
+El diagnóstico es el mismo que en la línea base —**`read()` + `open()` concentran el 61 % del tiempo**— pero con una diferencia decisiva: **ahora ese costo se paga una sola vez**, no en cada consulta. Es exactamente la inversión de costo que motivaba el índice invertido.
+
+La lógica propia (`tokenizar`, 1,16 s acumulados) es el único candidato real a paralelización por CPU, y las dos funciones memoizadas ya no aparecen en el perfil: con 8,77 millones de aciertos de `lru_cache` contra 41 fallos, su costo neto es el de una consulta de tabla hash. Medido aisladamente y sin perfilador, tokenizar el corpus completo cuesta **~4,8 s**, contra ~12 s de E/S.
+
+### Defectos conocidos
+
+| Defecto | Evidencia | Impacto |
+| :--- | :--- | :--- |
+| **El *stemmer* separa singular y plural en lugar de unificarlos.** | `stem("dato") -> "dato"` pero `stem("datos") -> "dat"`. Lo mismo con `indice`/`indic`, `lista`/`list`, `clase`/`clas`. | Contradice su propósito declarado. Una consulta por `"dato"` **no** devuelve los documentos que contienen `"datos"`. Solo funciona cuando la regla del sufijo `es` deja intacto el singular (`redes -> red`, `vectores -> vector`). |
+| Causa raíz | El retorno temprano `if len(token) <= 4` protege los singulares cortos, mientras que sus plurales sí superan el umbral y quedan truncados **por debajo** de la forma singular. Las reglas `os`/`as`/`s` recortan el radical en vez de mapear plural → singular. | Debe corregirse antes de reportar la relevancia del ranking como válida. No afecta las mediciones de tiempo de esta tabla, que usan `"algoritmo"` (invariante bajo *stemming*). |
+| **El ranking usa TF cruda, no TF-IDF.** | `rankear()` suma las frecuencias de los términos sin ponderar por frecuencia documental inversa. | Con un vocabulario de 40 términos uniformemente distribuidos el IDF es casi constante y el orden apenas cambiaría, pero sobre lenguaje natural el ranking favorecería a los documentos largos. |
+| **La memoria de la consulta es O(r), no O(k).** | `rankear()` construye el `dict scores` completo antes de invocar `heapq.nlargest`. | Ver la salvedad en la sección del *heap*. |
 
 **Entorno de pruebas**
 
@@ -312,11 +378,13 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install snakeviz line_profiler memory_profiler
 ```
 
-> Los comandos se ejecutan desde cualquier directorio: `src/baseline.py` resuelve la ruta del corpus a partir de la ubicación del script (`<repo>/data/corpus`), no del directorio de trabajo.
+> Los comandos se ejecutan desde cualquier directorio: ambos scripts resuelven la ruta del corpus a partir de la ubicación del propio archivo (`<repo>/data/corpus`), no del directorio de trabajo.
 
 ### Preparación del corpus
 
 El corpus es **sintético**: se genera localmente con `generar_corpus_prueba()`, no se descarga.
+
+La generación vive únicamente en `src/baseline.py`; `src/optimizado.py` solo consume el corpus ya generado.
 
 ```bash
 # Genera 50.000 documentos .txt en <repo>/data/corpus
@@ -346,13 +414,46 @@ Documentos encontrados: 47797
 
 ### Prueba optimizada
 
-> **Pendiente de implementación.** Los comandos de esta sección quedan definidos como contrato de la interfaz a construir en los incrementos 2 a 4.
-
 ```bash
-# Versión optimizada, secuencial (índice invertido + heap + caché)
+# Índice invertido + intersección de set + ranking top-k con heap
 python3 src/optimizado.py --query "algoritmo" --top-k 10
 
-# Versión optimizada con construcción concurrente del índice
+# Parámetros disponibles
+python3 src/optimizado.py --query "algoritmo" \
+    --top-k 10 \
+    --directorio /ruta/al/corpus \
+    --cache-size 1024
+```
+
+Salida esperada:
+
+```
+Construyendo índice invertido...
+Documentos indexados: 50000
+Términos en el índice: 40
+Tiempo de construcción del índice: 33572.35 ms
+
+Tiempo de búsqueda: 15.8151 ms
+Documentos encontrados: 47797 (se muestran los 10 mejores)
+
+Resultados:
+------------------------------------------------------------
+1. doc_013616.txt (score=19)
+2. doc_014443.txt (score=18)
+3. doc_034857.txt (score=18)
+...
+
+Información de caché:
+{'hits': 0, 'misses': 1, 'size': 1}
+```
+
+> `Documentos encontrados` informa el **total de coincidencias**, no la cantidad de filas mostradas: es el valor que se compara contra la línea base. `top-k` solo acota la página impresa.
+>
+> La caché siempre reporta `misses: 1` porque el proceso resuelve una sola consulta y termina (ver la limitación del *harness* en [Caching Inteligente](#caching-inteligente)).
+
+**Versión concurrente** — ⏳ *pendiente*. La interfaz prevista queda definida como contrato del incremento 4:
+
+```bash
 python3 src/optimizado.py --query "algoritmo" --top-k 10 --concurrent --workers 4
 ```
 
@@ -363,6 +464,33 @@ python3 src/optimizado.py --query "algoritmo" --top-k 10 --concurrent --workers 
 ```bash
 # 10 corridas de la línea base; descartar las primeras hasta estabilizar el page cache
 for i in $(seq 1 10); do python3 src/baseline.py --query "algoritmo"; done
+
+# 10 corridas de la versión optimizada
+# (cada corrida reconstruye el índice: separar los dos tiempos que imprime)
+for i in $(seq 1 10); do python3 src/optimizado.py --query "algoritmo" --top-k 10; done
+```
+
+Para medir el tiempo de consulta sin repetir la indexación —que es como se obtuvieron las cifras de la tabla— hay que reutilizar el índice dentro de un mismo proceso:
+
+```bash
+python3 - <<'EOF'
+import sys, time, statistics
+sys.path.insert(0, "src")
+from pathlib import Path
+import optimizado as o
+
+indice, archivos = o.construir_indice(Path("data/corpus"))
+buscador = o.Buscador(indice, archivos)
+
+tiempos = []
+for _ in range(10):
+    buscador.cache = o.QueryCache(1024)          # forzar fallo de caché
+    inicio = time.perf_counter()
+    total, resultados = buscador.buscar("algoritmo", 10)
+    tiempos.append((time.perf_counter() - inicio) * 1000)
+
+print("mediana:", round(statistics.median(tiempos), 3), "ms —", total, "coincidencias")
+EOF
 ```
 
 El *runner* automatizado ejecutará las cuatro versiones sobre el mismo corpus y set de consultas:
@@ -379,6 +507,7 @@ python3 -m benchmarks.run_all \
 ```bash
 # Perfilado de CPU: genera el archivo de estadísticas y lo visualiza
 python3 -m cProfile -o ./profiles/baseline.prof src/baseline.py --query "algoritmo"
+python3 -m cProfile -o ./profiles/optimizado.prof src/optimizado.py --query "algoritmo"
 snakeviz ./profiles/baseline.prof
 
 # Top de funciones por tiempo acumulado, sin salir de la terminal
@@ -389,7 +518,18 @@ kernprof -l -v src/baseline.py --query "algoritmo"
 
 # Pico de memoria residente (RSS)
 /usr/bin/time -l python3 src/baseline.py --query "algoritmo"     # macOS
+/usr/bin/time -l python3 src/optimizado.py --query "algoritmo"   # macOS
 /usr/bin/time -v python3 src/baseline.py --query "algoritmo"     # Linux
+
+# Memoria atribuible al índice invertido, aislada del resto del proceso
+python3 -c "
+import sys, tracemalloc; sys.path.insert(0,'src')
+from pathlib import Path; import optimizado as o
+tracemalloc.start()
+indice, archivos = o.construir_indice(Path('data/corpus'))
+actual, pico = tracemalloc.get_traced_memory()
+print(f'indice={actual/1e6:.1f} MB  pico={pico/1e6:.1f} MB')
+"
 
 # Evolución del RSS en el tiempo
 mprof run python3 src/baseline.py --query "algoritmo"
@@ -398,7 +538,14 @@ mprof plot
 
 ### Validación de equivalencia
 
-> **Pendiente de implementación.** Requiere unificar previamente la semántica de coincidencia entre ambas versiones (ver la nota de alcance en [Línea Base](#línea-base-baseline)): la línea base matchea por subcadena y el índice invertido lo hará por token.
+> **Test automatizado pendiente.** La equivalencia se verifica hoy a mano, comparando el total de coincidencias que informa cada versión:
+
+```bash
+python3 src/baseline.py   --query "algoritmo"                 # Documentos encontrados: 47797
+python3 src/optimizado.py --query "algoritmo" --top-k 10      # Documentos encontrados: 47797 (...)
+```
+
+Ambas coinciden sobre el corpus sintético actual. La comparación no es concluyente en el caso general: la línea base matchea por subcadena y el índice invertido por token, y el vocabulario de 40 palabras no contiene prefijos compartidos que expongan la diferencia (ver la nota de alcance en [Línea Base](#línea-base-baseline)).
 
 ```bash
 # Verificará que la versión optimizada devuelve exactamente los mismos

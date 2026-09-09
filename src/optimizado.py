@@ -1,3 +1,24 @@
+"""
+Versión Optimizada — Buscador Eficiente de Información
+------------------------------------------------------------
+Índice invertido en memoria. El costo se invierte: se paga una
+indexación única O(N) sobre el total de tokens del corpus, y cada
+consulta pasa de O(n * m) a O(t + r), donde t = términos de la
+consulta y r = documentos candidatos (no el tamaño del corpus).
+
+Estructuras y técnicas usadas en este script:
+    dict            índice invertido: término -> {doc_id: frecuencia}
+    set             intersección de postings, O(min(|A|, |B|))
+    heapq.nlargest  ranking top-k en O(r * log k) en vez de O(r * log r)
+    lru_cache       memoización de normalize() y stem()
+    OrderedDict     caché LRU de consultas (QueryCache)
+
+Comandos para correr el script (desde cualquier directorio;
+el corpus siempre se genera/lee en <repo>/data/corpus):
+    python3 src/baseline.py --generar --num-docs 50000
+    python3 src/optimizado.py --query "algoritmo" --top-k 10
+"""
+
 import argparse
 import heapq
 import re
@@ -231,14 +252,15 @@ def normalizar_consulta(consulta):
     return tuple(sorted(set(tokens)))
 
 
-def buscar(indice, consulta):
+def buscar(indice, terminos):
     """
     Busca documentos que contengan TODOS los términos.
 
+    Recibe la consulta ya normalizada (ver normalizar_consulta)
+    para no volver a tokenizarla en cada etapa.
+
     Utiliza intersección de conjuntos.
     """
-
-    terminos = normalizar_consulta(consulta)
 
     if not terminos:
         return set()
@@ -250,17 +272,16 @@ def buscar(indice, consulta):
         if termino not in indice:
             return set()
 
-        documentos = set(indice[termino].keys())
+        postings.append(indice[termino])
 
-        postings.append((len(documentos), documentos))
+    # Primero usamos los términos menos frecuentes, para que el
+    # conjunto candidato se reduzca lo antes posible.
+    postings.sort(key=len)
 
-    # Primero usamos los términos menos frecuentes.
-    postings.sort(key=lambda x: x[0])
+    candidatos = set(postings[0])
 
-    candidatos = postings[0][1].copy()
-
-    for _, documentos in postings[1:]:
-        candidatos &= documentos
+    for documentos in postings[1:]:
+        candidatos &= documentos.keys()
 
         if not candidatos:
             break
@@ -272,7 +293,7 @@ def buscar(indice, consulta):
 # RANKING TOP-K
 # ============================================================
 
-def rankear(indice, consulta, candidatos, k):
+def rankear(indice, terminos, candidatos, k):
     """
     Calcula un score simple basado en la frecuencia
     de aparición de los términos.
@@ -280,8 +301,6 @@ def rankear(indice, consulta, candidatos, k):
     Luego utiliza heapq para obtener solamente
     los k mejores documentos.
     """
-
-    terminos = normalizar_consulta(consulta)
 
     scores = {}
 
@@ -328,11 +347,18 @@ class Buscador:
         self.cache = QueryCache(cache_size)
 
     def buscar(self, consulta, top_k=10):
+        """
+        Devuelve (total_coincidencias, top_k).
 
-        clave = (
-            normalizar_consulta(consulta),
-            top_k
-        )
+        total_coincidencias es la cantidad de documentos que
+        satisfacen la consulta; top_k son solo los mejores k.
+        Se devuelven por separado para no confundir el tamaño
+        del resultado con el tamaño de la página mostrada.
+        """
+
+        terminos = normalizar_consulta(consulta)
+
+        clave = (terminos, top_k)
 
         # Primero consultamos la caché
         resultado_cache = self.cache.get(clave)
@@ -343,14 +369,17 @@ class Buscador:
         # Si no estaba en caché, buscamos
         candidatos = buscar(
             self.indice,
-            consulta
+            terminos
         )
 
-        resultado = rankear(
-            self.indice,
-            consulta,
-            candidatos,
-            top_k
+        resultado = (
+            len(candidatos),
+            rankear(
+                self.indice,
+                terminos,
+                candidatos,
+                top_k
+            )
         )
 
         # Guardamos el resultado
@@ -470,7 +499,7 @@ def main():
 
     inicio_busqueda = time.perf_counter()
 
-    resultados = buscador.buscar(
+    total, resultados = buscador.buscar(
         args.query,
         args.top_k
     )
@@ -485,10 +514,13 @@ def main():
         f"{tiempo_busqueda:.4f} ms"
     )
 
-    print(
-        f"Documentos encontrados: "
-        f"{len(resultados)}"
-    )
+    if total > len(resultados):
+        print(
+            f"Documentos encontrados: {total} "
+            f"(se muestran los {len(resultados)} mejores)"
+        )
+    else:
+        print(f"Documentos encontrados: {total}")
 
     mostrar_resultados(
         resultados,
