@@ -33,13 +33,29 @@ import json
 import math
 import os
 import platform
-import resource
 import statistics
 import subprocess
 import sys
 import time
 import tracemalloc
 from pathlib import Path
+
+try:
+    import resource                      # Unix (macOS, Linux)
+except ImportError:
+    resource = None                      # Windows
+
+# Con la salida redirigida a un archivo, Python usa la codificación
+# local (cp1252 en Windows en español) y cualquier símbolo fuera de
+# ese juego —los ✓ y ⚠ del progreso— aborta la corrida entera con
+# UnicodeEncodeError. Forzar UTF-8 lo evita; `replace` es la red por
+# si el destino tampoco lo soporta.
+for _flujo in (sys.stdout, sys.stderr):
+    if hasattr(_flujo, "reconfigure"):
+        try:
+            _flujo.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -93,18 +109,40 @@ def corpus_de(tamano):
     return DIR_DATOS / f"corpus_{tamano}"
 
 
+def _carga_del_sistema():
+    """
+    Carga promedio del último minuto, o None si el SO no la expone.
+
+    Windows no tiene `getloadavg`; ahí la guarda simplemente no aplica.
+    """
+    try:
+        return os.getloadavg()[0]
+    except (OSError, AttributeError):
+        return None
+
+
 def _rss_mb():
     """
     Pico de RSS del proceso actual, en MB.
 
-    `ru_maxrss` viene en bytes en macOS y en kilobytes en Linux.
+    En Unix se usa `ru_maxrss`, que viene en bytes en macOS y en
+    kilobytes en Linux. Windows no tiene el módulo `resource`: ahí se
+    recurre a `psutil`, cuyo `peak_wset` es el equivalente exacto.
     """
-    pico = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
-    if sys.platform == "darwin":
-        return pico / (1024 * 1024)
+    if resource is not None:
+        pico = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return pico / (1024 * 1024) if sys.platform == "darwin" else pico / 1024
 
-    return pico / 1024
+    try:
+        import psutil
+    except ImportError:
+        return None
+
+    memoria = psutil.Process().memory_info()
+
+    # peak_wset solo existe en Windows; rss es el piso razonable.
+    return getattr(memoria, "peak_wset", memoria.rss) / (1024 * 1024)
 
 
 # ============================================================
@@ -305,6 +343,22 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
     está en régimen estacionario— y se reporta la mediana del resto.
     """
 
+    # Una máquina sobresuscripta invalida la medición sin avisar: los
+    # tiempos salen inflados de forma despareja y aparecen resultados
+    # imposibles, como que la versión paralela tarde más que la
+    # secuencial usando el mismo código.
+    carga = _carga_del_sistema()
+    nucleos = os.cpu_count() or 1
+
+    if carga is not None and carga > nucleos:
+        print(
+            f"  ⚠ ADVERTENCIA: carga del sistema {carga:.1f} sobre {nucleos} "
+            f"núcleos ({carga / nucleos:.1f}× sobresuscripta).\n"
+            f"    Las mediciones van a salir infladas. Cerrá el resto de los "
+            f"programas y volvé a correr.",
+            flush=True,
+        )
+
     crudo = {version: [] for version in VERSIONES}
 
     for ronda in range(rondas + descartar):
@@ -327,7 +381,7 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
                 f"    {ETIQUETAS[version]:28} "
                 f"consulta {medicion['consulta_ms']:9.3f} ms   "
                 f"índice {(medicion['indexacion_ms'] or 0):8.1f} ms   "
-                f"RSS {medicion['rss_mb']:6.1f} MB",
+                f"RSS {(medicion['rss_mb'] or 0):6.1f} MB",
                 flush=True,
             )
 
@@ -354,17 +408,25 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
             if m["indexacion_ms"] is not None
         ]
 
+        # En Windows sin psutil no hay lectura de RSS: la mediana se
+        # calcula solo sobre las muestras que existen.
+        rss = [m["rss_mb"] for m in utiles if m["rss_mb"] is not None]
+
         resumen[version] = {
             "etiqueta": ETIQUETAS[version],
             "observacion": OBSERVACIONES[version],
             "documentos": utiles[0]["documentos"],
             "consulta_ms": statistics.median(m["consulta_ms"] for m in utiles),
             "indexacion_ms": statistics.median(indexaciones) if indexaciones else None,
-            "rss_mb": statistics.median(m["rss_mb"] for m in utiles),
+            "rss_mb": statistics.median(rss) if rss else None,
             "tracemalloc_mb": picos[version],
             "coincidencias": utiles[0]["coincidencias"],
             "rondas": len(utiles),
         }
+
+    for version in VERSIONES:
+        resumen[version]["carga_al_medir"] = carga
+        resumen[version]["nucleos"] = nucleos
 
     return {"resumen": resumen, "crudo": crudo}
 
@@ -620,10 +682,15 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
     `scalene view <archivo>`.
     """
 
-    scalene = BASE_DIR / ".venv" / "bin" / "scalene"
+    en_windows = sys.platform.startswith("win")
+
+    scalene = (
+        BASE_DIR / ".venv" / ("Scripts" if en_windows else "bin")
+        / ("scalene.exe" if en_windows else "scalene")
+    )
 
     if not scalene.exists():
-        return {"omitido": "scalene no está instalado en .venv"}
+        return {"omitido": f"scalene no está instalado en {scalene.parent}"}
 
     hallazgos = {}
 
@@ -734,7 +801,21 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     en marcha sin instrumentarlo.
     """
 
-    pyspy = BASE_DIR / ".venv" / "bin" / "py-spy"
+    en_windows = sys.platform.startswith("win")
+
+    pyspy = (
+        BASE_DIR / ".venv" / ("Scripts" if en_windows else "bin")
+        / ("py-spy.exe" if en_windows else "py-spy")
+    )
+
+    def _relativa(ruta):
+        try:
+            return Path(ruta).relative_to(BASE_DIR)
+        except ValueError:
+            return Path(ruta)
+
+    # Windows no tiene SIP ni sudo: py-spy se adjunta sin privilegios.
+    prefijo = "" if en_windows else "sudo "
 
     comandos = []
 
@@ -743,25 +824,37 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
         destino = DIR_PERFILES / f"pyspy-{version}.svg"
 
         comandos.append(
-            f"sudo {pyspy.relative_to(BASE_DIR)} record "
+            f"{prefijo}{_relativa(pyspy)} record "
             f"--output {destino.relative_to(BASE_DIR)} --format flamegraph "
-            f"--subprocesses -- {Path(sys.executable).relative_to(BASE_DIR)} "
+            f"--subprocesses -- {_relativa(sys.executable)} "
             f"src/perfilado.py --medir {version} "
             f"--directorio {corpus_dir} --repeticiones 1"
         )
 
-    script = DIR_PERFILES / "pyspy.sh"
-    script.write_text(
-        "#!/usr/bin/env bash\n"
-        "# py-spy requiere sudo en macOS (SIP). Ejecutar desde la raíz del repo.\n"
-        "set -euo pipefail\n\n" + "\n\n".join(comandos) + "\n",
-        encoding="utf-8",
-    )
-    script.chmod(0o755)
+    if en_windows:
+        script = DIR_PERFILES / "pyspy.bat"
+        script.write_text(
+            "@echo off\r\n"
+            "REM Ejecutar desde la raiz del repo.\r\n\r\n"
+            + "\r\n\r\n".join(comandos) + "\r\n",
+            encoding="utf-8",
+        )
+    else:
+        script = DIR_PERFILES / "pyspy.sh"
+        script.write_text(
+            "#!/usr/bin/env bash\n"
+            "# py-spy requiere sudo en macOS (SIP). Ejecutar desde la raíz del repo.\n"
+            "set -euo pipefail\n\n" + "\n\n".join(comandos) + "\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
 
     if not ejecutar:
         return {
-            "omitido": "requiere sudo en macOS; comandos escritos en profiles/pyspy.sh",
+            "omitido": (
+                "comandos escritos en profiles/pyspy.bat" if en_windows
+                else "requiere sudo en macOS; comandos escritos en profiles/pyspy.sh"
+            ),
             "script": str(script.relative_to(BASE_DIR)),
             "comandos": comandos,
         }
@@ -1744,13 +1837,24 @@ def generar_reporte(resultados):
 # MAIN
 # ============================================================
 
+def _estado_del_gil():
+    """`sys._is_gil_enabled()` existe recién desde Python 3.13."""
+
+    consultar = getattr(sys, "_is_gil_enabled", None)
+
+    if consultar is None:
+        return "GIL activo (build sin free-threading)"
+
+    return f"GIL {'activo' if consultar() else 'desactivado'}"
+
+
 def _entorno():
     return {
         "cpu": platform.processor() or platform.machine(),
         "nucleos": f"{os.cpu_count()} lógicos",
         "so": f"{platform.system()} {platform.release()}",
         "python": f"CPython {platform.python_version()}",
-        "gil": f"GIL {'activo' if sys._is_gil_enabled() else 'desactivado'}",
+        "gil": _estado_del_gil(),
         "consulta": f'consulta de referencia: "{CONSULTA}"',
     }
 
