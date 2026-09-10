@@ -488,6 +488,41 @@ El crecimiento es lineal en la cantidad de términos, no en el tamaño del corpu
 
 > La consulta de 4 términos pasó de 42.787 a **44.107** coincidencias respecto de la medición anterior. No es ruido: al corregirse el *stemmer*, `datos` dejó de indexarse como `dat` y se fusionó con `dato` (df = 49.702), de modo que la intersección AND ahora incluye los documentos que solo contenían la forma singular.
 
+### Escalabilidad por hardware
+
+Las mediciones anteriores varían el **volumen de datos**. Esta varía la **máquina**: el mismo código, el mismo tamaño de corpus y las mismas consultas, corridos en un equipo de gama alta seis años más nuevo y con seis veces más núcleos.
+
+| Parámetro | Equipo A | Equipo B |
+| :--- | :--- | :--- |
+| CPU | Intel Core i5-7267U @ 3,10 GHz (2017) | AMD Ryzen 9 9900X (2024) |
+| Núcleos | 2 físicos / 4 lógicos | **12 físicos / 24 lógicos** |
+| RAM | 8 GB | 32 GB |
+| Sistema Operativo | macOS 13.7.8 | Windows |
+
+Mediana de 2 vueltas en régimen estacionario, tras descartar una vuelta de calentamiento:
+
+| Medición | Equipo A | Equipo B | Ventaja de B |
+| :--- | ---: | ---: | ---: |
+| **Búsqueda sin índice** | 2.345 ms | 2.362 ms | **ninguna** |
+| Indexación secuencial | 8.702 ms | 5.188 ms | 1,68× |
+| Consulta indexada | 8,27 ms | 3,39 ms | 2,44× |
+| Indexación paralela `P = 2` | 5.189 ms — 1,66× | 2.932 ms — 1,77× | 1,77× |
+| Indexación paralela `P = 4` | 4.679 ms — 1,86× | 1.872 ms — 2,80× | 2,50× |
+| Indexación paralela `P = 12` | — | 1.146 ms — 4,54× | — |
+| Indexación paralela `P = 24` | — | 1.063 ms — 4,86× | — |
+
+**La línea base no mejora.** Es el resultado que más dice de todo el trabajo: 2.345 contra 2.362 ms, un empate técnico —el equipo nuevo es incluso un 0,7 % más lento—. Seis veces más núcleos, siete años de arquitectura y un NVMe moderno no compran **nada** sobre una búsqueda secuencial monohilo. Coincide con lo que ya mostraba `cProfile`, donde `read()` se lleva 2,07 s de 2,87 s. La conclusión práctica es que **la optimización tenía que ser algorítmica**: ningún hardware arregla un O(n·m) que además está limitado por latencia de E/S por archivo.
+
+**El SMT no rinde en ninguna de las dos.** Pasar de `P = 12` a `P = 24` en el equipo B aporta apenas **7 %** (4,54× → 4,86×), el mismo orden que el 11 % que aporta pasar de `P = 2` a `P = 4` en el equipo A. Dos máquinas, dos fabricantes, dos sistemas operativos y la misma física: los hilos lógicos no agregan unidades de ejecución para una carga CPU-bound.
+
+**El techo de Amdahl difiere entre las máquinas.** Despejando la fracción serial a partir de los *speedups* medidos, el equipo A arrastra ~40 % de costo no paralelizable contra ~15 % del equipo B. Por eso A satura en 1,86× y B llega a 4,86×. La explicación más probable es la E/S —un NVMe moderno absorbe 24 lectores concurrentes; un SSD de 2017 no—, pero conviene declararlo como lo que es: una **inferencia del modelo**, no una medición directa del reparto en el equipo B.
+
+**El costo del arranque en frío es de otro orden en Windows.** La primera vuelta del equipo B midió **168.799 ms** en la línea base: **71×** su propio régimen estacionario, contra el factor 4–6× que sufre el equipo A. La causa más probable es el antivirus escaneando 50.000 archivos recién creados en su primer acceso. Es la justificación más contundente del protocolo de descartar corridas de calentamiento: con una sola vuelta, la comparación habría sido 168 segundos contra 2,3.
+
+> **Los corpus no son el mismo.** `generar_corpus_prueba()` usa `random` sin semilla fija, así que cada equipo sorteó su propio corpus: 47.753 coincidencias en B contra 47.797 en A, con distintos `doc_id` y *scores*. Mismo generador, mismo tamaño y misma distribución, pero **no los mismos documentos**. Es suficiente para comparar tiempos y no lo es para comparar resultados documento a documento; fijar una semilla queda como deuda pendiente.
+>
+> La verificación `Índices idénticos: True` dio positiva en las **12 corridas** del equipo B. Vale como validación cruzada del diseño concurrente en Windows, donde `spawn` es el método de arranque nativo y no una particularidad de macOS — que es exactamente el escenario que motiva la guarda `if __name__ == "__main__":`.
+
 ### *Hotspots* de la línea base
 
 Salida de `cProfile` ordenada por tiempo acumulado (corrida instrumentada, 23,1 s por la sobrecarga del perfilador):
@@ -571,6 +606,7 @@ Construir `src/perfilado.py` expuso cuatro defectos en **cómo se medía**, no e
 | `tres → tre` | Numeral de 4 letras terminado en `-es` | Nulo sobre este corpus: no colisiona con ningún término del vocabulario. |
 | La caché de consultas no es observable desde el CLI | `{'hits': 0, 'misses': 1}` en toda corrida | Requiere modo interactivo o por lotes. Ver [Caching Inteligente](#caching-inteligente). |
 | Sin invalidación selectiva ni TTL | `QueryCache` solo implementa expulsión LRU | Irrelevante con índice en memoria y corpus estático; necesario para corpus dinámico. |
+| El corpus se genera sin semilla fija | Dos equipos con `--num-docs 50000` obtuvieron 47.797 y 47.753 coincidencias para la misma consulta | No afecta las comparaciones de **tiempo** —mismo generador, tamaño y distribución— pero impide comparar resultados documento a documento entre máquinas. Se resuelve con un `--seed` que alimente `random.seed()`. |
 
 **Entorno de pruebas**
 
@@ -583,6 +619,8 @@ Construir `src/perfilado.py` expuso cuatro defectos en **cómo se medía**, no e
 | Versión de Python | CPython 3.14.0 (GIL activo) |
 | Documentos del corpus | 50.000 archivos `.txt` |
 | Tamaño total del corpus | 68,7 MB de contenido — 195 MB ocupados en disco |
+
+> Salvo aclaración expresa, **todas las cifras del documento provienen de este equipo**. La única excepción es [Escalabilidad por hardware](#escalabilidad-por-hardware), que contrasta contra un AMD Ryzen 9 9900X de 12 núcleos bajo Windows.
 
 ---
 
