@@ -1,0 +1,7 @@
+# Herramientas del pipeline de CI. Versiones fijadas: el conjunto de
+# reglas por defecto de Ruff cambia entre versiones y un upgrade
+# silencioso puede romper el pipeline sin que cambie el código.
+ruff==0.17.0
+bandit[toml]==1.9.4
+pytest==9.1.1
+pytest-cov==7.1.0

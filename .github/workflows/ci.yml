@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  # Sin filtro de rama: también corre en PRs apilados sobre ramas feature.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un push nuevo a la misma rama cancela la corrida anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14"
+
+jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      # --output-format=github anota cada hallazgo en la línea del PR.
+      - run: ruff check . --output-format=github
+
+  seguridad:
+    name: Seguridad (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      - run: bandit -c pyproject.toml -r .
+
+  tests:
+    name: Tests, cobertura y Performance Gate
+    needs: [lint, seguridad]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      # El umbral (fail_under = 80) está en pyproject.toml.
+      - name: Tests y cobertura (>= 80%)
+        run: pytest -m "not rendimiento" --cov --cov-report=term-missing
+
+      # Paso separado y sin cobertura: el tracing distorsiona los tiempos.
+      - name: Performance Gate
+        env:
+          LIMITE_CONSULTA_S: "0.5"
+        run: pytest -m rendimiento --no-cov -v
