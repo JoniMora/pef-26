@@ -1,0 +1,240 @@
+GUION DEL ORADOR — Buscador Eficiente de Información
+Uso personal. Páginas: 10, 11, 12, 13, 15, 16, 19, 20, 21
+
+Cada página tiene:
+  > DECIR    lo que hay que contar, en orden
+  > CLAVE    la idea que no puede faltar
+  > SI PREGUNTAN   respaldo, sólo si hace falta
+
+
+======================================================================
+PÁGINA 10 — Caché: no repetir trabajo
+======================================================================
+> DECIR
+- La caché guarda un resultado ya calculado: si la misma pregunta
+  vuelve, se responde con lo guardado. La usamos en dos niveles.
+- Nivel 1, palabras sueltas: @lru_cache sobre normalize() y stem().
+  El corpus tiene 8,7 millones de palabras pero sólo 40 distintas,
+  así que cada una se procesa de verdad una sola vez
+  (8,7 millones de aciertos contra 41 fallos).
+- Nivel 2, consultas enteras: una clase propia, QueryCache, con lugar
+  para 1.024 consultas; cuando se llena descarta la menos usada.
+  La clave son los términos ordenados: "Java Concurrencia" y
+  "concurrencia java" son la misma entrada.
+- Resultado: la misma consulta pasa de 9 ms a 0,002 ms, unas
+  4.600 veces más rápida.
+- Límite honesto: el programa hace una consulta y termina, así que
+  desde la terminal la caché siempre muestra 0 aciertos.
+
+> CLAVE
+  La caché no acelera la consulta: la elimina.
+
+> SI PREGUNTAN
+- ¿Por qué no lru_cache en el nivel 2? No deja borrar entradas
+  sueltas ni medir aciertos. OrderedDict da move_to_end() y
+  popitem() en O(1), que es lo que necesita una política LRU.
+
+
+======================================================================
+PÁGINA 11 — Qué se paralelizó
+======================================================================
+> DECIR
+- Con el índice armado, la consulta cuesta 9 ms, pero construir el
+  índice cuesta 8,6 segundos. El cuello de botella se mudó a la
+  indexación, y por eso paralelizamos sólo eso.
+- El gráfico muestra en qué se va ese tiempo: 26 % leer archivos,
+  54 % tokenizar y hacer stemming, 19 % contar y armar los postings.
+- O sea, tres cuartas partes son CPU, no disco. Nosotros esperábamos
+  lo contrario.
+- Python tiene el GIL: los hilos no ejecutan código en paralelo. Por
+  eso usamos procesos (ProcessPoolExecutor), cada uno con su propio
+  intérprete.
+
+> CLAVE
+  Trabajo de CPU en Python → procesos, no hilos.
+
+> SI PREGUNTAN
+- Techo teórico por la ley de Amdahl con 2 núcleos: ≈1,58×.
+  Medimos 1,84×, un poco más, porque la lectura de disco también se
+  solapa entre procesos.
+
+
+======================================================================
+PÁGINA 12 — Arquitectura MapReduce
+======================================================================
+> DECIR
+- Seguimos el esquema MapReduce: el corpus se parte en 16 lotes de
+  3.125 documentos, 4 procesos los indexan en paralelo y cada uno
+  arma un índice parcial. Al final, el proceso padre los fusiona en un
+  único diccionario.
+- concurrente.py reutiliza todo optimizado.py y sólo reemplaza
+  construir_indice(). Lo único que cambia es el paralelismo, así que
+  la comparación es justa.
+- Los lotes son disjuntos: ningún documento está en dos procesos.
+  No hay estado compartido, no hacen falta locks y no puede haber
+  condiciones de carrera.
+- El índice resultante es idéntico al secuencial; lo verificamos con
+  --comparar.
+
+> CLAVE
+  Lotes disjuntos → sin locks y con el mismo resultado.
+
+> SI PREGUNTAN
+- ¿Por qué 16 lotes y no 4? Con más tareas que procesos, el pool
+  reparte mejor la carga. Con 4 exactos, el más lento fija el tiempo.
+- ¿Por qué lotes y no documentos sueltos? Pasar datos entre procesos
+  cuesta serializarlos; un lote amortiza ese costo.
+- if __name__ == "__main__": es obligatorio porque en macOS y Windows
+  cada proceso hijo vuelve a importar el módulo.
+
+
+======================================================================
+PÁGINA 13 — Speedup y trade-offs
+======================================================================
+> DECIR
+- La indexación baja de 8,6 s a 5,2 s con 2 procesos y a 4,7 s con
+  4 procesos: un speedup de 1,84×.
+- ¿Por qué no más? La máquina tiene 2 núcleos físicos.
+  os.cpu_count() dice 4, pero los otros 2 son de Hyper-Threading, que
+  no suma potencia real para trabajo de CPU. Por eso pasar de 2 a 4
+  procesos sólo agrega un 11 %.
+- El costo: la memoria sube 1,8× (de 178 a 324 MB), por los índices
+  parciales que conviven mientras se fusionan.
+- Anécdota: al principio medimos 5,63×, algo imposible con
+  2 núcleos. Medíamos en bloques: la versión secuencial corría con el
+  disco en frío y la paralela en caliente. Desde entonces alternamos
+  las versiones en cada ronda.
+
+> CLAVE
+  1,84× sobre 2 núcleos físicos: el límite es el hardware, no el código.
+
+> SI PREGUNTAN
+- Sospechamos del garbage collector: con gc.disable() la diferencia
+  fue de 0,4 %. No era eso.
+- Mediana de 6 corridas por configuración, con 2 rondas de
+  calentamiento descartadas. Varianza menor al 3 %.
+
+
+======================================================================
+PÁGINA 15 — Pico de memoria por versión
+======================================================================
+> DECIR
+- Toda esta velocidad se paga en memoria. El gráfico muestra el pico
+  de RAM de cada versión.
+- La inicial usa 38 MB porque tiene un solo documento por vez en
+  memoria.
+- Al construir el índice sube a 192 MB, de los cuales unos 132 MB son
+  el índice en sí.
+- Con concurrencia llega a 329 MB. No es que el índice sea más grande:
+  son los índices parciales que conviven mientras se fusionan.
+- El ranking no aparece acá: con el heap ocupa kilobytes.
+
+> CLAVE
+  Compramos tiempo con memoria. Y conviene: después de unas
+  4 consultas (2 con indexación paralela) el índice ya se pagó.
+
+> SI PREGUNTAN
+- Se mide el pico del propio proceso, sin los hijos (ru_maxrss).
+  Por eso en la página siguiente los picos son más altos.
+
+
+======================================================================
+PÁGINA 16 — Memoria durante la corrida
+======================================================================
+> DECIR
+- Lo mismo pero a lo largo del tiempo, y ahora contando los procesos
+  hijos. Muestreo cada 50 ms con memory_profiler.
+- Todas arrancan en 27 MB.
+- La línea base (roja) casi no sube, pero se queda 14 segundos leyendo.
+- Las versiones con índice suben mientras lo construyen.
+- Las paralelas duplican el pico (hasta 464 MB) porque se suman los
+  4 procesos, pero terminan en un cuarto del tiempo.
+
+> CLAVE
+  Más memoria, mucho menos tiempo.
+
+> SI PREGUNTAN
+- Estructura y algoritmo se superponen porque construyen el mismo
+  índice; la de algoritmo dura más porque además repite la consulta
+  10 veces.
+- Cada versión se mide en su propio proceso. Cuando las medíamos todas
+  juntas, cada una heredaba la memoria de la anterior (la base subía
+  de 27 a 107 MB).
+
+
+======================================================================
+PÁGINA 19 — Otra máquina, mismo problema
+======================================================================
+> DECIR
+- Corrimos el mismo código en otra máquina: un Ryzen 9 de 12 núcleos
+  de 2024, contra el i5 de 2 núcleos de 2017.
+- La búsqueda sin índice tardó prácticamente lo mismo: 2.345 contra
+  2.362 ms. Un procesador seis veces más grande no mejoró nada.
+- Eso confirma el diagnóstico: el problema era el algoritmo, no el
+  hardware.
+- Donde sí se nota es en lo que paralelizamos: la indexación escala
+  hasta 4,86× con 24 procesos, y la consulta indexada baja a 3,4 ms.
+- Y se repite lo del Hyper-Threading: de 12 a 24 procesos sólo gana
+  un 7 %.
+
+> CLAVE
+  Un hardware mejor no arregla un algoritmo malo.
+
+> SI PREGUNTAN
+- Los corpus no son idénticos (se generan al azar, sin semilla fija):
+  47.753 coincidencias contra 47.797. Sirve para comparar tiempos,
+  no documento por documento.
+- La primera corrida en Windows tardó 168 s, probablemente por el
+  antivirus escaneando los 50.000 archivos nuevos. Por eso
+  descartamos las corridas de calentamiento.
+
+
+======================================================================
+PÁGINA 20 — Demostración en vivo
+======================================================================
+> DECIR
+- "Ahora corro las tres versiones con la misma consulta: algoritmo."
+- ORDEN (así el disco queda en caliente y el contraste es justo):
+    1) python3 src/concurrente.py --query "algoritmo" --top-k 5 --workers 4
+    2) python3 src/optimizado.py --query "algoritmo" --top-k 5
+    3) python3 src/baseline.py --query "algoritmo"
+- Mientras corre, señalar:
+  - Las tres encuentran 47.797 documentos.
+  - Las dos indexadas dan el mismo top-5 con los mismos scores.
+  - La línea base gasta el tiempo en cada consulta; las otras lo gastan
+    una sola vez, al indexar.
+  - Con --workers 4 la indexación baja casi a la mitad.
+- Cierre de la demo:
+    python3 src/optimizado.py --query "xyzinexistente"
+  Un término que no existe se resuelve en 0,003 ms, contra 2,5 s de la
+  línea base.
+
+> CLAVE
+  Mismo resultado, distinto costo.
+
+> SI ALGO TARDA MUCHO
+  Es el disco en frío (page cache): la línea base puede subir a
+  10–27 s. Está documentado, no es un error.
+
+
+======================================================================
+PÁGINA 21 — Conclusiones
+======================================================================
+> DECIR
+- Lo que más rindió: el índice invertido, 23× por sí solo, porque
+  atacó lo que marcaba el perfil: el 88 % del tiempo era lectura de
+  disco. Después el heap, 12× más, y la caché, que elimina la consulta
+  repetida.
+- Lo que no rindió lo esperado:
+  - Pasar de 2 a 4 procesos: sólo 11 %, por el Hyper-Threading.
+  - La primera versión O(k) del ranking fue 3,5× más lenta que la que
+    reemplazaba, por crear 48.000 generadores.
+  - Cambiar de máquina no mejoró la búsqueda sin índice.
+- En una nueva versión:
+  - Guardar el índice en disco para no reconstruirlo en cada arranque.
+  - Optimizar la tokenización, que es el 47 % del costo.
+  - Probar con un corpus de lenguaje real.
+
+> CLAVE (frase de cierre)
+  Medir primero, optimizar después. Cada optimización salió de un
+  perfil, no de una intuición.
