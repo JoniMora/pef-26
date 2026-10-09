@@ -112,3 +112,9 @@ desktop.ini
 #  Jupyter (notebooks de análisis de métricas)
 # ─────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
+
+# ─────────────────────────────────────────────────────────────
+#  Presentación
+#  El guion del orador es de uso personal: no se versiona.
+# ─────────────────────────────────────────────────────────────
+presentacion/guion-orador.txt
