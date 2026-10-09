@@ -34,14 +34,15 @@ import math
 import os
 import platform
 import statistics
-import subprocess
+import subprocess  # nosec B404
 import sys
 import time
 import tracemalloc
 from pathlib import Path
 
+
 try:
-    import resource                      # Unix (macOS, Linux)
+    import resource  # Unix (macOS, Linux)
 except ImportError:
     resource = None                      # Windows
 
@@ -318,11 +319,12 @@ def _medir_en_subproceso(version, corpus_dir, repeticiones,
     if serie_memoria:
         orden.append("--serie-memoria")
 
-    salida = subprocess.run(
+    salida = subprocess.run(  # nosec B603
         orden,
         cwd=str(BASE_DIR),
         capture_output=True,
         text=True,
+        check=False,
     )
 
     for linea in salida.stdout.splitlines():
@@ -517,7 +519,7 @@ def perfilar_cprofile(corpus_dir, versiones):
 
         print(f"  cProfile: {version}", flush=True)
 
-        subprocess.run(
+        subprocess.run(  # nosec B603
             [
                 sys.executable, str(SRC_DIR / "perfilado.py"),
                 "--medir", version,
@@ -701,7 +703,7 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
         print(f"  scalene: {version}", flush=True)
 
         try:
-            proceso = subprocess.run(
+            proceso = subprocess.run(  # nosec B603
                 [
                     str(scalene), "run",
                     "-o", str(destino),
@@ -715,6 +717,7 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
                 capture_output=True,
                 text=True,
                 timeout=limite_s,
+                check=False,
             )
         except subprocess.TimeoutExpired:
             # Scalene instrumenta el intérprete entero; con los procesos
@@ -865,9 +868,11 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
 
         print(f"  py-spy: {version} (pedirá contraseña)", flush=True)
 
-        proceso = subprocess.run(
+        # shell=True porque el mismo comando se escribe en pyspy.sh/.bat
+        # para correrlo a mano (incluye `sudo`); se arma con rutas internas.
+        proceso = subprocess.run(  # nosec B602
             comando, shell=True, cwd=str(BASE_DIR),
-            capture_output=True, text=True,
+            capture_output=True, text=True, check=False,
         )
 
         destino = DIR_PERFILES / f"pyspy-{version}.svg"
@@ -1810,7 +1815,7 @@ def generar_reporte(resultados):
                     f"{modulo_html.escape(str(datos.get('archivo') or datos.get('error', '')))}</p>"
                 )
 
-    partes.append(f"""
+    partes.append("""
     <footer>
       <p>Generado por <code>src/perfilado.py</code>.
          Reproducible con <code>.venv/bin/python src/perfilado.py --todo</code>.</p>
