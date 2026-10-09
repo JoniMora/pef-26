@@ -78,7 +78,7 @@ CONSULTA = "algoritmo"
 TOP_K = 10
 
 # El corpus de 50.000 ya existe en data/corpus; los demás se generan.
-TAMANOS = (5000, 12500, 25000, 50000)
+TAMANOS = (5000, 50000)
 
 VERSIONES = ("inicial", "estructura", "algoritmo", "concurrencia", "final")
 
