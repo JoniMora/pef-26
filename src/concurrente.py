@@ -63,6 +63,15 @@ def _lotes_equitativos(items, cantidad_lotes):
 
     El resto de la división se distribuye de a un elemento entre
     los primeros lotes, de modo que ninguno difiera en más de uno.
+
+    :param items: Elementos a repartir.
+    :type items: list
+    :param cantidad_lotes: Cantidad de lotes deseada. Si hay menos elementos que lotes,
+        se generan tantos lotes como elementos.
+    :type cantidad_lotes: int
+    :return: Los lotes, en el orden original. Vacío si no hay elementos o si
+        ``cantidad_lotes`` no es positiva.
+    :rtype: list[list]
     """
     total = len(items)
 
@@ -101,6 +110,12 @@ def _procesar_lote(lote_archivos):
 
     Función pura: no lee ni escribe estado compartido, por lo que
     el resultado no depende del orden de despacho de los lotes.
+
+    :param lote_archivos: Pares ``(doc_id, ruta)`` del lote.
+    :type lote_archivos: list[tuple[int, str]]
+    :return: Índice invertido parcial del lote: término -> {doc_id: frecuencia}. Los
+        archivos que no se pueden leer quedan fuera.
+    :rtype: dict[str, dict[int, int]]
     """
     parcial = {}
 
@@ -136,6 +151,11 @@ def _fusionar(indice, parcial):
     Los lotes son disjuntos, así que ningún doc_id se repite entre
     parciales: la fusión no necesita sumar frecuencias y el dict de
     postings del primer parcial se adopta tal cual, sin copiarlo.
+
+    :param indice: Índice global; se modifica en el lugar.
+    :type indice: dict[str, dict[int, int]]
+    :param parcial: Índice parcial de un lote.
+    :type parcial: dict[str, dict[int, int]]
     """
     for termino, postings in parcial.items():
         destino = indice.get(termino)

@@ -110,7 +110,17 @@ CON_INDICE = ("estructura", "algoritmo", "concurrencia", "final")
 
 
 def corpus_de(tamano):
-    """Directorio del corpus para un tamaño dado."""
+    """
+    Directorio del corpus para un tamaño dado.
+
+    El de 50.000 documentos es ``data/corpus``; los demás viven en
+    ``data/corpus_<tamaño>``.
+
+    :param tamano: Cantidad de documentos del corpus.
+    :type tamano: int
+    :return: Ruta del directorio, exista o no.
+    :rtype: pathlib.Path
+    """
     if tamano == 50000:
         return CORPUS_PRINCIPAL
     return DIR_DATOS / f"corpus_{tamano}"
@@ -121,6 +131,10 @@ def _carga_del_sistema():
     Carga promedio del último minuto, o None si el SO no la expone.
 
     Windows no tiene `getloadavg`; ahí la guarda simplemente no aplica.
+
+    :return: Carga promedio del último minuto, o ``None`` si el sistema operativo no la
+        expone.
+    :rtype: float | None
     """
     try:
         return os.getloadavg()[0]
@@ -135,6 +149,10 @@ def _rss_mb():
     En Unix se usa `ru_maxrss`, que viene en bytes en macOS y en
     kilobytes en Linux. Windows no tiene el módulo `resource`: ahí se
     recurre a `psutil`, cuyo `peak_wset` es el equivalente exacto.
+
+    :return: Pico de RSS en MB, o ``None`` si no hay forma de leerlo (Windows sin
+        ``psutil``).
+    :rtype: float | None
     """
     if resource is not None:
         pico = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -165,6 +183,20 @@ def _rankear_sorted(indice, terminos, candidatos, top_k, total_docs):
     ordena la lista completa en O(r · log r). Es la implementación que
     `rankear()` reemplazó, y se conserva aquí para que la tabla
     comparativa pueda medir el efecto aislado del heap.
+
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param terminos: Términos normalizados de la consulta.
+    :type terminos: tuple[str, ...]
+    :param candidatos: Documentos que contienen todos los términos.
+    :type candidatos: set[int]
+    :param top_k: Cantidad máxima de documentos a devolver.
+    :type top_k: int
+    :param total_docs: Cantidad de documentos del corpus, para el IDF.
+    :type total_docs: int
+    :return: Pares ``(doc_id, score)`` de mayor a menor score; los empates, por doc_id
+        creciente.
+    :rtype: list[tuple[int, float]]
     """
     if not candidatos or top_k <= 0:
         return []
@@ -201,6 +233,18 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     RSS. Cronometrar con él activo inflaba todos los tiempos de la
     tabla comparativa. La atribución de memoria se hace en una
     pasada aparte, que no se cronometra.
+
+    :param version: Versión a medir, una de ``VERSIONES``.
+    :type version: str
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :param con_tracemalloc: Si se mide además el pico de memoria con ``tracemalloc``.
+    :type con_tracemalloc: bool
+    :return: Métricas de la versión: tiempo de indexación, tiempo de consulta (mediana,
+        mínimo y máximo), RSS, pico de ``tracemalloc`` y total de coincidencias.
+    :rtype: dict
     """
     if con_tracemalloc:
         tracemalloc.start()
@@ -301,6 +345,21 @@ def _medir_en_subproceso(
     El proceso limpio es lo que hace comparable el pico de RSS: si
     todas las versiones corrieran en el mismo intérprete, la primera
     en construir el índice fijaría el máximo para todas las demás.
+
+    :param version: Versión a medir, una de ``VERSIONES``.
+    :type version: str
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: str | pathlib.Path
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :param con_tracemalloc: Si se mide además el pico de memoria con ``tracemalloc``.
+    :type con_tracemalloc: bool
+    :param serie_memoria: Si se muestrea además el RSS durante toda la corrida.
+    :type serie_memoria: bool
+    :return: Las métricas de :func:`medir_version` calculadas en el proceso hijo; con
+        ``serie_memoria``, también la serie ``serie_mb``.
+    :rtype: dict
+    :raises RuntimeError: Si el proceso hijo no imprime su JSON.
     """
     orden = [
         sys.executable,
@@ -343,6 +402,19 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
 
     Se descartan las primeras `descartar` rondas —el page cache no
     está en régimen estacionario— y se reporta la mediana del resto.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param rondas: Rondas que se resumen, sin contar las descartadas.
+    :type rondas: int
+    :param repeticiones: Consultas cronometradas por versión y ronda. La línea base usa
+        3, porque relee el corpus completo en cada una.
+    :type repeticiones: int
+    :param descartar: Rondas iniciales de calentamiento que se descartan.
+    :type descartar: int
+    :return: ``{"resumen": ..., "crudo": ...}``: la mediana de cada versión y todas las
+        mediciones individuales.
+    :rtype: dict
     """
     # Una máquina sobresuscripta invalida la medición sin avisar: los
     # tiempos salen inflados de forma despareja y aparecen resultados
@@ -445,6 +517,12 @@ def asegurar_corpus(tamano):
     generan con el mismo generador de la línea base, de modo que el
     vocabulario y la distribución sean idénticos y la única variable
     del barrido sea el volumen.
+
+    :param tamano: Cantidad de documentos.
+    :type tamano: int
+    :return: Directorio del corpus, con exactamente ``tamano`` documentos. Si existía
+        con otra cantidad, se regenera.
+    :rtype: pathlib.Path
     """
     directorio = corpus_de(tamano)
 
@@ -474,6 +552,16 @@ def escalabilidad(tamanos, rondas, repeticiones):
     Responde la pregunta de la consigna sobre si la mejora se
     sostiene al aumentar el volumen: una optimización que solo gana
     en corpus chicos se delata acá.
+
+    :param tamanos: Tamaños de corpus a medir, en cantidad de documentos.
+    :type tamanos: tuple[int, ...]
+    :param rondas: Rondas por tamaño (ver :func:`comparativa`).
+    :type rondas: int
+    :param repeticiones: Consultas cronometradas por versión y ronda.
+    :type repeticiones: int
+    :return: El resumen de :func:`comparativa` para cada tamaño, con el tamaño como
+        clave de texto.
+    :rtype: dict[str, dict]
     """
     resultados = {}
 
@@ -501,6 +589,14 @@ def perfilar_cprofile(corpus_dir, versiones):
     Se ejecuta en subprocesos para que el perfil no incluya al
     orquestador. Devuelve las funciones más caras por tiempo
     acumulado y deja el `.prof` para inspección con snakeviz.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :return: Por versión: la ruta del ``.prof``, el tiempo total instrumentado y las
+        funciones más caras.
+    :rtype: dict[str, dict]
     """
     import pstats
 
@@ -574,6 +670,14 @@ def perfilar_line(corpus_dir, versiones):
     concurrente no puede perfilarse por esta vía —sus workers son
     intérpretes separados—. Es una limitación de la herramienta, no
     del código, y queda registrada como tal.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :return: Por versión: la ruta del reporte y su texto, o el motivo por el que se
+        omitió.
+    :rtype: dict[str, dict]
     """
     from line_profiler import LineProfiler
 
@@ -633,6 +737,14 @@ def perfilar_memoria(corpus_dir, versiones):
     `include_children=True` es imprescindible en la versión
     concurrente: sin él se mediría solo al padre y la memoria de los
     workers quedaría invisible.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :return: Por versión: la serie de RSS en MB, su pico, su base y el intervalo de
+        muestreo, o el motivo por el que se omitió.
+    :rtype: dict[str, dict]
     """
     hallazgos = {}
 
@@ -676,6 +788,16 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
 
     Separa el tiempo de Python del tiempo nativo. Scalene 2.3 escribe
     un JSON y lo renderiza aparte con `scalene view <archivo>`.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :param limite_s: Segundos máximos por versión antes de abortar Scalene.
+    :type limite_s: int
+    :return: Por versión: el JSON de Scalene y su resumen, el error o el motivo de la
+        omisión. Si Scalene no está instalado, ``{"omitido": ...}``.
+    :rtype: dict
     """
     en_windows = sys.platform.startswith("win")
 
@@ -748,6 +870,12 @@ def _resumir_scalene(archivo):
 
     El esquema cambia entre versiones, así que la lectura es
     defensiva: si no se reconoce, se informa y se deja el archivo.
+
+    :param archivo: JSON que escribió Scalene.
+    :type archivo: pathlib.Path
+    :return: Tiempo total, huella máxima de memoria y las líneas más caras, o
+        ``{"error": ...}`` si el JSON no se puede leer.
+    :rtype: dict
     """
     try:
         datos = json.loads(archivo.read_text(encoding="utf-8"))
@@ -798,6 +926,17 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     un script con los comandos exactos para correr a mano. Es la
     única herramienta de las cinco que puede perfilar un proceso ya
     en marcha sin instrumentarlo.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :param ejecutar: Si se corre ``py-spy`` ahora (en macOS pide ``sudo``). Si es falso,
+        solo se escribe el script con los comandos.
+    :type ejecutar: bool
+    :return: Por versión, la ruta del flamegraph o el error. Sin ``ejecutar``,
+        ``{"omitido": ..., "script": ..., "comandos": [...]}``.
+    :rtype: dict
     """
     en_windows = sys.platform.startswith("win")
 
@@ -809,6 +948,14 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     )
 
     def _relativa(ruta):
+        """
+        Expresa una ruta relativa a la raíz del repositorio, si está dentro.
+
+        :param ruta: Ruta a convertir.
+        :type ruta: str | pathlib.Path
+        :return: La ruta relativa a ``BASE_DIR``, o la original si queda fuera.
+        :rtype: pathlib.Path
+        """
         try:
             return Path(ruta).relative_to(BASE_DIR)
         except ValueError:
@@ -893,6 +1040,17 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
 
 
 def _ms(valor):
+    """
+    Formatea milisegundos con punto de miles y coma decimal.
+
+    La precisión depende de la magnitud: cuatro decimales por debajo de
+    0,01 ms, dos hasta 1.000 ms y ninguno por encima.
+
+    :param valor: Milisegundos, o ``None``.
+    :type valor: float | None
+    :return: El valor formateado, o un guion si es ``None``.
+    :rtype: str
+    """
     if valor is None:
         return "—"
     if valor < 0.01:
@@ -903,6 +1061,14 @@ def _ms(valor):
 
 
 def _mb(valor):
+    """
+    Formatea megabytes con un decimal y coma decimal.
+
+    :param valor: Megabytes, o ``None``.
+    :type valor: float | None
+    :return: El valor formateado, o un guion si es ``None``.
+    :rtype: str
+    """
     return "—" if valor is None else f"{valor:,.1f}".replace(".", ",")
 
 
@@ -913,18 +1079,39 @@ def _num(valor, decimales=0):
     Se formatea cada número por separado en lugar de aplicar un
     `.replace(",", ".")` sobre la frase entera, que también pisaba las
     comas de la prosa ("Sí, y se amplifica" -> "Sí. y se amplifica").
+
+    :param valor: Número a formatear.
+    :type valor: float
+    :param decimales: Cantidad de decimales.
+    :type decimales: int
+    :return: El número con punto de miles y coma decimal.
+    :rtype: str
     """
     texto = f"{valor:,.{decimales}f}"
     return texto.replace(",", "@").replace(".", ",").replace("@", ".")
 
 
 def _celda_ms(valor):
-    """Celda de tiempo: el guion va solo, sin unidad detrás."""
+    """
+    Celda de tiempo: el guion va solo, sin unidad detrás.
+
+    :param valor: Milisegundos, o ``None``.
+    :type valor: float | None
+    :return: ``"<valor> ms"``, o solo un guion si no hay valor.
+    :rtype: str
+    """
     return "—" if valor is None else f"{_ms(valor)} ms"
 
 
 def tabla_markdown(resumen):
-    """Tabla comparativa obligatoria, lista para pegar en el README."""
+    """
+    Tabla comparativa obligatoria, lista para pegar en el README.
+
+    :param resumen: Mediana por versión, tal como la devuelve :func:`comparativa`.
+    :type resumen: dict[str, dict]
+    :return: La tabla en Markdown, con una fila por versión.
+    :rtype: str
+    """
     filas = [
         "| Versión | Tiempo de consulta | Costo de indexación | Memoria (RSS) | "
         "Observación |",
@@ -972,6 +1159,16 @@ PALETAS = {
 
 
 def _figura(paleta, alto=4.2):
+    """
+    Crea una figura con el fondo de la paleta.
+
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param alto: Alto de la figura, en pulgadas.
+    :type alto: float
+    :return: La figura y sus ejes.
+    :rtype: tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]
+    """
     import matplotlib.pyplot as plt
 
     figura, ejes = plt.subplots(figsize=(7.6, alto), dpi=192)
@@ -982,7 +1179,22 @@ def _figura(paleta, alto=4.2):
 
 
 def _cromo(ejes, paleta, titulo, etiqueta_x=None, etiqueta_y=None, grilla="y"):
-    """Grilla y ejes en hairline sólido, recesivos; texto en tintas."""
+    """
+    Grilla y ejes en hairline sólido, recesivos; texto en tintas.
+
+    :param ejes: Ejes a estilizar.
+    :type ejes: matplotlib.axes.Axes
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param titulo: Título del gráfico.
+    :type titulo: str
+    :param etiqueta_x: Rótulo del eje x, si lo lleva.
+    :type etiqueta_x: str | None
+    :param etiqueta_y: Rótulo del eje y, si lo lleva.
+    :type etiqueta_y: str | None
+    :param grilla: Eje sobre el que se dibuja la grilla: ``"x"``, ``"y"`` o ``"both"``.
+    :type grilla: str
+    """
     ejes.set_title(
         titulo,
         color=paleta["tinta"],
@@ -1016,6 +1228,18 @@ def _cromo(ejes, paleta, titulo, etiqueta_x=None, etiqueta_y=None, grilla="y"):
 
 
 def _guardar(figura, nombre, modo):
+    """
+    Guarda la figura como PNG en ``profiles/`` y la cierra.
+
+    :param figura: Figura a guardar.
+    :type figura: matplotlib.figure.Figure
+    :param nombre: Nombre base del gráfico.
+    :type nombre: str
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     destino = DIR_PERFILES / f"{nombre}-{modo}.png"
     figura.savefig(
         destino,
@@ -1039,6 +1263,15 @@ def _etiquetas_al_final(ejes, puntos, paleta, separacion_px=17):
     "concurrencia", que comparten el camino de consulta— dejan sus
     etiquetas una sobre otra. Se ordenan por altura y se empujan
     verticalmente hasta respetar una separación mínima.
+
+    :param ejes: Ejes del gráfico.
+    :type ejes: matplotlib.axes.Axes
+    :param puntos: Último punto de cada serie, como ``(x, y, texto)``.
+    :type puntos: list[tuple[float, float, str]]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param separacion_px: Separación vertical mínima entre etiquetas, en píxeles.
+    :type separacion_px: int
     """
     ejes.figure.canvas.draw()
 
@@ -1073,6 +1306,22 @@ def _etiquetas_al_final(ejes, puntos, paleta, separacion_px=17):
 
 
 def _grafico_escalabilidad_consulta(datos, paleta, modo):
+    """
+    Grafica el tiempo de consulta de cada versión según el tamaño del corpus.
+
+    El eje y es logarítmico: los tiempos van de milésimas de
+    milisegundo a segundos.
+
+    :param datos: Resumen por tamaño de corpus, tal como lo devuelve
+        :func:`escalabilidad`.
+    :type datos: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     tamanos = sorted(int(tamano) for tamano in datos)
     figura, ejes = _figura(paleta)
 
@@ -1127,6 +1376,19 @@ def _grafico_escalabilidad_consulta(datos, paleta, modo):
 
 
 def _grafico_escalabilidad_indexacion(datos, paleta, modo):
+    """
+    Grafica el costo de indexación según el tamaño del corpus.
+
+    :param datos: Resumen por tamaño de corpus, tal como lo devuelve
+        :func:`escalabilidad`.
+    :type datos: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     tamanos = sorted(int(tamano) for tamano in datos)
     figura, ejes = _figura(paleta)
 
@@ -1187,6 +1449,15 @@ def _grafico_consulta_por_version(resumen, paleta, modo):
     Los valores cubren seis órdenes de magnitud (2.485 ms contra
     0,002 ms): una barra sobre eje log mentiría, porque su longitud
     ya no es proporcional al valor. El punto no promete esa lectura.
+
+    :param resumen: Mediana por versión, tal como la devuelve :func:`comparativa`.
+    :type resumen: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
     """
     figura, ejes = _figura(paleta, alto=3.4)
 
@@ -1236,7 +1507,20 @@ def _grafico_consulta_por_version(resumen, paleta, modo):
 
 
 def _grafico_memoria_por_version(resumen, paleta, modo):
-    """Una sola serie: un color para todas las barras, nunca un ramp."""
+    """
+    Grafica el pico de RSS de cada versión en barras.
+
+    Una sola serie: un color para todas las barras, nunca un ramp.
+
+    :param resumen: Mediana por versión, tal como la devuelve :func:`comparativa`.
+    :type resumen: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     figura, ejes = _figura(paleta, alto=3.4)
 
     etiquetas = [ETIQUETAS[version] for version in VERSIONES]
@@ -1279,6 +1563,19 @@ def _grafico_memoria_por_version(resumen, paleta, modo):
 
 
 def _grafico_memoria_en_el_tiempo(memoria, paleta, modo):
+    """
+    Grafica el RSS de cada versión a lo largo de su corrida.
+
+    :param memoria: Series de RSS por versión, tal como las devuelve
+        :func:`perfilar_memoria`.
+    :type memoria: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     figura, ejes = _figura(paleta)
 
     for indice, version in enumerate(VERSIONES):
@@ -1325,7 +1622,14 @@ def _grafico_memoria_en_el_tiempo(memoria, paleta, modo):
 
 
 def generar_graficos(resultados):
-    """Renderiza cada gráfico en sus dos modos: claro y oscuro."""
+    """
+    Renderiza cada gráfico en sus dos modos: claro y oscuro.
+
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    :return: Los gráficos generados, como ``{nombre: True}``.
+    :rtype: dict[str, bool]
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1371,6 +1675,12 @@ def responder_preguntas(resultados):
 
     Si una medición falta, la respuesta lo dice en lugar de inventar
     un valor.
+
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    :return: Una respuesta en HTML por pregunta (``cuello``, ``optimizacion``,
+        ``impacto``, ``escalabilidad`` y ``tradeoff``). Vacío si falta la comparativa.
+    :rtype: dict[str, str]
     """
     comparativa_ = resultados.get("comparativa")
     escalabilidad_ = resultados.get("escalabilidad")
@@ -1517,7 +1827,16 @@ def responder_preguntas(resultados):
 
 
 def _incrustar(nombre, modo):
-    """PNG como data URI, para que el reporte sea un único archivo."""
+    """
+    PNG como data URI, para que el reporte sea un único archivo.
+
+    :param nombre: Nombre base del gráfico.
+    :type nombre: str
+    :param modo: ``"light"`` o ``"dark"``.
+    :type modo: str
+    :return: El PNG como data URI, o ``None`` si el archivo no existe.
+    :rtype: str | None
+    """
     import base64
 
     archivo = DIR_PERFILES / f"{nombre}-{modo}.png"
@@ -1531,6 +1850,19 @@ def _incrustar(nombre, modo):
 
 
 def _figura_html(nombre, titulo, tabla_html=""):
+    """
+    Arma el ``<figure>`` de un gráfico, con su variante oscura.
+
+    :param nombre: Nombre base del gráfico.
+    :type nombre: str
+    :param titulo: Texto alternativo de la imagen.
+    :type titulo: str
+    :param tabla_html: Tabla con los datos del gráfico; si viene, se agrega dentro de un
+        ``<details>``.
+    :type tabla_html: str
+    :return: El HTML de la figura, o una cadena vacía si el gráfico no existe.
+    :rtype: str
+    """
     claro = _incrustar(nombre, "light")
 
     if not claro:
@@ -1557,6 +1889,16 @@ def _figura_html(nombre, titulo, tabla_html=""):
 
 
 def _tabla_html(cabeceras, filas):
+    """
+    Arma una tabla HTML con cabecera.
+
+    :param cabeceras: Títulos de las columnas.
+    :type cabeceras: tuple[str, ...]
+    :param filas: Celdas de cada fila, ya en HTML.
+    :type filas: list[tuple[str, ...]]
+    :return: La tabla HTML.
+    :rtype: str
+    """
     encabezado = "".join(f"<th>{cabecera}</th>" for cabecera in cabeceras)
     cuerpo = "".join(
         "<tr>" + "".join(f"<td>{celda}</td>" for celda in fila) + "</tr>"
@@ -1650,7 +1992,14 @@ footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--linea)
 
 
 def generar_reporte(resultados):
-    """Arma el reporte HTML autocontenido en profiles/reporte.html."""
+    """
+    Arma el reporte HTML autocontenido en profiles/reporte.html.
+
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    :return: Ruta de ``profiles/reporte.html``.
+    :rtype: pathlib.Path
+    """
     import html as modulo_html
 
     comparativa_ = resultados.get("comparativa") or {}
@@ -2011,7 +2360,12 @@ def generar_reporte(resultados):
 
 
 def _estado_del_gil():
-    """`sys._is_gil_enabled()` existe recién desde Python 3.13."""
+    """
+    `sys._is_gil_enabled()` existe recién desde Python 3.13.
+
+    :return: El estado del GIL, como texto para el reporte.
+    :rtype: str
+    """
     consultar = getattr(sys, "_is_gil_enabled", None)
 
     if consultar is None:
@@ -2021,6 +2375,13 @@ def _estado_del_gil():
 
 
 def _entorno():
+    """
+    Describe el equipo y el intérprete en que se midió.
+
+    :return: CPU, núcleos, sistema operativo, versión de Python, estado del GIL y la
+        consulta de referencia.
+    :rtype: dict[str, str]
+    """
     return {
         "cpu": platform.processor() or platform.machine(),
         "nucleos": f"{os.cpu_count()} lógicos",
@@ -2145,6 +2506,9 @@ def main():
         Las fases son largas y esta máquina se queda sin aire: si el
         volcado fuera solo al final, un corte a mitad de camino
         tiraría también las fases que ya habían terminado bien.
+
+        :param fase: Nombre de la fase que terminó, para el mensaje.
+        :type fase: str
         """
         archivo_resultados.write_text(
             json.dumps(resultados, indent=2, ensure_ascii=False),

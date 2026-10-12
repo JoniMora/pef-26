@@ -404,6 +404,12 @@ def rankear(indice, terminos, candidatos, top_k, total_docs):
     ]
 
     def puntuados():
+        """
+        Genera el score de cada candidato al vuelo, sin guardarlos.
+
+        :return: Pares ``(score, -doc_id)`` que ``heapq.nlargest`` consume de a uno.
+        :rtype: collections.abc.Iterator[tuple[float, int]]
+        """
         # El caso de un solo término es el más frecuente y evita
         # el bucle interno por candidato.
         if len(pesos) == 1:
