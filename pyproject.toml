@@ -17,6 +17,21 @@ extend-exclude = ["presentacion", "profiles"]
 quote-style = "double"
 indent-style = "space"
 
+[tool.ruff.lint]
+select = ["E", "W", "F", "N", "D"]
+# Reglas que chocan con `ruff format` (el formateador ya decide la
+# indentación y las comillas de los docstrings).
+ignore = ["W191", "E111", "E114", "E117", "D206", "D300"]
+
+[tool.ruff.lint.pydocstyle]
+# pep257 desactiva por sí sola las reglas de docstrings que se
+# contradicen entre sí (D203 frente a D211, D212 frente a D213).
+convention = "pep257"
+
+[tool.ruff.lint.per-file-ignores]
+# Los tests se documentan con su nombre: no se les exige docstring.
+"tests/**" = ["D"]
+
 [tool.ruff.lint.isort]
 combine-as-imports = true
 lines-after-imports = 2
