@@ -641,11 +641,11 @@ Primera etapa del segundo parcial: estandarizar y documentar el código antes de
 
 `target-version` es `py311`, la versión mínima que soporta el proyecto, y no la del CI. Así el formateador no introduce sintaxis exclusiva de versiones más nuevas: con `py314` había reescrito dos `except (A, B):` como `except A, B:` (PEP 758), que en Python 3.11–3.13 es un error de sintaxis. Con `py311`, `ruff check` rechaza esa forma.
 
-**Nombres.** Se reemplazaron los nombres de una sola letra del motor: `i` pasó a `numero_doc` en `generar_corpus_prueba()`, y `k` pasó a `top_k` en `rankear()`, el mismo nombre que ya usaba `Buscador.buscar()`.
+**Nombres.** No quedan variables de una sola letra en el código ni en los tests. En el motor, `i` pasó a `numero_doc` en `generar_corpus_prueba()`, y `k` pasó a `top_k` en `rankear()`, el mismo nombre que ya usaba `Buscador.buscar()`. En `perfilado.py`, las variables de las comprensiones pasaron a nombres que dicen qué contienen (`medicion`, `tamano`, `version`, `cabecera`, `estadistica`…); se verificó que los 10 gráficos y el reporte salen idénticos byte a byte.
 
 ### Docstrings
 
-Todas las funciones y clases públicas del motor (`baseline`, `optimizado` y `concurrente`) documentan qué hacen, sus parámetros y su retorno en **reStructuredText**, el formato que `sphinx.ext.autodoc` interpreta sin extensiones adicionales:
+Todas las funciones y clases de `src/` documentan qué hacen, sus parámetros y su retorno en **reStructuredText**, el formato que `sphinx.ext.autodoc` interpreta sin extensiones adicionales. Incluye las funciones internas del MapReduce de `concurrente.py` y las del arnés de medición:
 
 ```python
 def buscar(indice, terminos):
@@ -665,7 +665,7 @@ def buscar(indice, terminos):
 
 ### Documentación técnica con Sphinx
 
-[`docs/`](docs/) genera una página HTML por módulo de `src/` a partir de los docstrings, con `sphinx.ext.autodoc`. La documentación se genera sin advertencias. El comando está en [Documentación](#documentación).
+[`docs/`](docs/) genera, a partir de los docstrings y con `sphinx.ext.autodoc`, una portada que presenta los cuatro módulos y una página HTML por cada uno. La documentación se genera sin advertencias. El comando está en [Documentación](#documentación).
 
 ### Análisis estático con SonarCloud
 
