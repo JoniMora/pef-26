@@ -669,7 +669,7 @@ def buscar(indice, terminos):
 
 ### Análisis estático con SonarCloud
 
-SonarCloud analiza cada pull request desde el CI, junto con la cobertura que genera `pytest-cov`. Según [`sonar-project.properties`](sonar-project.properties), toma `src/` como código y `tests/` como tests, y deja fuera `src/perfilado.py`, que es el arnés de medición y no el motor. Panel del proyecto: <https://sonarcloud.io/dashboard?id=JoniMora_pef-26>.
+SonarCloud analiza cada pull request desde el CI, junto con la cobertura que genera `pytest-cov`. Según [`sonar-project.properties`](sonar-project.properties), analiza `src/` como código y `tests/` como tests. `src/perfilado.py` se analiza como el resto, pero queda fuera de la cobertura porque es el arnés de medición y no el motor. Panel del proyecto: <https://sonarcloud.io/dashboard?id=JoniMora_pef-26>.
 
 | Métrica | Resultado |
 | :--- | :--- |
