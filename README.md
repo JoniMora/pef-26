@@ -53,7 +53,7 @@ Implementado en [`src/baseline.py`](src/baseline.py) (`busqueda_secuencial`). Si
 
 > **Alcance actual.** La línea base resuelve **presencia por subcadena**, no relevancia: no tokeniza ni puntúa, y por lo tanto **no produce un ranking *top-k***. Las etapas de Normalización y Ranking descritas en el objetivo se incorporan en la versión optimizada. Esto tiene una consecuencia directa sobre el test de equivalencia: `.find()` sobre el texto crudo hace que `"algo"` matchee dentro de `"algoritmo"`, mientras que un índice invertido sobre tokens no lo haría. Para que la comparación sea válida, **ambas versiones deben acordar la misma semántica de coincidencia**; se adopta la de tokens.
 >
-> **Estado de la equivalencia.** Sobre la consulta de referencia `"algoritmo"` ambas versiones coinciden exactamente: **47.797 documentos** en las dos. El corpus sintético hace que las dos semánticas converjan, porque su vocabulario de 40 palabras no contiene ningún término que sea subcadena de otro. La divergencia `"algo"` / `"algoritmo"` sigue siendo real y aparecerá en cuanto el corpus incluya prefijos compartidos: la unificación formal de la semántica y el test automatizado siguen pendientes.
+> **Estado de la equivalencia.** Sobre la consulta de referencia `"algoritmo"` ambas versiones coinciden exactamente: **47.797 documentos** en las dos. El corpus sintético hace que las dos semánticas converjan, porque su vocabulario de 40 palabras no contiene ningún término que sea subcadena de otro. La divergencia `"algo"` / `"algoritmo"` sigue siendo real y aparecerá en cuanto el corpus incluya prefijos compartidos: la unificación formal de la semántica sigue pendiente. El test automatizado ya existe: [`tests/test_equivalencia.py`](tests/test_equivalencia.py) verifica que las dos versiones devuelvan los mismos documentos (ver [Validación de equivalencia](#validación-de-equivalencia)).
 
 **Análisis de complejidad:**
 
@@ -713,7 +713,7 @@ La suite usa **pytest** y corre en el CI con una cobertura mínima del 80 % (hoy
 | [`test_procesamiento_texto.py`](tests/test_procesamiento_texto.py) | 28 | Normalización, tokenización y el *stemmer*: los 16 pares singular/plural documentados en [Normalización](#normalización-stemming-por-reglas-del-español) y 10 casos borde (invariables, alternancia z/c, `-mente`). |
 | [`test_optimizado.py`](tests/test_optimizado.py) | 12 | Consulta canónica, índice (incluidos archivos ilegibles y **archivos vacíos de 0 bytes**), caché LRU, intersección de *postings* y ranking. |
 | [`test_concurrente.py`](tests/test_concurrente.py) | 7 | Particionado en lotes, fusión de índices parciales, igualdad entre el índice paralelo y el secuencial, y archivos vacíos. |
-| [`test_equivalencia.py`](tests/test_equivalencia.py) | 1 | La línea base y la versión optimizada encuentran la misma cantidad de documentos. |
+| [`test_equivalencia.py`](tests/test_equivalencia.py) | 3 | La línea base y la versión optimizada devuelven **los mismos documentos** para tres consultas cuyo término no cambia con el *stemming*. |
 | [`test_cli.py`](tests/test_cli.py) | 10 | Las líneas de comandos de los tres buscadores. |
 | [`test_rendimiento.py`](tests/test_rendimiento.py) | 2 | *Performance Gate*: la consulta optimizada responde en menos de 0,5 s y le gana a la línea base. |
 
@@ -994,7 +994,7 @@ mprof plot
 >
 > | Test | Qué verifica |
 > | :--- | :--- |
-> | `test_equivalencia.py` | La línea base y la versión optimizada encuentran la misma cantidad de documentos para `"algoritmo"`. |
+> | `test_equivalencia.py` | La línea base y la versión optimizada devuelven los mismos documentos —no solo la misma cantidad— para `"algoritmo"`, `"indice"` y `"python"`. |
 > | `test_concurrente.py::test_indice_paralelo_igual_al_secuencial` | El índice paralelo es idéntico al secuencial: términos, `doc_id` y frecuencias. |
 
 Sobre el corpus completo se verifica a mano, comparando el total de coincidencias que informa cada versión:
