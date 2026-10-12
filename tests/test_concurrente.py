@@ -11,7 +11,7 @@ def test_lotes_equitativos_reparte_el_resto():
     lotes = _lotes_equitativos(list(range(10)), 3)
 
     assert [len(lote) for lote in lotes] == [4, 3, 3]
-    assert [item for lote in lotes for item in lote] == list(range(10))
+    assert [numero for lote in lotes for numero in lote] == list(range(10))
 
 
 def test_lotes_equitativos_casos_borde():
@@ -39,7 +39,7 @@ def test_indice_paralelo_igual_al_secuencial(corpus_dir):
 
 def test_con_un_proceso_indexa_en_el_padre(tmp_path):
     (tmp_path / "a.txt").write_text("algoritmo datos", encoding="utf-8")
-    (tmp_path / "b.txt").mkdir()    # ilegible: se omite
+    (tmp_path / "b.txt").mkdir()  # ilegible: se omite
 
     indice, archivos = construir_indice(tmp_path, workers=1)
 

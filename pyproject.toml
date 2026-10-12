@@ -6,11 +6,33 @@
 #  Ruff (linter)
 # ─────────────────────────────────────────────────────────────
 [tool.ruff]
-target-version = "py314"
+# Versión mínima soportada (README: Python 3.11+), no la del CI: el
+# formateador solo usa sintaxis que esa versión entiende.
+target-version = "py311"
+line-length = 88
 # Los módulos de src/ se importan entre sí como top-level
 # (`from optimizado import ...`): se declaran como first-party.
 src = ["src", "tests"]
 extend-exclude = ["presentacion", "profiles"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "N", "D"]
+# Reglas que chocan con `ruff format` (el formateador ya decide la
+# indentación y las comillas de los docstrings).
+ignore = ["W191", "E111", "E114", "E117", "D206", "D300"]
+
+[tool.ruff.lint.pydocstyle]
+# pep257 desactiva por sí sola las reglas de docstrings que se
+# contradicen entre sí (D203 frente a D211, D212 frente a D213).
+convention = "pep257"
+
+[tool.ruff.lint.per-file-ignores]
+# Los tests se documentan con su nombre: no se les exige docstring.
+"tests/**" = ["D"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

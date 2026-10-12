@@ -36,6 +36,9 @@ jobs:
       # --output-format=github anota cada hallazgo en la línea del PR.
       - run: ruff check . --output-format=github
 
+      # Falla si algún archivo no respeta el formato de `ruff format`.
+      - run: ruff format --check .
+
   seguridad:
     name: Seguridad (Bandit)
     runs-on: ubuntu-latest
@@ -58,6 +61,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Historial completo: Sonar lo usa para detectar el código nuevo.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v6
         with:
@@ -69,7 +75,13 @@ jobs:
 
       # El umbral (fail_under = 80) está en pyproject.toml.
       - name: Tests y cobertura (>= 80%)
-        run: pytest -m "not rendimiento" --cov --cov-report=term-missing
+        run: pytest -m "not rendimiento" --cov --cov-report=term-missing --cov-report=xml
+
+      # Lee sonar-project.properties y el coverage.xml del paso anterior.
+      - name: SonarCloud
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       # Paso separado y sin cobertura: el tracing distorsiona los tiempos.
       - name: Performance Gate

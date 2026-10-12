@@ -118,3 +118,9 @@ desktop.ini
 #  El guion del orador es de uso personal: no se versiona.
 # ─────────────────────────────────────────────────────────────
 presentacion/guion-orador.txt
+
+# ─────────────────────────────────────────────────────────────
+#  Documentación generada
+#  docs/_build se reconstruye con sphinx-build.
+# ─────────────────────────────────────────────────────────────
+docs/_build/

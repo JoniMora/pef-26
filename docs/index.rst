@@ -1,0 +1,28 @@
+Buscador Eficiente de Información
+=================================
+
+Documentación técnica del motor de búsqueda local sobre una colección de
+documentos de texto plano. Se genera automáticamente a partir de los
+docstrings del código fuente (``src/``) con ``sphinx.ext.autodoc``.
+
+El proyecto se compone de cuatro módulos:
+
+- :mod:`baseline`: búsqueda secuencial por fuerza bruta, la línea base.
+- :mod:`optimizado`: índice invertido, ranking TF-IDF con *heap* y caché de
+  consultas.
+- :mod:`concurrente`: construcción del índice en paralelo, como un MapReduce
+  sobre procesos.
+- :mod:`perfilado`: arnés de medición y perfilado de las cinco versiones.
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Contenido:
+
+   api/modules
+
+Índices
+-------
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

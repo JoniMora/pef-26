@@ -1,25 +1,27 @@
 """
-Perfilado y Medición — Buscador Eficiente de Información
-------------------------------------------------------------
+Perfilado y medición del Buscador Eficiente de Información.
+
 Orquestador de las cinco herramientas exigidas por la consigna
-(`cProfile`, `line_profiler`, `memory_profiler`, `Scalene`, `py-spy`)
-más el banco de pruebas que produce la tabla comparativa obligatoria.
+(``cProfile``, ``line_profiler``, ``memory_profiler``, ``Scalene`` y
+``py-spy``) más el banco de pruebas que produce la tabla comparativa
+obligatoria.
 
 Cada versión se mide en un **proceso limpio** —el orquestador se
-invoca a sí mismo con `--medir`— para que el pico de RSS sea
+invoca a sí mismo con ``--medir``— para que el pico de RSS sea
 atribuible y no arrastre la memoria de las versiones anteriores.
 Las versiones se miden **alternadas** dentro de cada ronda: medirlas
 en bloque contamina el resultado con el estado del page cache.
 
 Las cinco versiones de la tabla se mapean sobre los tres scripts:
 
-    inicial       baseline.py — búsqueda secuencial O(n·m)
-    estructura    índice invertido + set, ranking con sorted() completo
-    algoritmo     optimizado.py — heap top-k + QueryCache
-    concurrencia  concurrente.py — indexación MapReduce multiproceso
-    final         concurrencia + caché de consultas caliente
+- ``inicial``: ``baseline.py``, búsqueda secuencial O(n·m).
+- ``estructura``: índice invertido + ``set``, ranking con ``sorted()`` completo.
+- ``algoritmo``: ``optimizado.py``, heap top-k + ``QueryCache``.
+- ``concurrencia``: ``concurrente.py``, indexación MapReduce multiproceso.
+- ``final``: concurrencia + caché de consultas caliente.
 
-Comandos (requieren el venv con las herramientas instaladas):
+Comandos (requieren el venv con las herramientas instaladas)::
+
     .venv/bin/python src/perfilado.py --todo
     .venv/bin/python src/perfilado.py --comparativa
     .venv/bin/python src/perfilado.py --escalabilidad
@@ -44,7 +46,7 @@ from pathlib import Path
 try:
     import resource  # Unix (macOS, Linux)
 except ImportError:
-    resource = None                      # Windows
+    resource = None  # Windows
 
 # Con la salida redirigida a un archivo, Python usa la codificación
 # local (cp1252 en Windows en español) y cualquier símbolo fuera de
@@ -60,9 +62,11 @@ for _flujo in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import baseline
-import concurrente
-import optimizado
+# Estos imports van después del sys.path.insert: el script se ejecuta
+# directamente y necesita src/ en el path para encontrar los módulos.
+import baseline  # noqa: E402
+import concurrente  # noqa: E402
+import optimizado  # noqa: E402
 
 
 # ============================================================
@@ -93,7 +97,9 @@ ETIQUETAS = {
 
 OBSERVACIONES = {
     "inicial": "Baseline — escaneo secuencial O(n·m), relee el corpus en cada consulta",
-    "estructura": "Mejora de búsqueda — índice invertido + set, ranking con sorted() O(r·log r)",
+    "estructura": (
+        "Mejora de búsqueda — índice invertido + set, ranking con sorted() O(r·log r)"
+    ),
     "algoritmo": "Mejor escalabilidad — heap top-k O(r·log k) + caché LRU de consultas",
     "concurrencia": "Evaluar overhead — indexación MapReduce sobre ProcessPoolExecutor",
     "final": "Resultado final — indexación paralela + caché caliente",
@@ -104,7 +110,17 @@ CON_INDICE = ("estructura", "algoritmo", "concurrencia", "final")
 
 
 def corpus_de(tamano):
-    """Directorio del corpus para un tamaño dado."""
+    """
+    Directorio del corpus para un tamaño dado.
+
+    El de 50.000 documentos es ``data/corpus``; los demás viven en
+    ``data/corpus_<tamaño>``.
+
+    :param tamano: Cantidad de documentos del corpus.
+    :type tamano: int
+    :return: Ruta del directorio, exista o no.
+    :rtype: pathlib.Path
+    """
     if tamano == 50000:
         return CORPUS_PRINCIPAL
     return DIR_DATOS / f"corpus_{tamano}"
@@ -115,6 +131,10 @@ def _carga_del_sistema():
     Carga promedio del último minuto, o None si el SO no la expone.
 
     Windows no tiene `getloadavg`; ahí la guarda simplemente no aplica.
+
+    :return: Carga promedio del último minuto, o ``None`` si el sistema operativo no la
+        expone.
+    :rtype: float | None
     """
     try:
         return os.getloadavg()[0]
@@ -129,8 +149,11 @@ def _rss_mb():
     En Unix se usa `ru_maxrss`, que viene en bytes en macOS y en
     kilobytes en Linux. Windows no tiene el módulo `resource`: ahí se
     recurre a `psutil`, cuyo `peak_wset` es el equivalente exacto.
-    """
 
+    :return: Pico de RSS en MB, o ``None`` si no hay forma de leerlo (Windows sin
+        ``psutil``).
+    :rtype: float | None
+    """
     if resource is not None:
         pico = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         return pico / (1024 * 1024) if sys.platform == "darwin" else pico / 1024
@@ -150,24 +173,37 @@ def _rss_mb():
 # RANKING PREVIO A LA OPTIMIZACIÓN ALGORÍTMICA
 # ============================================================
 
-def _rankear_sorted(indice, terminos, candidatos, k, total_docs):
-    """
-    Ranking de la etapa "estructura optimizada": ya hay índice
-    invertido y set, pero todavía no hay heap ni caché.
 
-    Materializa un dict de scores de tamaño O(r) y ordena la lista
-    completa en O(r · log r). Es la implementación que `rankear()`
-    reemplazó, y se conserva aquí para que la tabla comparativa
-    pueda medir el efecto aislado del heap.
+def _rankear_sorted(indice, terminos, candidatos, top_k, total_docs):
     """
+    Ranking de la etapa "estructura optimizada", previa al heap.
 
-    if not candidatos or k <= 0:
+    En esa etapa ya hay índice invertido y set, pero todavía no hay
+    heap ni caché. Materializa un dict de scores de tamaño O(r) y
+    ordena la lista completa en O(r · log r). Es la implementación que
+    `rankear()` reemplazó, y se conserva aquí para que la tabla
+    comparativa pueda medir el efecto aislado del heap.
+
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param terminos: Términos normalizados de la consulta.
+    :type terminos: tuple[str, ...]
+    :param candidatos: Documentos que contienen todos los términos.
+    :type candidatos: set[int]
+    :param top_k: Cantidad máxima de documentos a devolver.
+    :type top_k: int
+    :param total_docs: Cantidad de documentos del corpus, para el IDF.
+    :type total_docs: int
+    :return: Pares ``(doc_id, score)`` de mayor a menor score; los empates, por doc_id
+        creciente.
+    :rtype: list[tuple[int, float]]
+    """
+    if not candidatos or top_k <= 0:
         return []
 
     scores = {}
 
     for doc_id in candidatos:
-
         score = 0.0
 
         for termino in terminos:
@@ -177,17 +213,15 @@ def _rankear_sorted(indice, terminos, candidatos, k, total_docs):
 
         scores[doc_id] = score
 
-    ordenados = sorted(
-        scores.items(),
-        key=lambda par: (-par[1], par[0])
-    )
+    ordenados = sorted(scores.items(), key=lambda par: (-par[1], par[0]))
 
-    return ordenados[:k]
+    return ordenados[:top_k]
 
 
 # ============================================================
 # MEDICIÓN DE UNA VERSIÓN (se ejecuta en un proceso limpio)
 # ============================================================
+
 
 def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     """
@@ -199,8 +233,19 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     RSS. Cronometrar con él activo inflaba todos los tiempos de la
     tabla comparativa. La atribución de memoria se hace en una
     pasada aparte, que no se cronometra.
-    """
 
+    :param version: Versión a medir, una de ``VERSIONES``.
+    :type version: str
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :param con_tracemalloc: Si se mide además el pico de memoria con ``tracemalloc``.
+    :type con_tracemalloc: bool
+    :return: Métricas de la versión: tiempo de indexación, tiempo de consulta (mediana,
+        mínimo y máximo), RSS, pico de ``tracemalloc`` y total de coincidencias.
+    :rtype: dict
+    """
     if con_tracemalloc:
         tracemalloc.start()
 
@@ -208,7 +253,6 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     tiempos = []
 
     if version == "inicial":
-
         # Sin índice: cada consulta relee el corpus completo.
         for _ in range(repeticiones):
             inicio = time.perf_counter()
@@ -222,7 +266,6 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
         documentos = sum(1 for _ in corpus_dir.glob("*.txt"))
 
     else:
-
         constructor = (
             concurrente.construir_indice
             if version in ("concurrencia", "final")
@@ -238,7 +281,6 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
         terminos = optimizado.normalizar_consulta(CONSULTA)
 
         if version == "estructura":
-
             for _ in range(repeticiones):
                 inicio = time.perf_counter()
                 candidatos = optimizado.buscar(indice, terminos)
@@ -250,7 +292,6 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
             coincidencias = len(candidatos)
 
         else:
-
             buscador = optimizado.Buscador(indice, archivos)
 
             if version == "final":
@@ -258,7 +299,6 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
                 buscador.buscar(CONSULTA, TOP_K)
 
             for _ in range(repeticiones):
-
                 if version != "final":
                     # Caché forzada a fallo: mide el costo real de resolver.
                     buscador.cache = optimizado.QueryCache(1024)
@@ -296,21 +336,40 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
 MARCA_JSON = "__JSON__"
 
 
-def _medir_en_subproceso(version, corpus_dir, repeticiones,
-                         con_tracemalloc=False, serie_memoria=False):
+def _medir_en_subproceso(
+    version, corpus_dir, repeticiones, con_tracemalloc=False, serie_memoria=False
+):
     """
     Lanza `--medir` en un intérprete nuevo y recupera su JSON.
 
     El proceso limpio es lo que hace comparable el pico de RSS: si
     todas las versiones corrieran en el mismo intérprete, la primera
     en construir el índice fijaría el máximo para todas las demás.
-    """
 
+    :param version: Versión a medir, una de ``VERSIONES``.
+    :type version: str
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: str | pathlib.Path
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :param con_tracemalloc: Si se mide además el pico de memoria con ``tracemalloc``.
+    :type con_tracemalloc: bool
+    :param serie_memoria: Si se muestrea además el RSS durante toda la corrida.
+    :type serie_memoria: bool
+    :return: Las métricas de :func:`medir_version` calculadas en el proceso hijo; con
+        ``serie_memoria``, también la serie ``serie_mb``.
+    :rtype: dict
+    :raises RuntimeError: Si el proceso hijo no imprime su JSON.
+    """
     orden = [
-        sys.executable, str(SRC_DIR / "perfilado.py"),
-        "--medir", version,
-        "--directorio", str(corpus_dir),
-        "--repeticiones", str(repeticiones),
+        sys.executable,
+        str(SRC_DIR / "perfilado.py"),
+        "--medir",
+        version,
+        "--directorio",
+        str(corpus_dir),
+        "--repeticiones",
+        str(repeticiones),
     ]
 
     if con_tracemalloc:
@@ -329,7 +388,7 @@ def _medir_en_subproceso(version, corpus_dir, repeticiones,
 
     for linea in salida.stdout.splitlines():
         if linea.startswith(MARCA_JSON):
-            return json.loads(linea[len(MARCA_JSON):])
+            return json.loads(linea[len(MARCA_JSON) :])
 
     raise RuntimeError(
         f"la medición de '{version}' no devolvió JSON\n"
@@ -343,8 +402,20 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
 
     Se descartan las primeras `descartar` rondas —el page cache no
     está en régimen estacionario— y se reporta la mediana del resto.
-    """
 
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param rondas: Rondas que se resumen, sin contar las descartadas.
+    :type rondas: int
+    :param repeticiones: Consultas cronometradas por versión y ronda. La línea base usa
+        3, porque relee el corpus completo en cada una.
+    :type repeticiones: int
+    :param descartar: Rondas iniciales de calentamiento que se descartan.
+    :type descartar: int
+    :return: ``{"resumen": ..., "crudo": ...}``: la mediana de cada versión y todas las
+        mediciones individuales.
+    :rtype: dict
+    """
     # Una máquina sobresuscripta invalida la medición sin avisar: los
     # tiempos salen inflados de forma despareja y aparecen resultados
     # imposibles, como que la versión paralela tarde más que la
@@ -364,12 +435,10 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
     crudo = {version: [] for version in VERSIONES}
 
     for ronda in range(rondas + descartar):
-
         marca = "descartada" if ronda < descartar else "medida"
         print(f"  ronda {ronda + 1}/{rondas + descartar} ({marca})", flush=True)
 
         for version in VERSIONES:
-
             # `inicial` relee todo el corpus en cada repetición: con el
             # corpus grande, 10 repeticiones son medio minuto por ronda.
             reps = 3 if version == "inicial" else repeticiones
@@ -394,31 +463,33 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
     picos = {}
 
     for version in VERSIONES:
-        medicion = _medir_en_subproceso(
-            version, corpus_dir, 1, con_tracemalloc=True
-        )
+        medicion = _medir_en_subproceso(version, corpus_dir, 1, con_tracemalloc=True)
         picos[version] = medicion["tracemalloc_mb"]
 
     resumen = {}
 
     for version in VERSIONES:
-
-        utiles = [m for m in crudo[version] if not m["descartada"]]
+        utiles = [medicion for medicion in crudo[version] if not medicion["descartada"]]
 
         indexaciones = [
-            m["indexacion_ms"] for m in utiles
-            if m["indexacion_ms"] is not None
+            medicion["indexacion_ms"]
+            for medicion in utiles
+            if medicion["indexacion_ms"] is not None
         ]
 
         # En Windows sin psutil no hay lectura de RSS: la mediana se
         # calcula solo sobre las muestras que existen.
-        rss = [m["rss_mb"] for m in utiles if m["rss_mb"] is not None]
+        rss = [
+            medicion["rss_mb"] for medicion in utiles if medicion["rss_mb"] is not None
+        ]
 
         resumen[version] = {
             "etiqueta": ETIQUETAS[version],
             "observacion": OBSERVACIONES[version],
             "documentos": utiles[0]["documentos"],
-            "consulta_ms": statistics.median(m["consulta_ms"] for m in utiles),
+            "consulta_ms": statistics.median(
+                medicion["consulta_ms"] for medicion in utiles
+            ),
             "indexacion_ms": statistics.median(indexaciones) if indexaciones else None,
             "rss_mb": statistics.median(rss) if rss else None,
             "tracemalloc_mb": picos[version],
@@ -437,6 +508,7 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
 # BARRIDO DE ESCALABILIDAD
 # ============================================================
 
+
 def asegurar_corpus(tamano):
     """
     Garantiza que exista un corpus del tamaño pedido.
@@ -445,15 +517,16 @@ def asegurar_corpus(tamano):
     generan con el mismo generador de la línea base, de modo que el
     vocabulario y la distribución sean idénticos y la única variable
     del barrido sea el volumen.
-    """
 
+    :param tamano: Cantidad de documentos.
+    :type tamano: int
+    :return: Directorio del corpus, con exactamente ``tamano`` documentos. Si existía
+        con otra cantidad, se regenera.
+    :rtype: pathlib.Path
+    """
     directorio = corpus_de(tamano)
 
-    existentes = (
-        len(list(directorio.glob("*.txt")))
-        if directorio.exists()
-        else 0
-    )
+    existentes = len(list(directorio.glob("*.txt"))) if directorio.exists() else 0
 
     if existentes == tamano:
         return directorio
@@ -479,19 +552,27 @@ def escalabilidad(tamanos, rondas, repeticiones):
     Responde la pregunta de la consigna sobre si la mejora se
     sostiene al aumentar el volumen: una optimización que solo gana
     en corpus chicos se delata acá.
-    """
 
+    :param tamanos: Tamaños de corpus a medir, en cantidad de documentos.
+    :type tamanos: tuple[int, ...]
+    :param rondas: Rondas por tamaño (ver :func:`comparativa`).
+    :type rondas: int
+    :param repeticiones: Consultas cronometradas por versión y ronda.
+    :type repeticiones: int
+    :return: El resumen de :func:`comparativa` para cada tamaño, con el tamaño como
+        clave de texto.
+    :rtype: dict[str, dict]
+    """
     resultados = {}
 
     for tamano in tamanos:
-
         print(f"\n[escalabilidad] corpus de {tamano} documentos", flush=True)
 
         directorio = asegurar_corpus(tamano)
 
-        resultados[str(tamano)] = comparativa(
-            directorio, rondas, repeticiones
-        )["resumen"]
+        resultados[str(tamano)] = comparativa(directorio, rondas, repeticiones)[
+            "resumen"
+        ]
 
     return resultados
 
@@ -500,6 +581,7 @@ def escalabilidad(tamanos, rondas, repeticiones):
 # HERRAMIENTA 1 — cProfile
 # ============================================================
 
+
 def perfilar_cprofile(corpus_dir, versiones):
     """
     Perfil determinista por función de cada versión.
@@ -507,25 +589,36 @@ def perfilar_cprofile(corpus_dir, versiones):
     Se ejecuta en subprocesos para que el perfil no incluya al
     orquestador. Devuelve las funciones más caras por tiempo
     acumulado y deja el `.prof` para inspección con snakeviz.
-    """
 
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :return: Por versión: la ruta del ``.prof``, el tiempo total instrumentado y las
+        funciones más caras.
+    :rtype: dict[str, dict]
+    """
     import pstats
 
     hallazgos = {}
 
     for version in versiones:
-
         destino = DIR_PERFILES / f"cprofile-{version}.prof"
 
         print(f"  cProfile: {version}", flush=True)
 
         subprocess.run(  # nosec B603
             [
-                sys.executable, str(SRC_DIR / "perfilado.py"),
-                "--medir", version,
-                "--directorio", str(corpus_dir),
-                "--repeticiones", "1",
-                "--perfil-cprofile", str(destino),
+                sys.executable,
+                str(SRC_DIR / "perfilado.py"),
+                "--medir",
+                version,
+                "--directorio",
+                str(corpus_dir),
+                "--repeticiones",
+                "1",
+                "--perfil-cprofile",
+                str(destino),
             ],
             cwd=str(BASE_DIR),
             capture_output=True,
@@ -543,15 +636,16 @@ def perfilar_cprofile(corpus_dir, versiones):
             key=lambda par: par[1][3],
             reverse=True,
         )[:12]:
-
             archivo, linea, nombre = func
 
-            filas.append({
-                "funcion": f"{Path(archivo).name}:{linea}({nombre})",
-                "llamadas": llamadas,
-                "tottime": propio,
-                "cumtime": acumulado,
-            })
+            filas.append(
+                {
+                    "funcion": f"{Path(archivo).name}:{linea}({nombre})",
+                    "llamadas": llamadas,
+                    "tottime": propio,
+                    "cumtime": acumulado,
+                }
+            )
 
         hallazgos[version] = {
             "archivo": str(destino.relative_to(BASE_DIR)),
@@ -566,6 +660,7 @@ def perfilar_cprofile(corpus_dir, versiones):
 # HERRAMIENTA 2 — line_profiler
 # ============================================================
 
+
 def perfilar_line(corpus_dir, versiones):
     """
     Costo línea a línea de las funciones calientes.
@@ -575,18 +670,24 @@ def perfilar_line(corpus_dir, versiones):
     concurrente no puede perfilarse por esta vía —sus workers son
     intérpretes separados—. Es una limitación de la herramienta, no
     del código, y queda registrada como tal.
-    """
 
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :return: Por versión: la ruta del reporte y su texto, o el motivo por el que se
+        omitió.
+    :rtype: dict[str, dict]
+    """
     from line_profiler import LineProfiler
 
     hallazgos = {}
 
     for version in versiones:
-
         if version in ("concurrencia", "final"):
             hallazgos[version] = {
                 "omitido": "line_profiler no cruza el límite de proceso: "
-                           "el trabajo ocurre en los workers, no en este intérprete"
+                "el trabajo ocurre en los workers, no en este intérprete"
             }
             continue
 
@@ -628,6 +729,7 @@ def perfilar_line(corpus_dir, versiones):
 # HERRAMIENTA 3 — memory_profiler
 # ============================================================
 
+
 def perfilar_memoria(corpus_dir, versiones):
     """
     Evolución del RSS durante la corrida completa de cada versión.
@@ -635,12 +737,18 @@ def perfilar_memoria(corpus_dir, versiones):
     `include_children=True` es imprescindible en la versión
     concurrente: sin él se mediría solo al padre y la memoria de los
     workers quedaría invisible.
-    """
 
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :return: Por versión: la serie de RSS en MB, su pico, su base y el intervalo de
+        muestreo, o el motivo por el que se omitió.
+    :rtype: dict[str, dict]
+    """
     hallazgos = {}
 
     for version in versiones:
-
         print(f"  memory_profiler: {version}", flush=True)
 
         # El muestreo lo hace el propio subproceso sobre sí mismo.
@@ -649,9 +757,7 @@ def perfilar_memoria(corpus_dir, versiones):
         # de 27 a 107 MB); y desde afuera por PID, `memory_usage` toma
         # una sola muestra sin `timeout`, y con `timeout` revienta
         # cuando el hijo queda zombie antes de ser cosechado.
-        medicion = _medir_en_subproceso(
-            version, corpus_dir, 1, serie_memoria=True
-        )
+        medicion = _medir_en_subproceso(version, corpus_dir, 1, serie_memoria=True)
 
         serie = medicion.get("serie_mb") or []
 
@@ -675,19 +781,30 @@ def perfilar_memoria(corpus_dir, versiones):
 # HERRAMIENTA 4 — Scalene
 # ============================================================
 
+
 def perfilar_scalene(corpus_dir, versiones, limite_s=150):
     """
-    Perfil combinado de CPU y memoria, línea a línea, con separación
-    entre tiempo de Python y tiempo nativo.
+    Perfila CPU y memoria línea a línea con Scalene.
 
-    Scalene 2.3 escribe un JSON y lo renderiza aparte con
-    `scalene view <archivo>`.
+    Separa el tiempo de Python del tiempo nativo. Scalene 2.3 escribe
+    un JSON y lo renderiza aparte con `scalene view <archivo>`.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :param limite_s: Segundos máximos por versión antes de abortar Scalene.
+    :type limite_s: int
+    :return: Por versión: el JSON de Scalene y su resumen, el error o el motivo de la
+        omisión. Si Scalene no está instalado, ``{"omitido": ...}``.
+    :rtype: dict
     """
-
     en_windows = sys.platform.startswith("win")
 
     scalene = (
-        BASE_DIR / ".venv" / ("Scripts" if en_windows else "bin")
+        BASE_DIR
+        / ".venv"
+        / ("Scripts" if en_windows else "bin")
         / ("scalene.exe" if en_windows else "scalene")
     )
 
@@ -697,7 +814,6 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
     hallazgos = {}
 
     for version in versiones:
-
         destino = DIR_PERFILES / f"scalene-{version}.json"
 
         print(f"  scalene: {version}", flush=True)
@@ -705,13 +821,18 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
         try:
             proceso = subprocess.run(  # nosec B603
                 [
-                    str(scalene), "run",
-                    "-o", str(destino),
+                    str(scalene),
+                    "run",
+                    "-o",
+                    str(destino),
                     str(SRC_DIR / "perfilado.py"),
                     "---",
-                    "--medir", version,
-                    "--directorio", str(corpus_dir),
-                    "--repeticiones", "1",
+                    "--medir",
+                    version,
+                    "--directorio",
+                    str(corpus_dir),
+                    "--repeticiones",
+                    "1",
                 ],
                 cwd=str(BASE_DIR),
                 capture_output=True,
@@ -725,15 +846,13 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
             destino.unlink(missing_ok=True)
             hallazgos[version] = {
                 "omitido": f"Scalene excedió {limite_s}s sobre esta versión: su "
-                           "instrumentación no acompaña a los procesos hijos "
-                           "creados por spawn"
+                "instrumentación no acompaña a los procesos hijos "
+                "creados por spawn"
             }
             continue
 
         if proceso.returncode != 0 or not destino.exists():
-            hallazgos[version] = {
-                "error": (proceso.stderr or proceso.stdout)[-400:]
-            }
+            hallazgos[version] = {"error": (proceso.stderr or proceso.stdout)[-400:]}
             continue
 
         hallazgos[version] = {
@@ -751,8 +870,13 @@ def _resumir_scalene(archivo):
 
     El esquema cambia entre versiones, así que la lectura es
     defensiva: si no se reconoce, se informa y se deja el archivo.
-    """
 
+    :param archivo: JSON que escribió Scalene.
+    :type archivo: pathlib.Path
+    :return: Tiempo total, huella máxima de memoria y las líneas más caras, o
+        ``{"error": ...}`` si el JSON no se puede leer.
+    :rtype: dict
+    """
     try:
         datos = json.loads(archivo.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -761,24 +885,23 @@ def _resumir_scalene(archivo):
     filas = []
 
     for ruta, contenido in (datos.get("files") or {}).items():
-
-        for linea in (contenido.get("lines") or []):
-
-            cpu = (
-                linea.get("n_cpu_percent_python", 0.0)
-                + linea.get("n_cpu_percent_c", 0.0)
+        for linea in contenido.get("lines") or []:
+            cpu = linea.get("n_cpu_percent_python", 0.0) + linea.get(
+                "n_cpu_percent_c", 0.0
             )
 
             if cpu <= 0.5:
                 continue
 
-            filas.append({
-                "ubicacion": f"{Path(ruta).name}:{linea.get('lineno')}",
-                "codigo": (linea.get("line") or "").strip()[:90],
-                "cpu_pct": round(cpu, 2),
-                "cpu_python_pct": round(linea.get("n_cpu_percent_python", 0.0), 2),
-                "memoria_mb": round(linea.get("n_peak_mb", 0.0), 2),
-            })
+            filas.append(
+                {
+                    "ubicacion": f"{Path(ruta).name}:{linea.get('lineno')}",
+                    "codigo": (linea.get("line") or "").strip()[:90],
+                    "cpu_pct": round(cpu, 2),
+                    "cpu_python_pct": round(linea.get("n_cpu_percent_python", 0.0), 2),
+                    "memoria_mb": round(linea.get("n_peak_mb", 0.0), 2),
+                }
+            )
 
     filas.sort(key=lambda fila: fila["cpu_pct"], reverse=True)
 
@@ -793,6 +916,7 @@ def _resumir_scalene(archivo):
 # HERRAMIENTA 5 — py-spy
 # ============================================================
 
+
 def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     """
     Muestreo estadístico desde fuera del proceso; genera flamegraphs.
@@ -802,16 +926,36 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     un script con los comandos exactos para correr a mano. Es la
     única herramienta de las cinco que puede perfilar un proceso ya
     en marcha sin instrumentarlo.
-    """
 
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
+    :type versiones: tuple[str, ...]
+    :param ejecutar: Si se corre ``py-spy`` ahora (en macOS pide ``sudo``). Si es falso,
+        solo se escribe el script con los comandos.
+    :type ejecutar: bool
+    :return: Por versión, la ruta del flamegraph o el error. Sin ``ejecutar``,
+        ``{"omitido": ..., "script": ..., "comandos": [...]}``.
+    :rtype: dict
+    """
     en_windows = sys.platform.startswith("win")
 
     pyspy = (
-        BASE_DIR / ".venv" / ("Scripts" if en_windows else "bin")
+        BASE_DIR
+        / ".venv"
+        / ("Scripts" if en_windows else "bin")
         / ("py-spy.exe" if en_windows else "py-spy")
     )
 
     def _relativa(ruta):
+        """
+        Expresa una ruta relativa a la raíz del repositorio, si está dentro.
+
+        :param ruta: Ruta a convertir.
+        :type ruta: str | pathlib.Path
+        :return: La ruta relativa a ``BASE_DIR``, o la original si queda fuera.
+        :rtype: pathlib.Path
+        """
         try:
             return Path(ruta).relative_to(BASE_DIR)
         except ValueError:
@@ -823,7 +967,6 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     comandos = []
 
     for version in versiones:
-
         destino = DIR_PERFILES / f"pyspy-{version}.svg"
 
         comandos.append(
@@ -839,7 +982,8 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
         script.write_text(
             "@echo off\r\n"
             "REM Ejecutar desde la raiz del repo.\r\n\r\n"
-            + "\r\n\r\n".join(comandos) + "\r\n",
+            + "\r\n\r\n".join(comandos)
+            + "\r\n",
             encoding="utf-8",
         )
     else:
@@ -855,7 +999,8 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     if not ejecutar:
         return {
             "omitido": (
-                "comandos escritos en profiles/pyspy.bat" if en_windows
+                "comandos escritos en profiles/pyspy.bat"
+                if en_windows
                 else "requiere sudo en macOS; comandos escritos en profiles/pyspy.sh"
             ),
             "script": str(script.relative_to(BASE_DIR)),
@@ -865,14 +1010,17 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     hallazgos = {}
 
     for version, comando in zip(versiones, comandos):
-
         print(f"  py-spy: {version} (pedirá contraseña)", flush=True)
 
         # shell=True porque el mismo comando se escribe en pyspy.sh/.bat
         # para correrlo a mano (incluye `sudo`); se arma con rutas internas.
         proceso = subprocess.run(  # nosec B602
-            comando, shell=True, cwd=str(BASE_DIR),
-            capture_output=True, text=True, check=False,
+            comando,
+            shell=True,
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            check=False,
         )
 
         destino = DIR_PERFILES / f"pyspy-{version}.svg"
@@ -890,7 +1038,19 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
 # TABLA COMPARATIVA EN MARKDOWN
 # ============================================================
 
+
 def _ms(valor):
+    """
+    Formatea milisegundos con punto de miles y coma decimal.
+
+    La precisión depende de la magnitud: cuatro decimales por debajo de
+    0,01 ms, dos hasta 1.000 ms y ninguno por encima.
+
+    :param valor: Milisegundos, o ``None``.
+    :type valor: float | None
+    :return: El valor formateado, o un guion si es ``None``.
+    :rtype: str
+    """
     if valor is None:
         return "—"
     if valor < 0.01:
@@ -901,6 +1061,14 @@ def _ms(valor):
 
 
 def _mb(valor):
+    """
+    Formatea megabytes con un decimal y coma decimal.
+
+    :param valor: Megabytes, o ``None``.
+    :type valor: float | None
+    :return: El valor formateado, o un guion si es ``None``.
+    :rtype: str
+    """
     return "—" if valor is None else f"{valor:,.1f}".replace(".", ",")
 
 
@@ -911,26 +1079,46 @@ def _num(valor, decimales=0):
     Se formatea cada número por separado en lugar de aplicar un
     `.replace(",", ".")` sobre la frase entera, que también pisaba las
     comas de la prosa ("Sí, y se amplifica" -> "Sí. y se amplifica").
+
+    :param valor: Número a formatear.
+    :type valor: float
+    :param decimales: Cantidad de decimales.
+    :type decimales: int
+    :return: El número con punto de miles y coma decimal.
+    :rtype: str
     """
     texto = f"{valor:,.{decimales}f}"
     return texto.replace(",", "@").replace(".", ",").replace("@", ".")
 
 
 def _celda_ms(valor):
-    """Celda de tiempo: el guion va solo, sin unidad detrás."""
+    """
+    Celda de tiempo: el guion va solo, sin unidad detrás.
+
+    :param valor: Milisegundos, o ``None``.
+    :type valor: float | None
+    :return: ``"<valor> ms"``, o solo un guion si no hay valor.
+    :rtype: str
+    """
     return "—" if valor is None else f"{_ms(valor)} ms"
 
 
 def tabla_markdown(resumen):
-    """Tabla comparativa obligatoria, lista para pegar en el README."""
+    """
+    Tabla comparativa obligatoria, lista para pegar en el README.
 
+    :param resumen: Mediana por versión, tal como la devuelve :func:`comparativa`.
+    :type resumen: dict[str, dict]
+    :return: La tabla en Markdown, con una fila por versión.
+    :rtype: str
+    """
     filas = [
-        "| Versión | Tiempo de consulta | Costo de indexación | Memoria (RSS) | Observación |",
+        "| Versión | Tiempo de consulta | Costo de indexación | Memoria (RSS) | "
+        "Observación |",
         "| :--- | ---: | ---: | ---: | :--- |",
     ]
 
     for version in VERSIONES:
-
         dato = resumen[version]
 
         filas.append(
@@ -971,6 +1159,16 @@ PALETAS = {
 
 
 def _figura(paleta, alto=4.2):
+    """
+    Crea una figura con el fondo de la paleta.
+
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param alto: Alto de la figura, en pulgadas.
+    :type alto: float
+    :return: La figura y sus ejes.
+    :rtype: tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]
+    """
     import matplotlib.pyplot as plt
 
     figura, ejes = plt.subplots(figsize=(7.6, alto), dpi=192)
@@ -981,11 +1179,29 @@ def _figura(paleta, alto=4.2):
 
 
 def _cromo(ejes, paleta, titulo, etiqueta_x=None, etiqueta_y=None, grilla="y"):
-    """Grilla y ejes en hairline sólido, recesivos; texto en tintas."""
+    """
+    Grilla y ejes en hairline sólido, recesivos; texto en tintas.
 
+    :param ejes: Ejes a estilizar.
+    :type ejes: matplotlib.axes.Axes
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param titulo: Título del gráfico.
+    :type titulo: str
+    :param etiqueta_x: Rótulo del eje x, si lo lleva.
+    :type etiqueta_x: str | None
+    :param etiqueta_y: Rótulo del eje y, si lo lleva.
+    :type etiqueta_y: str | None
+    :param grilla: Eje sobre el que se dibuja la grilla: ``"x"``, ``"y"`` o ``"both"``.
+    :type grilla: str
+    """
     ejes.set_title(
-        titulo, color=paleta["tinta"], fontsize=11.5,
-        loc="left", pad=14, fontweight="bold",
+        titulo,
+        color=paleta["tinta"],
+        fontsize=11.5,
+        loc="left",
+        pad=14,
+        fontweight="bold",
     )
 
     if etiqueta_x:
@@ -1002,20 +1218,38 @@ def _cromo(ejes, paleta, titulo, etiqueta_x=None, etiqueta_y=None, grilla="y"):
         ejes.spines[lado].set_linewidth(0.8)
 
     ejes.grid(
-        axis=grilla, color=paleta["grilla"],
-        linewidth=0.8, linestyle="-", zorder=0,
+        axis=grilla,
+        color=paleta["grilla"],
+        linewidth=0.8,
+        linestyle="-",
+        zorder=0,
     )
     ejes.set_axisbelow(True)
 
 
 def _guardar(figura, nombre, modo):
+    """
+    Guarda la figura como PNG en ``profiles/`` y la cierra.
+
+    :param figura: Figura a guardar.
+    :type figura: matplotlib.figure.Figure
+    :param nombre: Nombre base del gráfico.
+    :type nombre: str
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     destino = DIR_PERFILES / f"{nombre}-{modo}.png"
     figura.savefig(
-        destino, facecolor=figura.get_facecolor(),
-        bbox_inches="tight", pad_inches=0.28,
+        destino,
+        facecolor=figura.get_facecolor(),
+        bbox_inches="tight",
+        pad_inches=0.28,
     )
 
     import matplotlib.pyplot as plt
+
     plt.close(figura)
 
     return destino
@@ -1023,73 +1257,104 @@ def _guardar(figura, nombre, modo):
 
 def _etiquetas_al_final(ejes, puntos, paleta, separacion_px=17):
     """
-    Rotula cada serie en su extremo derecho, separando las etiquetas
-    que se pisarían.
+    Rotula cada serie en su extremo derecho sin que las etiquetas se pisen.
 
     Dos series con valores casi iguales —el caso de "algoritmo" y
     "concurrencia", que comparten el camino de consulta— dejan sus
     etiquetas una sobre otra. Se ordenan por altura y se empujan
     verticalmente hasta respetar una separación mínima.
-    """
 
+    :param ejes: Ejes del gráfico.
+    :type ejes: matplotlib.axes.Axes
+    :param puntos: Último punto de cada serie, como ``(x, y, texto)``.
+    :type puntos: list[tuple[float, float, str]]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param separacion_px: Separación vertical mínima entre etiquetas, en píxeles.
+    :type separacion_px: int
+    """
     ejes.figure.canvas.draw()
 
     # (posición en píxeles, x, y, texto), de abajo hacia arriba
     ubicados = sorted(
-        (ejes.transData.transform((x, y))[1], x, y, texto)
-        for x, y, texto in puntos
+        (ejes.transData.transform((x_dato, y_dato))[1], x_dato, y_dato, texto)
+        for x_dato, y_dato, texto in puntos
     )
 
     ajustadas = []
     ultima = None
 
-    for pixel, x, y, texto in ubicados:
-
-        destino = (
-            pixel if ultima is None
-            else max(pixel, ultima + separacion_px)
-        )
-        ajustadas.append((x, y, texto, destino - pixel))
+    for pixel, x_dato, y_dato, texto in ubicados:
+        destino = pixel if ultima is None else max(pixel, ultima + separacion_px)
+        ajustadas.append((x_dato, y_dato, texto, destino - pixel))
         ultima = destino
 
     # matplotlib desplaza en puntos tipográficos, no en píxeles
     por_punto = ejes.figure.dpi / 72
 
-    for x, y, texto, desvio_px in ajustadas:
+    for x_dato, y_dato, texto, desvio_px in ajustadas:
         ejes.annotate(
-            texto, (x, y),
+            texto,
+            (x_dato, y_dato),
             xytext=(10, desvio_px / por_punto),
             textcoords="offset points",
-            color=paleta["tinta_secundaria"], fontsize=8.5,
-            va="center", zorder=4,
+            color=paleta["tinta_secundaria"],
+            fontsize=8.5,
+            va="center",
+            zorder=4,
         )
 
 
 def _grafico_escalabilidad_consulta(datos, paleta, modo):
-    tamanos = sorted(int(t) for t in datos)
+    """
+    Grafica el tiempo de consulta de cada versión según el tamaño del corpus.
+
+    El eje y es logarítmico: los tiempos van de milésimas de
+    milisegundo a segundos.
+
+    :param datos: Resumen por tamaño de corpus, tal como lo devuelve
+        :func:`escalabilidad`.
+    :type datos: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
+    tamanos = sorted(int(tamano) for tamano in datos)
     figura, ejes = _figura(paleta)
 
     rotulos = []
 
     for indice, version in enumerate(VERSIONES):
-        valores = [datos[str(t)][version]["consulta_ms"] for t in tamanos]
+        valores = [datos[str(tamano)][version]["consulta_ms"] for tamano in tamanos]
 
         ejes.plot(
-            tamanos, valores, color=paleta["series"][indice], linewidth=2,
-            marker="o", markersize=5, markeredgecolor=paleta["superficie"],
-            markeredgewidth=2, label=ETIQUETAS[version], zorder=3,
+            tamanos,
+            valores,
+            color=paleta["series"][indice],
+            linewidth=2,
+            marker="o",
+            markersize=5,
+            markeredgecolor=paleta["superficie"],
+            markeredgewidth=2,
+            label=ETIQUETAS[version],
+            zorder=3,
         )
         rotulos.append((tamanos[-1], valores[-1], ETIQUETAS[version]))
 
     ejes.set_yscale("log")
     ejes.set_xticks(tamanos)
-    ejes.set_xticklabels([f"{t:,}".replace(",", ".") for t in tamanos])
+    ejes.set_xticklabels([f"{tamano:,}".replace(",", ".") for tamano in tamanos])
     ejes.set_xlim(tamanos[0] * 0.97, tamanos[-1] * 1.62)
 
     _cromo(
-        ejes, paleta,
+        ejes,
+        paleta,
         "Tiempo de consulta según el volumen del corpus",
-        "documentos del corpus", "milisegundos (escala log)",
+        "documentos del corpus",
+        "milisegundos (escala log)",
     )
 
     _etiquetas_al_final(ejes, rotulos, paleta)
@@ -1097,16 +1362,34 @@ def _grafico_escalabilidad_consulta(datos, paleta, modo):
     # La leyenda va debajo del área de trazado: dentro se superponía
     # con las propias series que debía identificar.
     ejes.legend(
-        frameon=False, fontsize=8.5, labelcolor=paleta["tinta_secundaria"],
-        loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3,
-        handlelength=1.6, columnspacing=1.6,
+        frameon=False,
+        fontsize=8.5,
+        labelcolor=paleta["tinta_secundaria"],
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.16),
+        ncol=3,
+        handlelength=1.6,
+        columnspacing=1.6,
     )
 
     return _guardar(figura, "escalabilidad-consulta", modo)
 
 
 def _grafico_escalabilidad_indexacion(datos, paleta, modo):
-    tamanos = sorted(int(t) for t in datos)
+    """
+    Grafica el costo de indexación según el tamaño del corpus.
+
+    :param datos: Resumen por tamaño de corpus, tal como lo devuelve
+        :func:`escalabilidad`.
+    :type datos: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
+    tamanos = sorted(int(tamano) for tamano in datos)
     figura, ejes = _figura(paleta)
 
     lineas = (
@@ -1118,31 +1401,42 @@ def _grafico_escalabilidad_indexacion(datos, paleta, modo):
 
     for version, etiqueta, color in lineas:
         valores = [
-            datos[str(t)][version]["indexacion_ms"] / 1000 for t in tamanos
+            datos[str(tamano)][version]["indexacion_ms"] / 1000 for tamano in tamanos
         ]
         ejes.plot(
-            tamanos, valores, color=color, linewidth=2,
-            marker="o", markersize=5, markeredgecolor=paleta["superficie"],
-            markeredgewidth=2, label=etiqueta, zorder=3,
+            tamanos,
+            valores,
+            color=color,
+            linewidth=2,
+            marker="o",
+            markersize=5,
+            markeredgecolor=paleta["superficie"],
+            markeredgewidth=2,
+            label=etiqueta,
+            zorder=3,
         )
         rotulos.append((tamanos[-1], valores[-1], etiqueta))
 
     ejes.set_xticks(tamanos)
-    ejes.set_xticklabels([f"{t:,}".replace(",", ".") for t in tamanos])
+    ejes.set_xticklabels([f"{tamano:,}".replace(",", ".") for tamano in tamanos])
     ejes.set_xlim(tamanos[0] * 0.97, tamanos[-1] * 1.72)
     ejes.set_ylim(0, None)
 
     _cromo(
-        ejes, paleta,
+        ejes,
+        paleta,
         "Costo único de indexación según el volumen",
-        "documentos del corpus", "segundos",
+        "documentos del corpus",
+        "segundos",
     )
 
     _etiquetas_al_final(ejes, rotulos, paleta)
 
     ejes.legend(
-        frameon=False, fontsize=8.5,
-        labelcolor=paleta["tinta_secundaria"], loc="upper left",
+        frameon=False,
+        fontsize=8.5,
+        labelcolor=paleta["tinta_secundaria"],
+        loc="upper left",
     )
 
     return _guardar(figura, "escalabilidad-indexacion", modo)
@@ -1155,25 +1449,42 @@ def _grafico_consulta_por_version(resumen, paleta, modo):
     Los valores cubren seis órdenes de magnitud (2.485 ms contra
     0,002 ms): una barra sobre eje log mentiría, porque su longitud
     ya no es proporcional al valor. El punto no promete esa lectura.
-    """
 
+    :param resumen: Mediana por versión, tal como la devuelve :func:`comparativa`.
+    :type resumen: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     figura, ejes = _figura(paleta, alto=3.4)
 
-    etiquetas = [ETIQUETAS[v] for v in VERSIONES]
-    valores = [resumen[v]["consulta_ms"] for v in VERSIONES]
+    etiquetas = [ETIQUETAS[version] for version in VERSIONES]
+    valores = [resumen[version]["consulta_ms"] for version in VERSIONES]
     posiciones = list(range(len(VERSIONES)))[::-1]
 
     for posicion, valor, color in zip(posiciones, valores, paleta["series"]):
         ejes.plot(
-            [valor], [posicion], marker="o", markersize=9,
-            color=color, markeredgecolor=paleta["superficie"],
-            markeredgewidth=2, zorder=3,
+            [valor],
+            [posicion],
+            marker="o",
+            markersize=9,
+            color=color,
+            markeredgecolor=paleta["superficie"],
+            markeredgewidth=2,
+            zorder=3,
         )
         ejes.annotate(
-            f"{_ms(valor)} ms", (valor, posicion),
-            xytext=(13, 0), textcoords="offset points",
-            color=paleta["tinta_secundaria"], fontsize=9,
-            va="center", zorder=4,
+            f"{_ms(valor)} ms",
+            (valor, posicion),
+            xytext=(13, 0),
+            textcoords="offset points",
+            color=paleta["tinta_secundaria"],
+            fontsize=9,
+            va="center",
+            zorder=4,
         )
 
     ejes.set_yticks(posiciones)
@@ -1182,34 +1493,58 @@ def _grafico_consulta_por_version(resumen, paleta, modo):
     ejes.set_xlim(min(valores) * 0.25, max(valores) * 9)
 
     _cromo(
-        ejes, paleta,
-        f"Tiempo por consulta — corpus de {resumen['inicial']['documentos']:,} documentos".replace(",", "."),
-        "milisegundos (escala log)", grilla="x",
+        ejes,
+        paleta,
+        (
+            "Tiempo por consulta — corpus de "
+            f"{resumen['inicial']['documentos']:,} documentos"
+        ).replace(",", "."),
+        "milisegundos (escala log)",
+        grilla="x",
     )
 
     return _guardar(figura, "consulta-por-version", modo)
 
 
 def _grafico_memoria_por_version(resumen, paleta, modo):
-    """Una sola serie: un color para todas las barras, nunca un ramp."""
+    """
+    Grafica el pico de RSS de cada versión en barras.
 
+    Una sola serie: un color para todas las barras, nunca un ramp.
+
+    :param resumen: Mediana por versión, tal como la devuelve :func:`comparativa`.
+    :type resumen: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     figura, ejes = _figura(paleta, alto=3.4)
 
-    etiquetas = [ETIQUETAS[v] for v in VERSIONES]
-    valores = [resumen[v]["rss_mb"] for v in VERSIONES]
+    etiquetas = [ETIQUETAS[version] for version in VERSIONES]
+    valores = [resumen[version]["rss_mb"] for version in VERSIONES]
     posiciones = list(range(len(VERSIONES)))[::-1]
 
     ejes.barh(
-        posiciones, valores, height=0.58,
-        color=paleta["series"][0], zorder=3,
+        posiciones,
+        valores,
+        height=0.58,
+        color=paleta["series"][0],
+        zorder=3,
     )
 
     for posicion, valor in zip(posiciones, valores):
         ejes.annotate(
-            f"{_mb(valor)} MB", (valor, posicion),
-            xytext=(8, 0), textcoords="offset points",
-            color=paleta["tinta_secundaria"], fontsize=9,
-            va="center", zorder=4,
+            f"{_mb(valor)} MB",
+            (valor, posicion),
+            xytext=(8, 0),
+            textcoords="offset points",
+            color=paleta["tinta_secundaria"],
+            fontsize=9,
+            va="center",
+            zorder=4,
         )
 
     ejes.set_yticks(posiciones)
@@ -1217,51 +1552,86 @@ def _grafico_memoria_por_version(resumen, paleta, modo):
     ejes.set_xlim(0, max(valores) * 1.24)
 
     _cromo(
-        ejes, paleta, "Pico de memoria residente por versión",
-        "megabytes", grilla="x",
+        ejes,
+        paleta,
+        "Pico de memoria residente por versión",
+        "megabytes",
+        grilla="x",
     )
 
     return _guardar(figura, "memoria-por-version", modo)
 
 
 def _grafico_memoria_en_el_tiempo(memoria, paleta, modo):
+    """
+    Grafica el RSS de cada versión a lo largo de su corrida.
+
+    :param memoria: Series de RSS por versión, tal como las devuelve
+        :func:`perfilar_memoria`.
+    :type memoria: dict[str, dict]
+    :param paleta: Colores del modo (ver ``PALETAS``).
+    :type paleta: dict[str, str]
+    :param modo: ``"light"`` o ``"dark"``; se agrega al nombre del archivo.
+    :type modo: str
+    :return: Ruta del PNG generado.
+    :rtype: pathlib.Path
+    """
     figura, ejes = _figura(paleta)
 
     for indice, version in enumerate(VERSIONES):
-
         datos = memoria.get(version)
         if not datos or "serie_mb" not in datos:
             continue
 
         serie = datos["serie_mb"]
-        tiempo = [i * datos["intervalo_s"] for i in range(len(serie))]
+        tiempo = [
+            numero_muestra * datos["intervalo_s"]
+            for numero_muestra in range(len(serie))
+        ]
 
         ejes.plot(
-            tiempo, serie, color=paleta["series"][indice],
-            linewidth=2, label=ETIQUETAS[version], zorder=3,
+            tiempo,
+            serie,
+            color=paleta["series"][indice],
+            linewidth=2,
+            label=ETIQUETAS[version],
+            zorder=3,
         )
 
     _cromo(
-        ejes, paleta,
+        ejes,
+        paleta,
         "Memoria residente durante la corrida completa",
-        "segundos", "MB",
+        "segundos",
+        "MB",
     )
 
     # Debajo del área de trazado: adentro tapaba las propias curvas.
     ejes.legend(
-        frameon=False, fontsize=8.5,
+        frameon=False,
+        fontsize=8.5,
         labelcolor=paleta["tinta_secundaria"],
-        loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3,
-        handlelength=1.6, columnspacing=1.6,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.16),
+        ncol=3,
+        handlelength=1.6,
+        columnspacing=1.6,
     )
 
     return _guardar(figura, "memoria-en-el-tiempo", modo)
 
 
 def generar_graficos(resultados):
-    """Renderiza cada gráfico en sus dos modos: claro y oscuro."""
+    """
+    Renderiza cada gráfico en sus dos modos: claro y oscuro.
 
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    :return: Los gráficos generados, como ``{nombre: True}``.
+    :rtype: dict[str, bool]
+    """
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -1270,7 +1640,6 @@ def generar_graficos(resultados):
     generados = {}
 
     for modo, paleta in PALETAS.items():
-
         if resultados.get("escalabilidad"):
             _grafico_escalabilidad_consulta(resultados["escalabilidad"], paleta, modo)
             _grafico_escalabilidad_indexacion(resultados["escalabilidad"], paleta, modo)
@@ -1283,8 +1652,10 @@ def generar_graficos(resultados):
             _grafico_memoria_en_el_tiempo(resultados["memoria"], paleta, modo)
 
     for nombre in (
-        "escalabilidad-consulta", "escalabilidad-indexacion",
-        "consulta-por-version", "memoria-por-version",
+        "escalabilidad-consulta",
+        "escalabilidad-indexacion",
+        "consulta-por-version",
+        "memoria-por-version",
         "memoria-en-el-tiempo",
     ):
         if (DIR_PERFILES / f"{nombre}-light.png").exists():
@@ -1297,14 +1668,20 @@ def generar_graficos(resultados):
 # LAS CINCO PREGUNTAS DE LA CONSIGNA
 # ============================================================
 
+
 def responder_preguntas(resultados):
     """
     Deriva las respuestas de los números medidos, no de la prosa.
 
     Si una medición falta, la respuesta lo dice en lugar de inventar
     un valor.
-    """
 
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    :return: Una respuesta en HTML por pregunta (``cuello``, ``optimizacion``,
+        ``impacto``, ``escalabilidad`` y ``tradeoff``). Vacío si falta la comparativa.
+    :rtype: dict[str, str]
+    """
     comparativa_ = resultados.get("comparativa")
     escalabilidad_ = resultados.get("escalabilidad")
     cprofile_ = resultados.get("cprofile") or {}
@@ -1334,42 +1711,54 @@ def responder_preguntas(resultados):
             break
 
     respuestas["cuello"] = (
-        f"En la línea base, releer y escanear el corpus completo en <strong>cada</strong> "
-        f"consulta: {_ms(inicial['consulta_ms'])} ms por búsqueda, con E/S proporcional al "
-        f"corpus. Una vez introducido el índice, el cuello de botella se <strong>desplaza</strong> "
-        f"al costo único de indexación ({_ms(algoritmo['indexacion_ms'])} ms), y dentro de él a la "
+        "En la línea base, releer y escanear el corpus completo en "
+        "<strong>cada</strong> "
+        f"consulta: {_ms(inicial['consulta_ms'])} ms por búsqueda, con E/S "
+        "proporcional al "
+        "corpus. Una vez introducido el índice, el cuello de botella se "
+        "<strong>desplaza</strong> "
+        f"al costo único de indexación ({_ms(algoritmo['indexacion_ms'])} ms), y "
+        "dentro de él a la "
         f"tokenización.{top_indexacion}"
     )
 
     # ---- 2. qué optimización
     respuestas["optimizacion"] = (
         "Cuatro incrementos acumulativos: <strong>(1)</strong> índice invertido con "
-        "<code>dict</code> más intersección de <code>set</code>, que cambia el escaneo O(n·m) por "
-        "resolución O(1) promedio; <strong>(2)</strong> ranking top-k con <code>heapq.nlargest</code> "
+        "<code>dict</code> más intersección de <code>set</code>, que cambia el escaneo "
+        "O(n·m) por "
+        "resolución O(1) promedio; <strong>(2)</strong> ranking top-k con "
+        "<code>heapq.nlargest</code> "
         "en O(r·log k) y memoria auxiliar O(k), más caché LRU de consultas; "
-        "<strong>(3)</strong> indexación MapReduce sobre <code>ProcessPoolExecutor</code> para evadir "
+        "<strong>(3)</strong> indexación MapReduce sobre "
+        "<code>ProcessPoolExecutor</code> para evadir "
         "el GIL en la fase CPU-bound; <strong>(4)</strong> la combinación de ambas."
     )
 
     # ---- 3. impacto
+    mejora_consulta = inicial["consulta_ms"] / algoritmo["consulta_ms"]
+    mejora_cache = inicial["consulta_ms"] / final["consulta_ms"]
+    mejora_heap = estructura["consulta_ms"] / algoritmo["consulta_ms"]
+    mejora_indexacion = algoritmo["indexacion_ms"] / concurrencia["indexacion_ms"]
+
     respuestas["impacto"] = (
         f"La consulta pasa de {_ms(inicial['consulta_ms'])} ms a "
         f"{_ms(algoritmo['consulta_ms'])} ms "
-        f"(<strong>{_num(inicial['consulta_ms'] / algoritmo['consulta_ms'])}×</strong>) y a "
+        f"(<strong>{_num(mejora_consulta)}×</strong>) y a "
         f"{_ms(final['consulta_ms'])} ms con caché caliente "
-        f"(<strong>{_num(inicial['consulta_ms'] / final['consulta_ms'])}×</strong>). "
-        f"El heap por sí solo lleva la resolución de {_ms(estructura['consulta_ms'])} ms a "
+        f"(<strong>{_num(mejora_cache)}×</strong>). "
+        "El heap por sí solo lleva la resolución de "
+        f"{_ms(estructura['consulta_ms'])} ms a "
         f"{_ms(algoritmo['consulta_ms'])} ms "
-        f"(<strong>{_num(estructura['consulta_ms'] / algoritmo['consulta_ms'], 1)}×</strong>). "
+        f"(<strong>{_num(mejora_heap, 1)}×</strong>). "
         f"La indexación paralela baja de {_ms(algoritmo['indexacion_ms'])} ms a "
         f"{_ms(concurrencia['indexacion_ms'])} ms "
-        f"(<strong>{_num(algoritmo['indexacion_ms'] / concurrencia['indexacion_ms'], 2)}×</strong>)."
+        f"(<strong>{_num(mejora_indexacion, 2)}×</strong>)."
     )
 
     # ---- 4. escalabilidad
     if escalabilidad_:
-
-        tamanos = sorted(int(t) for t in escalabilidad_)
+        tamanos = sorted(int(tamano) for tamano in escalabilidad_)
         menor, mayor = tamanos[0], tamanos[-1]
 
         ratio_menor = (
@@ -1390,13 +1779,19 @@ def responder_preguntas(resultados):
         )
 
         respuestas["escalabilidad"] = (
-            f"Sí, y se <strong>amplifica</strong>. La ventaja de la consulta indexada sobre la línea "
-            f"base crece de <strong>{_num(ratio_menor)}×</strong> con {_num(menor)} documentos a "
-            f"<strong>{_num(ratio_mayor)}×</strong> con {_num(mayor)}: la búsqueda secuencial crece "
-            f"con el corpus mientras la indexada depende de los documentos candidatos, no del total. "
+            "Sí, y se <strong>amplifica</strong>. La ventaja de la consulta indexada "
+            "sobre la línea "
+            f"base crece de <strong>{_num(ratio_menor)}×</strong> con {_num(menor)} "
+            "documentos a "
+            f"<strong>{_num(ratio_mayor)}×</strong> con {_num(mayor)}: la búsqueda "
+            "secuencial crece "
+            "con el corpus mientras la indexada depende de los documentos candidatos, "
+            "no del total. "
             f"El paralelismo se comporta distinto: su ventaja va de "
-            f"<strong>{_num(speedup_menor, 2)}×</strong> a <strong>{_num(speedup_mayor, 2)}×</strong>, "
-            f"porque el costo fijo de levantar los procesos solo se amortiza con volumen."
+            f"<strong>{_num(speedup_menor, 2)}×</strong> a "
+            f"<strong>{_num(speedup_mayor, 2)}×</strong>, "
+            "porque el costo fijo de levantar los procesos solo se amortiza con "
+            "volumen."
         )
     else:
         respuestas["escalabilidad"] = (
@@ -1404,19 +1799,23 @@ def responder_preguntas(resultados):
         )
 
     # ---- 5. trade-off
-    equilibrio = (
-        final["indexacion_ms"] / (inicial["consulta_ms"] - final["consulta_ms"])
+    equilibrio = final["indexacion_ms"] / (
+        inicial["consulta_ms"] - final["consulta_ms"]
     )
 
     respuestas["tradeoff"] = (
-        f"<strong>Memoria y arranque a cambio de latencia.</strong> El pico de RSS sube de "
+        "<strong>Memoria y arranque a cambio de latencia.</strong> El pico de RSS "
+        "sube de "
         f"{_mb(inicial['rss_mb'])} MB a {_mb(algoritmo['rss_mb'])} MB con el índice "
         f"(<strong>{_num(algoritmo['rss_mb'] / inicial['rss_mb'], 1)}×</strong>) y a "
         f"{_mb(concurrencia['rss_mb'])} MB con los procesos "
-        f"(<strong>{_num(concurrencia['rss_mb'] / algoritmo['rss_mb'], 2)}×</strong> adicional por los "
+        f"(<strong>{_num(concurrencia['rss_mb'] / algoritmo['rss_mb'], 2)}×</strong> "
+        "adicional por los "
         f"índices parciales en vuelo). Además hay un costo único de indexación de "
-        f"{_ms(final['indexacion_ms'])} ms que la línea base no paga: el punto de equilibrio está en "
-        f"<strong>~{math.ceil(equilibrio)} consultas</strong>. Por debajo de eso, la línea base gana."
+        f"{_ms(final['indexacion_ms'])} ms que la línea base no paga: el punto de "
+        "equilibrio está en "
+        f"<strong>~{math.ceil(equilibrio)} consultas</strong>. Por debajo de eso, la "
+        "línea base gana."
     )
 
     return respuestas
@@ -1426,9 +1825,18 @@ def responder_preguntas(resultados):
 # REPORTE HTML AUTOCONTENIDO
 # ============================================================
 
-def _incrustar(nombre, modo):
-    """PNG como data URI, para que el reporte sea un único archivo."""
 
+def _incrustar(nombre, modo):
+    """
+    PNG como data URI, para que el reporte sea un único archivo.
+
+    :param nombre: Nombre base del gráfico.
+    :type nombre: str
+    :param modo: ``"light"`` o ``"dark"``.
+    :type modo: str
+    :return: El PNG como data URI, o ``None`` si el archivo no existe.
+    :rtype: str | None
+    """
     import base64
 
     archivo = DIR_PERFILES / f"{nombre}-{modo}.png"
@@ -1442,6 +1850,19 @@ def _incrustar(nombre, modo):
 
 
 def _figura_html(nombre, titulo, tabla_html=""):
+    """
+    Arma el ``<figure>`` de un gráfico, con su variante oscura.
+
+    :param nombre: Nombre base del gráfico.
+    :type nombre: str
+    :param titulo: Texto alternativo de la imagen.
+    :type titulo: str
+    :param tabla_html: Tabla con los datos del gráfico; si viene, se agrega dentro de un
+        ``<details>``.
+    :type tabla_html: str
+    :return: El HTML de la figura, o una cadena vacía si el gráfico no existe.
+    :rtype: str
+    """
     claro = _incrustar(nombre, "light")
 
     if not claro:
@@ -1450,18 +1871,35 @@ def _figura_html(nombre, titulo, tabla_html=""):
     oscuro = _incrustar(nombre, "dark")
     fuente = (
         f'<source srcset="{oscuro}" media="(prefers-color-scheme: dark)">'
-        if oscuro else ""
+        if oscuro
+        else ""
+    )
+
+    detalle = (
+        f"<details><summary>Ver los datos como tabla</summary>{tabla_html}</details>"
+        if tabla_html
+        else ""
     )
 
     return f"""
     <figure class="grafico">
       <picture>{fuente}<img src="{claro}" alt="{titulo}"></picture>
-      {f'<details><summary>Ver los datos como tabla</summary>{tabla_html}</details>' if tabla_html else ''}
+      {detalle}
     </figure>"""
 
 
 def _tabla_html(cabeceras, filas):
-    encabezado = "".join(f"<th>{c}</th>" for c in cabeceras)
+    """
+    Arma una tabla HTML con cabecera.
+
+    :param cabeceras: Títulos de las columnas.
+    :type cabeceras: tuple[str, ...]
+    :param filas: Celdas de cada fila, ya en HTML.
+    :type filas: list[tuple[str, ...]]
+    :return: La tabla HTML.
+    :rtype: str
+    """
+    encabezado = "".join(f"<th>{cabecera}</th>" for cabecera in cabeceras)
     cuerpo = "".join(
         "<tr>" + "".join(f"<td>{celda}</td>" for celda in fila) + "</tr>"
         for fila in filas
@@ -1493,7 +1931,9 @@ body {
   font: 14px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 .envoltorio { max-width: 940px; margin: 0 auto; }
-header { padding: 52px 0 30px; border-bottom: 1px solid var(--linea); margin-bottom: 34px; }
+header {
+  padding: 52px 0 30px; border-bottom: 1px solid var(--linea); margin-bottom: 34px;
+}
 h1 { font-size: 27px; line-height: 1.25; margin: 0 0 10px; letter-spacing: -0.015em; }
 .subtitulo { color: var(--tinta-2); margin: 0 0 20px; font-size: 15px; }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -1552,8 +1992,14 @@ footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--linea)
 
 
 def generar_reporte(resultados):
-    """Arma el reporte HTML autocontenido en profiles/reporte.html."""
+    """
+    Arma el reporte HTML autocontenido en profiles/reporte.html.
 
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    :return: Ruta de ``profiles/reporte.html``.
+    :rtype: pathlib.Path
+    """
     import html as modulo_html
 
     comparativa_ = resultados.get("comparativa") or {}
@@ -1577,8 +2023,8 @@ def generar_reporte(resultados):
     partes.append(f"""
     <header>
       <h1>Perfilado y medición — Buscador Eficiente de Información</h1>
-      <p class="subtitulo">Comparativa de las cinco versiones con cProfile, line_profiler,
-         memory_profiler, Scalene y py-spy.</p>
+      <p class="subtitulo">Comparativa de las cinco versiones con cProfile,
+         line_profiler, memory_profiler, Scalene y py-spy.</p>
       <div class="chips">{chips}</div>
     </header>""")
 
@@ -1586,28 +2032,34 @@ def generar_reporte(resultados):
     if comparativa_:
         filas = [
             (
-                comparativa_[v]["etiqueta"],
-                _celda_ms(comparativa_[v]['consulta_ms']),
-                _celda_ms(comparativa_[v]['indexacion_ms']),
-                f"{_mb(comparativa_[v]['rss_mb'])} MB",
-                comparativa_[v]["observacion"],
+                comparativa_[version]["etiqueta"],
+                _celda_ms(comparativa_[version]["consulta_ms"]),
+                _celda_ms(comparativa_[version]["indexacion_ms"]),
+                f"{_mb(comparativa_[version]['rss_mb'])} MB",
+                comparativa_[version]["observacion"],
             )
-            for v in VERSIONES
+            for version in VERSIONES
         ]
         partes.append(
             "<h2>Comparación obligatoria</h2>"
             '<div class="envoltura-tabla">'
             + _tabla_html(
-                ("Versión", "Tiempo de consulta", "Costo de indexación",
-                 "Memoria (RSS)", "Observación"),
+                (
+                    "Versión",
+                    "Tiempo de consulta",
+                    "Costo de indexación",
+                    "Memoria (RSS)",
+                    "Observación",
+                ),
                 filas,
             )
             + "</div>"
-            + '<p class="nota">Mediana de las rondas útiles; cada versión se mide en un '
-              'proceso limpio y las versiones se alternan dentro de cada ronda. '
-              'El total de coincidencias es idéntico en las cinco versiones '
-              f'({_num(comparativa_["inicial"]["coincidencias"])} documentos), que es el '
-              'testigo de equivalencia.</p>' 
+            + '<p class="nota">Mediana de las rondas útiles; cada versión se mide en '
+            "un "
+            "proceso limpio y las versiones se alternan dentro de cada ronda. "
+            "El total de coincidencias es idéntico en las cinco versiones "
+            f"({_num(comparativa_['inicial']['coincidencias'])} documentos), que es el "
+            "testigo de equivalencia.</p>"
         )
 
     # ---------------------------------------------- preguntas
@@ -1616,81 +2068,124 @@ def generar_reporte(resultados):
             ("cuello", "¿Dónde está el principal cuello de botella?"),
             ("optimizacion", "¿Qué optimización se realizó?"),
             ("impacto", "¿Qué impacto tuvo?"),
-            ("escalabilidad", "¿La mejora se mantiene al aumentar el volumen de datos?"),
+            (
+                "escalabilidad",
+                "¿La mejora se mantiene al aumentar el volumen de datos?",
+            ),
             ("tradeoff", "¿Qué trade-off se produjo?"),
         )
         partes.append("<h2>Las cinco preguntas</h2>")
         for clave, titulo in titulos:
             partes.append(
                 f'<div class="pregunta"><h3>{titulo}</h3>'
-                f'<p>{respuestas.get(clave, "—")}</p></div>'
+                f"<p>{respuestas.get(clave, '—')}</p></div>"
             )
 
     # ---------------------------------------------- gráficos
     graficos = []
 
     if escalabilidad_:
-        tamanos = sorted(int(t) for t in escalabilidad_)
+        tamanos = sorted(int(tamano) for tamano in escalabilidad_)
 
-        graficos.append(_figura_html(
-            "escalabilidad-consulta", "Tiempo de consulta según el volumen",
-            _tabla_html(
-                ["Versión"] + [f"{t:,}".replace(",", ".") for t in tamanos],
-                [
-                    [ETIQUETAS[v]] + [
-                        _celda_ms(escalabilidad_[str(t)][v]['consulta_ms'])
-                        for t in tamanos
-                    ]
-                    for v in VERSIONES
-                ],
-            ),
-        ))
+        graficos.append(
+            _figura_html(
+                "escalabilidad-consulta",
+                "Tiempo de consulta según el volumen",
+                _tabla_html(
+                    ["Versión"]
+                    + [f"{tamano:,}".replace(",", ".") for tamano in tamanos],
+                    [
+                        [ETIQUETAS[version]]
+                        + [
+                            _celda_ms(
+                                escalabilidad_[str(tamano)][version]["consulta_ms"]
+                            )
+                            for tamano in tamanos
+                        ]
+                        for version in VERSIONES
+                    ],
+                ),
+            )
+        )
 
-        graficos.append(_figura_html(
-            "escalabilidad-indexacion", "Costo de indexación según el volumen",
-            _tabla_html(
-                ["Versión"] + [f"{t:,}".replace(",", ".") for t in tamanos],
-                [
-                    [ETIQUETAS[v]] + [
-                        _celda_ms(escalabilidad_[str(t)][v]['indexacion_ms'])
-                        for t in tamanos
-                    ]
-                    for v in ("algoritmo", "concurrencia")
-                ],
-            ),
-        ))
+        graficos.append(
+            _figura_html(
+                "escalabilidad-indexacion",
+                "Costo de indexación según el volumen",
+                _tabla_html(
+                    ["Versión"]
+                    + [f"{tamano:,}".replace(",", ".") for tamano in tamanos],
+                    [
+                        [ETIQUETAS[version]]
+                        + [
+                            _celda_ms(
+                                escalabilidad_[str(tamano)][version]["indexacion_ms"]
+                            )
+                            for tamano in tamanos
+                        ]
+                        for version in ("algoritmo", "concurrencia")
+                    ],
+                ),
+            )
+        )
 
     if comparativa_:
-        graficos.append(_figura_html(
-            "consulta-por-version", "Tiempo por consulta",
-            _tabla_html(
-                ("Versión", "Tiempo de consulta"),
-                [(ETIQUETAS[v], _celda_ms(comparativa_[v]['consulta_ms']))
-                 for v in VERSIONES],
-            ),
-        ))
-        graficos.append(_figura_html(
-            "memoria-por-version", "Pico de memoria por versión",
-            _tabla_html(
-                ("Versión", "RSS", "tracemalloc"),
-                [(ETIQUETAS[v], f"{_mb(comparativa_[v]['rss_mb'])} MB",
-                  f"{_mb(comparativa_[v]['tracemalloc_mb'])} MB")
-                 for v in VERSIONES],
-            ),
-        ))
+        graficos.append(
+            _figura_html(
+                "consulta-por-version",
+                "Tiempo por consulta",
+                _tabla_html(
+                    ("Versión", "Tiempo de consulta"),
+                    [
+                        (
+                            ETIQUETAS[version],
+                            _celda_ms(comparativa_[version]["consulta_ms"]),
+                        )
+                        for version in VERSIONES
+                    ],
+                ),
+            )
+        )
+        graficos.append(
+            _figura_html(
+                "memoria-por-version",
+                "Pico de memoria por versión",
+                _tabla_html(
+                    ("Versión", "RSS", "tracemalloc"),
+                    [
+                        (
+                            ETIQUETAS[version],
+                            f"{_mb(comparativa_[version]['rss_mb'])} MB",
+                            f"{_mb(comparativa_[version]['tracemalloc_mb'])} MB",
+                        )
+                        for version in VERSIONES
+                    ],
+                ),
+            )
+        )
 
     if memoria_:
-        graficos.append(_figura_html(
-            "memoria-en-el-tiempo", "Memoria residente en el tiempo",
-            _tabla_html(
-                ("Versión", "Base", "Pico", "Muestras"),
-                [(ETIQUETAS[v], f"{_mb(memoria_[v]['base_mb'])} MB",
-                  f"{_mb(memoria_[v]['pico_mb'])} MB", len(memoria_[v]["serie_mb"]))
-                 for v in VERSIONES if v in memoria_ and "serie_mb" in memoria_[v]],
-            ),
-        ))
+        graficos.append(
+            _figura_html(
+                "memoria-en-el-tiempo",
+                "Memoria residente en el tiempo",
+                _tabla_html(
+                    ("Versión", "Base", "Pico", "Muestras"),
+                    [
+                        (
+                            ETIQUETAS[version],
+                            f"{_mb(memoria_[version]['base_mb'])} MB",
+                            f"{_mb(memoria_[version]['pico_mb'])} MB",
+                            len(memoria_[version]["serie_mb"]),
+                        )
+                        for version in VERSIONES
+                        if version in memoria_ and "serie_mb" in memoria_[version]
+                    ],
+                ),
+            )
+        )
 
-    graficos = [g for g in graficos if g]
+    graficos = [grafico for grafico in graficos if grafico]
 
     if graficos:
         partes.append("<h2>Gráficos</h2>" + "".join(graficos))
@@ -1703,24 +2198,27 @@ def generar_reporte(resultados):
         for version, datos in cprofile_.items():
             filas = [
                 (
-                    f"<code>{modulo_html.escape(f['funcion'])}</code>",
-                    f"{f['llamadas']:,}".replace(",", "."),
-                    f"{f['tottime']:.3f}",
-                    f"{f['cumtime']:.3f}",
+                    f"<code>{modulo_html.escape(estadistica['funcion'])}</code>",
+                    f"{estadistica['llamadas']:,}".replace(",", "."),
+                    f"{estadistica['tottime']:.3f}",
+                    f"{estadistica['cumtime']:.3f}",
                 )
-                for f in datos["top"][:8]
+                for estadistica in datos["top"][:8]
             ]
             partes.append(
                 f"<p><strong>{ETIQUETAS[version]}</strong> — "
                 f"{datos['total_s']:.2f} s instrumentados · "
                 f"<code>{datos['archivo']}</code></p>"
                 '<div class="envoltura-tabla">'
-                + _tabla_html(("Función", "Llamadas", "tottime (s)", "cumtime (s)"), filas)
+                + _tabla_html(
+                    ("Función", "Llamadas", "tottime (s)", "cumtime (s)"), filas
+                )
                 + "</div>"
             )
         partes.append(
             '<p class="nota">Visualizable con '
-            "<code>.venv/bin/snakeviz profiles/cprofile-&lt;version&gt;.prof</code>.</p>"
+            "<code>.venv/bin/snakeviz "
+            "profiles/cprofile-&lt;version&gt;.prof</code>.</p>"
         )
 
     if line_:
@@ -1740,26 +2238,40 @@ def generar_reporte(resultados):
             )
 
     if memoria_:
+        filas_memoria = []
+
+        for version in VERSIONES:
+            medida = memoria_.get(version, {})
+
+            if "pico_mb" not in medida:
+                continue
+
+            filas_memoria.append(
+                (
+                    ETIQUETAS[version],
+                    f"{_mb(medida['base_mb'])} MB",
+                    f"{_mb(medida['pico_mb'])} MB",
+                    f"{_mb(medida['pico_mb'] - medida['base_mb'])} MB",
+                )
+            )
+
         partes.append(
             "<h3>memory_profiler — RSS muestreado</h3>"
             '<div class="envoltura-tabla">'
-            + _tabla_html(
-                ("Versión", "Base", "Pico", "Crecimiento"),
-                [
-                    (ETIQUETAS[v], f"{_mb(memoria_[v]['base_mb'])} MB",
-                     f"{_mb(memoria_[v]['pico_mb'])} MB",
-                     f"{_mb(memoria_[v]['pico_mb'] - memoria_[v]['base_mb'])} MB")
-                    for v in VERSIONES if v in memoria_ and "pico_mb" in memoria_[v]
-                ],
-            )
+            + _tabla_html(("Versión", "Base", "Pico", "Crecimiento"), filas_memoria)
             + "</div>"
-            + '<p class="nota">Cada versión se automuestrea dentro de su propio proceso, '
-              "con <code>include_children=True</code>: sin esa opción la versión concurrente "
-              "reportaría solo la memoria del padre. Estos picos son <strong>mayores</strong> que "
-              "la columna RSS de la tabla comparativa porque no miden lo mismo: "
-              "<code>include_children</code> <strong>suma</strong> padre e hijos, mientras "
-              "<code>ru_maxrss</code> informa el <strong>máximo</strong> de un solo proceso del "
-              "árbol. Las dos cifras son correctas; responden preguntas distintas.</p>"
+            + '<p class="nota">Cada versión se automuestrea dentro de su propio '
+            "proceso, "
+            "con <code>include_children=True</code>: sin esa opción la versión "
+            "concurrente "
+            "reportaría solo la memoria del padre. Estos picos son "
+            "<strong>mayores</strong> que "
+            "la columna RSS de la tabla comparativa porque no miden lo mismo: "
+            "<code>include_children</code> <strong>suma</strong> padre e hijos, "
+            "mientras "
+            "<code>ru_maxrss</code> informa el <strong>máximo</strong> de un solo "
+            "proceso del "
+            "árbol. Las dos cifras son correctas; responden preguntas distintas.</p>"
         )
 
     if scalene_:
@@ -1780,12 +2292,12 @@ def generar_reporte(resultados):
             resumen_sc = datos["resumen"]
             filas = [
                 (
-                    f"<code>{modulo_html.escape(f['ubicacion'])}</code>",
-                    f"<code>{modulo_html.escape(f['codigo'])}</code>",
-                    f"{f['cpu_pct']:.1f} %",
-                    f"{f['memoria_mb']:.1f} MB",
+                    f"<code>{modulo_html.escape(linea['ubicacion'])}</code>",
+                    f"<code>{modulo_html.escape(linea['codigo'])}</code>",
+                    f"{linea['cpu_pct']:.1f} %",
+                    f"{linea['memoria_mb']:.1f} MB",
                 )
-                for f in (resumen_sc.get("top") or [])[:8]
+                for linea in (resumen_sc.get("top") or [])[:8]
             ]
             partes.append(
                 f"<p><strong>{ETIQUETAS[version]}</strong> — "
@@ -1794,7 +2306,8 @@ def generar_reporte(resultados):
                     '<div class="envoltura-tabla">'
                     + _tabla_html(("Línea", "Código", "CPU", "Memoria pico"), filas)
                     + "</div>"
-                    if filas else "<p>Sin líneas por encima del umbral de muestreo.</p>"
+                    if filas
+                    else "<p>Sin líneas por encima del umbral de muestreo.</p>"
                 )
             )
 
@@ -1803,16 +2316,19 @@ def generar_reporte(resultados):
         if "omitido" in pyspy_:
             comandos = "\n".join(pyspy_["comandos"])
             partes.append(
-                f"<p>{modulo_html.escape(pyspy_['omitido'])}. Es la única de las cinco que "
-                "perfila un proceso <strong>ya en marcha</strong> sin instrumentarlo, y la única "
+                f"<p>{modulo_html.escape(pyspy_['omitido'])}. Es la única de las cinco "
+                "que "
+                "perfila un proceso <strong>ya en marcha</strong> sin instrumentarlo, "
+                "y la única "
                 "que ve los procesos hijos con <code>--subprocesses</code>.</p>"
                 f"<pre><code>{modulo_html.escape(comandos)}</code></pre>"
             )
         else:
             for version, datos in pyspy_.items():
+                detalle = datos.get("archivo") or datos.get("error", "")
                 partes.append(
                     f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — "
-                    f"{modulo_html.escape(str(datos.get('archivo') or datos.get('error', '')))}</p>"
+                    f"{modulo_html.escape(str(detalle))}</p>"
                 )
 
     partes.append("""
@@ -1842,9 +2358,14 @@ def generar_reporte(resultados):
 # MAIN
 # ============================================================
 
-def _estado_del_gil():
-    """`sys._is_gil_enabled()` existe recién desde Python 3.13."""
 
+def _estado_del_gil():
+    """
+    `sys._is_gil_enabled()` existe recién desde Python 3.13.
+
+    :return: El estado del GIL, como texto para el reporte.
+    :rtype: str
+    """
     consultar = getattr(sys, "_is_gil_enabled", None)
 
     if consultar is None:
@@ -1854,6 +2375,13 @@ def _estado_del_gil():
 
 
 def _entorno():
+    """
+    Describe el equipo y el intérprete en que se midió.
+
+    :return: CPU, núcleos, sistema operativo, versión de Python, estado del GIL y la
+        consulta de referencia.
+    :rtype: dict[str, str]
+    """
     return {
         "cpu": platform.processor() or platform.machine(),
         "nucleos": f"{os.cpu_count()} lógicos",
@@ -1865,19 +2393,36 @@ def _entorno():
 
 
 def main():
+    """
+    Ejecuta las fases de medición pedidas por línea de comandos.
 
-    parser = argparse.ArgumentParser(
-        description="Perfilado y medición del buscador"
+    Cada fase vuelca su resultado en ``profiles/perfilado.json`` apenas
+    termina. Con ``--medir`` corre en modo interno: mide una sola
+    versión e imprime su JSON para el proceso orquestador.
+    """
+    parser = argparse.ArgumentParser(description="Perfilado y medición del buscador")
+
+    parser.add_argument(
+        "--medir",
+        choices=VERSIONES,
+        help="modo interno: mide una versión e imprime su JSON",
     )
-
-    parser.add_argument("--medir", choices=VERSIONES,
-                        help="modo interno: mide una versión e imprime su JSON")
-    parser.add_argument("--perfil-cprofile", type=str, default=None,
-                        help="modo interno: envuelve la medición en cProfile")
-    parser.add_argument("--con-tracemalloc", action="store_true",
-                        help="modo interno: mide asignaciones (encarece el tiempo)")
-    parser.add_argument("--serie-memoria", action="store_true",
-                        help="modo interno: se automuestrea el RSS con memory_profiler")
+    parser.add_argument(
+        "--perfil-cprofile",
+        type=str,
+        default=None,
+        help="modo interno: envuelve la medición en cProfile",
+    )
+    parser.add_argument(
+        "--con-tracemalloc",
+        action="store_true",
+        help="modo interno: mide asignaciones (encarece el tiempo)",
+    )
+    parser.add_argument(
+        "--serie-memoria",
+        action="store_true",
+        help="modo interno: se automuestrea el RSS con memory_profiler",
+    )
 
     parser.add_argument("--todo", action="store_true", help="pipeline completo")
     parser.add_argument("--comparativa", action="store_true")
@@ -1887,16 +2432,23 @@ def main():
     parser.add_argument("--memoria", action="store_true")
     parser.add_argument("--scalene", action="store_true")
     parser.add_argument("--pyspy", action="store_true")
-    parser.add_argument("--ejecutar-pyspy", action="store_true",
-                        help="ejecuta py-spy (pedirá sudo en macOS)")
+    parser.add_argument(
+        "--ejecutar-pyspy",
+        action="store_true",
+        help="ejecuta py-spy (pedirá sudo en macOS)",
+    )
     parser.add_argument("--graficos", action="store_true")
     parser.add_argument("--reporte", action="store_true")
 
     parser.add_argument("--directorio", type=str, default=str(CORPUS_PRINCIPAL))
     parser.add_argument("--rondas", type=int, default=3)
     parser.add_argument("--repeticiones", type=int, default=10)
-    parser.add_argument("--tamanos", type=str, default=None,
-                        help="tamaños del barrido, separados por coma")
+    parser.add_argument(
+        "--tamanos",
+        type=str,
+        default=None,
+        help="tamaños del barrido, separados por coma",
+    )
 
     args = parser.parse_args()
 
@@ -1904,15 +2456,13 @@ def main():
 
     # ---- modo interno: una versión, un proceso limpio
     if args.medir:
-
         if args.serie_memoria:
             from memory_profiler import memory_usage
 
             serie, medicion = memory_usage(
                 (
                     medir_version,
-                    (args.medir, corpus_dir, args.repeticiones,
-                     args.con_tracemalloc),
+                    (args.medir, corpus_dir, args.repeticiones, args.con_tracemalloc),
                 ),
                 interval=0.05,
                 include_children=True,
@@ -1922,6 +2472,7 @@ def main():
 
         elif args.perfil_cprofile:
             import cProfile
+
             perfilador = cProfile.Profile()
             perfilador.enable()
             medicion = medir_version(
@@ -1955,17 +2506,23 @@ def main():
         Las fases son largas y esta máquina se queda sin aire: si el
         volcado fuera solo al final, un corte a mitad de camino
         tiraría también las fases que ya habían terminado bien.
+
+        :param fase: Nombre de la fase que terminó, para el mensaje.
+        :type fase: str
         """
         archivo_resultados.write_text(
             json.dumps(resultados, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-        print(f"  ✓ {fase} guardada en {archivo_resultados.relative_to(BASE_DIR)}",
-              flush=True)
+        print(
+            f"  ✓ {fase} guardada en {archivo_resultados.relative_to(BASE_DIR)}",
+            flush=True,
+        )
 
     tamanos = (
-        tuple(int(t) for t in args.tamanos.split(","))
-        if args.tamanos else TAMANOS
+        tuple(int(tamano) for tamano in args.tamanos.split(","))
+        if args.tamanos
+        else TAMANOS
     )
 
     # El corpus chico mantiene acotado el costo de las herramientas

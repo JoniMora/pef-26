@@ -35,10 +35,15 @@ def test_baseline_genera_y_busca(monkeypatch, capsys, tmp_path):
     destino = tmp_path / "nuevo"
 
     _correr(
-        monkeypatch, baseline,
-        "--generar", "--num-docs", "3",
-        "--directorio", str(destino),
-        "--query", "algoritmo",
+        monkeypatch,
+        baseline,
+        "--generar",
+        "--num-docs",
+        "3",
+        "--directorio",
+        str(destino),
+        "--query",
+        "algoritmo",
     )
 
     salida = capsys.readouterr().out
@@ -49,10 +54,14 @@ def test_baseline_genera_y_busca(monkeypatch, capsys, tmp_path):
 @pytest.mark.parametrize("modulo", [optimizado, concurrente])
 def test_muestra_top_k(modulo, monkeypatch, capsys, corpus_chico):
     _correr(
-        monkeypatch, modulo,
-        "--directorio", str(corpus_chico),
-        "--query", "algoritmo",
-        "--top-k", "1",
+        monkeypatch,
+        modulo,
+        "--directorio",
+        str(corpus_chico),
+        "--query",
+        "algoritmo",
+        "--top-k",
+        "1",
     )
 
     salida = capsys.readouterr().out
@@ -63,9 +72,12 @@ def test_muestra_top_k(modulo, monkeypatch, capsys, corpus_chico):
 @pytest.mark.parametrize("modulo", [optimizado, concurrente])
 def test_consulta_sin_resultados(modulo, monkeypatch, capsys, corpus_chico):
     _correr(
-        monkeypatch, modulo,
-        "--directorio", str(corpus_chico),
-        "--query", "inexistente",
+        monkeypatch,
+        modulo,
+        "--directorio",
+        str(corpus_chico),
+        "--query",
+        "inexistente",
     )
 
     salida = capsys.readouterr().out
@@ -91,9 +103,12 @@ def test_directorio_inexistente(modulo, monkeypatch, capsys, tmp_path):
 
 def test_concurrente_compara_con_secuencial(monkeypatch, capsys, corpus_chico):
     _correr(
-        monkeypatch, concurrente,
-        "--directorio", str(corpus_chico),
-        "--workers", "1",
+        monkeypatch,
+        concurrente,
+        "--directorio",
+        str(corpus_chico),
+        "--workers",
+        "1",
         "--comparar",
     )
 

@@ -70,9 +70,7 @@ def test_optimizada_mas_rapida_que_baseline(corpus_dir, indice_y_archivos):
 
     indice, archivos = indice_y_archivos
 
-    tiempo_optimizado = _mejor_tiempo(
-        lambda: _consulta_optimizada(indice, archivos)
-    )
+    tiempo_optimizado = _mejor_tiempo(lambda: _consulta_optimizada(indice, archivos))
     tiempo_baseline = _mejor_tiempo(
         lambda: busqueda_secuencial(str(corpus_dir), CONSULTA)
     )
