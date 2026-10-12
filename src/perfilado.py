@@ -397,21 +397,27 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
     resumen = {}
 
     for version in VERSIONES:
-        utiles = [m for m in crudo[version] if not m["descartada"]]
+        utiles = [medicion for medicion in crudo[version] if not medicion["descartada"]]
 
         indexaciones = [
-            m["indexacion_ms"] for m in utiles if m["indexacion_ms"] is not None
+            medicion["indexacion_ms"]
+            for medicion in utiles
+            if medicion["indexacion_ms"] is not None
         ]
 
         # En Windows sin psutil no hay lectura de RSS: la mediana se
         # calcula solo sobre las muestras que existen.
-        rss = [m["rss_mb"] for m in utiles if m["rss_mb"] is not None]
+        rss = [
+            medicion["rss_mb"] for medicion in utiles if medicion["rss_mb"] is not None
+        ]
 
         resumen[version] = {
             "etiqueta": ETIQUETAS[version],
             "observacion": OBSERVACIONES[version],
             "documentos": utiles[0]["documentos"],
-            "consulta_ms": statistics.median(m["consulta_ms"] for m in utiles),
+            "consulta_ms": statistics.median(
+                medicion["consulta_ms"] for medicion in utiles
+            ),
             "indexacion_ms": statistics.median(indexaciones) if indexaciones else None,
             "rss_mb": statistics.median(rss) if rss else None,
             "tracemalloc_mb": picos[version],
@@ -1038,24 +1044,25 @@ def _etiquetas_al_final(ejes, puntos, paleta, separacion_px=17):
 
     # (posición en píxeles, x, y, texto), de abajo hacia arriba
     ubicados = sorted(
-        (ejes.transData.transform((x, y))[1], x, y, texto) for x, y, texto in puntos
+        (ejes.transData.transform((x_dato, y_dato))[1], x_dato, y_dato, texto)
+        for x_dato, y_dato, texto in puntos
     )
 
     ajustadas = []
     ultima = None
 
-    for pixel, x, y, texto in ubicados:
+    for pixel, x_dato, y_dato, texto in ubicados:
         destino = pixel if ultima is None else max(pixel, ultima + separacion_px)
-        ajustadas.append((x, y, texto, destino - pixel))
+        ajustadas.append((x_dato, y_dato, texto, destino - pixel))
         ultima = destino
 
     # matplotlib desplaza en puntos tipográficos, no en píxeles
     por_punto = ejes.figure.dpi / 72
 
-    for x, y, texto, desvio_px in ajustadas:
+    for x_dato, y_dato, texto, desvio_px in ajustadas:
         ejes.annotate(
             texto,
-            (x, y),
+            (x_dato, y_dato),
             xytext=(10, desvio_px / por_punto),
             textcoords="offset points",
             color=paleta["tinta_secundaria"],
@@ -1066,13 +1073,13 @@ def _etiquetas_al_final(ejes, puntos, paleta, separacion_px=17):
 
 
 def _grafico_escalabilidad_consulta(datos, paleta, modo):
-    tamanos = sorted(int(t) for t in datos)
+    tamanos = sorted(int(tamano) for tamano in datos)
     figura, ejes = _figura(paleta)
 
     rotulos = []
 
     for indice, version in enumerate(VERSIONES):
-        valores = [datos[str(t)][version]["consulta_ms"] for t in tamanos]
+        valores = [datos[str(tamano)][version]["consulta_ms"] for tamano in tamanos]
 
         ejes.plot(
             tamanos,
@@ -1090,7 +1097,7 @@ def _grafico_escalabilidad_consulta(datos, paleta, modo):
 
     ejes.set_yscale("log")
     ejes.set_xticks(tamanos)
-    ejes.set_xticklabels([f"{t:,}".replace(",", ".") for t in tamanos])
+    ejes.set_xticklabels([f"{tamano:,}".replace(",", ".") for tamano in tamanos])
     ejes.set_xlim(tamanos[0] * 0.97, tamanos[-1] * 1.62)
 
     _cromo(
@@ -1120,7 +1127,7 @@ def _grafico_escalabilidad_consulta(datos, paleta, modo):
 
 
 def _grafico_escalabilidad_indexacion(datos, paleta, modo):
-    tamanos = sorted(int(t) for t in datos)
+    tamanos = sorted(int(tamano) for tamano in datos)
     figura, ejes = _figura(paleta)
 
     lineas = (
@@ -1131,7 +1138,9 @@ def _grafico_escalabilidad_indexacion(datos, paleta, modo):
     rotulos = []
 
     for version, etiqueta, color in lineas:
-        valores = [datos[str(t)][version]["indexacion_ms"] / 1000 for t in tamanos]
+        valores = [
+            datos[str(tamano)][version]["indexacion_ms"] / 1000 for tamano in tamanos
+        ]
         ejes.plot(
             tamanos,
             valores,
@@ -1147,7 +1156,7 @@ def _grafico_escalabilidad_indexacion(datos, paleta, modo):
         rotulos.append((tamanos[-1], valores[-1], etiqueta))
 
     ejes.set_xticks(tamanos)
-    ejes.set_xticklabels([f"{t:,}".replace(",", ".") for t in tamanos])
+    ejes.set_xticklabels([f"{tamano:,}".replace(",", ".") for tamano in tamanos])
     ejes.set_xlim(tamanos[0] * 0.97, tamanos[-1] * 1.72)
     ejes.set_ylim(0, None)
 
@@ -1181,8 +1190,8 @@ def _grafico_consulta_por_version(resumen, paleta, modo):
     """
     figura, ejes = _figura(paleta, alto=3.4)
 
-    etiquetas = [ETIQUETAS[v] for v in VERSIONES]
-    valores = [resumen[v]["consulta_ms"] for v in VERSIONES]
+    etiquetas = [ETIQUETAS[version] for version in VERSIONES]
+    valores = [resumen[version]["consulta_ms"] for version in VERSIONES]
     posiciones = list(range(len(VERSIONES)))[::-1]
 
     for posicion, valor, color in zip(posiciones, valores, paleta["series"]):
@@ -1230,8 +1239,8 @@ def _grafico_memoria_por_version(resumen, paleta, modo):
     """Una sola serie: un color para todas las barras, nunca un ramp."""
     figura, ejes = _figura(paleta, alto=3.4)
 
-    etiquetas = [ETIQUETAS[v] for v in VERSIONES]
-    valores = [resumen[v]["rss_mb"] for v in VERSIONES]
+    etiquetas = [ETIQUETAS[version] for version in VERSIONES]
+    valores = [resumen[version]["rss_mb"] for version in VERSIONES]
     posiciones = list(range(len(VERSIONES)))[::-1]
 
     ejes.barh(
@@ -1278,7 +1287,10 @@ def _grafico_memoria_en_el_tiempo(memoria, paleta, modo):
             continue
 
         serie = datos["serie_mb"]
-        tiempo = [i * datos["intervalo_s"] for i in range(len(serie))]
+        tiempo = [
+            numero_muestra * datos["intervalo_s"]
+            for numero_muestra in range(len(serie))
+        ]
 
         ejes.plot(
             tiempo,
@@ -1436,7 +1448,7 @@ def responder_preguntas(resultados):
 
     # ---- 4. escalabilidad
     if escalabilidad_:
-        tamanos = sorted(int(t) for t in escalabilidad_)
+        tamanos = sorted(int(tamano) for tamano in escalabilidad_)
         menor, mayor = tamanos[0], tamanos[-1]
 
         ratio_menor = (
@@ -1545,7 +1557,7 @@ def _figura_html(nombre, titulo, tabla_html=""):
 
 
 def _tabla_html(cabeceras, filas):
-    encabezado = "".join(f"<th>{c}</th>" for c in cabeceras)
+    encabezado = "".join(f"<th>{cabecera}</th>" for cabecera in cabeceras)
     cuerpo = "".join(
         "<tr>" + "".join(f"<td>{celda}</td>" for celda in fila) + "</tr>"
         for fila in filas
@@ -1671,13 +1683,13 @@ def generar_reporte(resultados):
     if comparativa_:
         filas = [
             (
-                comparativa_[v]["etiqueta"],
-                _celda_ms(comparativa_[v]["consulta_ms"]),
-                _celda_ms(comparativa_[v]["indexacion_ms"]),
-                f"{_mb(comparativa_[v]['rss_mb'])} MB",
-                comparativa_[v]["observacion"],
+                comparativa_[version]["etiqueta"],
+                _celda_ms(comparativa_[version]["consulta_ms"]),
+                _celda_ms(comparativa_[version]["indexacion_ms"]),
+                f"{_mb(comparativa_[version]['rss_mb'])} MB",
+                comparativa_[version]["observacion"],
             )
-            for v in VERSIONES
+            for version in VERSIONES
         ]
         partes.append(
             "<h2>Comparación obligatoria</h2>"
@@ -1724,21 +1736,24 @@ def generar_reporte(resultados):
     graficos = []
 
     if escalabilidad_:
-        tamanos = sorted(int(t) for t in escalabilidad_)
+        tamanos = sorted(int(tamano) for tamano in escalabilidad_)
 
         graficos.append(
             _figura_html(
                 "escalabilidad-consulta",
                 "Tiempo de consulta según el volumen",
                 _tabla_html(
-                    ["Versión"] + [f"{t:,}".replace(",", ".") for t in tamanos],
+                    ["Versión"]
+                    + [f"{tamano:,}".replace(",", ".") for tamano in tamanos],
                     [
-                        [ETIQUETAS[v]]
+                        [ETIQUETAS[version]]
                         + [
-                            _celda_ms(escalabilidad_[str(t)][v]["consulta_ms"])
-                            for t in tamanos
+                            _celda_ms(
+                                escalabilidad_[str(tamano)][version]["consulta_ms"]
+                            )
+                            for tamano in tamanos
                         ]
-                        for v in VERSIONES
+                        for version in VERSIONES
                     ],
                 ),
             )
@@ -1749,14 +1764,17 @@ def generar_reporte(resultados):
                 "escalabilidad-indexacion",
                 "Costo de indexación según el volumen",
                 _tabla_html(
-                    ["Versión"] + [f"{t:,}".replace(",", ".") for t in tamanos],
+                    ["Versión"]
+                    + [f"{tamano:,}".replace(",", ".") for tamano in tamanos],
                     [
-                        [ETIQUETAS[v]]
+                        [ETIQUETAS[version]]
                         + [
-                            _celda_ms(escalabilidad_[str(t)][v]["indexacion_ms"])
-                            for t in tamanos
+                            _celda_ms(
+                                escalabilidad_[str(tamano)][version]["indexacion_ms"]
+                            )
+                            for tamano in tamanos
                         ]
-                        for v in ("algoritmo", "concurrencia")
+                        for version in ("algoritmo", "concurrencia")
                     ],
                 ),
             )
@@ -1770,8 +1788,11 @@ def generar_reporte(resultados):
                 _tabla_html(
                     ("Versión", "Tiempo de consulta"),
                     [
-                        (ETIQUETAS[v], _celda_ms(comparativa_[v]["consulta_ms"]))
-                        for v in VERSIONES
+                        (
+                            ETIQUETAS[version],
+                            _celda_ms(comparativa_[version]["consulta_ms"]),
+                        )
+                        for version in VERSIONES
                     ],
                 ),
             )
@@ -1784,11 +1805,11 @@ def generar_reporte(resultados):
                     ("Versión", "RSS", "tracemalloc"),
                     [
                         (
-                            ETIQUETAS[v],
-                            f"{_mb(comparativa_[v]['rss_mb'])} MB",
-                            f"{_mb(comparativa_[v]['tracemalloc_mb'])} MB",
+                            ETIQUETAS[version],
+                            f"{_mb(comparativa_[version]['rss_mb'])} MB",
+                            f"{_mb(comparativa_[version]['tracemalloc_mb'])} MB",
                         )
-                        for v in VERSIONES
+                        for version in VERSIONES
                     ],
                 ),
             )
@@ -1803,19 +1824,19 @@ def generar_reporte(resultados):
                     ("Versión", "Base", "Pico", "Muestras"),
                     [
                         (
-                            ETIQUETAS[v],
-                            f"{_mb(memoria_[v]['base_mb'])} MB",
-                            f"{_mb(memoria_[v]['pico_mb'])} MB",
-                            len(memoria_[v]["serie_mb"]),
+                            ETIQUETAS[version],
+                            f"{_mb(memoria_[version]['base_mb'])} MB",
+                            f"{_mb(memoria_[version]['pico_mb'])} MB",
+                            len(memoria_[version]["serie_mb"]),
                         )
-                        for v in VERSIONES
-                        if v in memoria_ and "serie_mb" in memoria_[v]
+                        for version in VERSIONES
+                        if version in memoria_ and "serie_mb" in memoria_[version]
                     ],
                 ),
             )
         )
 
-    graficos = [g for g in graficos if g]
+    graficos = [grafico for grafico in graficos if grafico]
 
     if graficos:
         partes.append("<h2>Gráficos</h2>" + "".join(graficos))
@@ -1828,12 +1849,12 @@ def generar_reporte(resultados):
         for version, datos in cprofile_.items():
             filas = [
                 (
-                    f"<code>{modulo_html.escape(f['funcion'])}</code>",
-                    f"{f['llamadas']:,}".replace(",", "."),
-                    f"{f['tottime']:.3f}",
-                    f"{f['cumtime']:.3f}",
+                    f"<code>{modulo_html.escape(estadistica['funcion'])}</code>",
+                    f"{estadistica['llamadas']:,}".replace(",", "."),
+                    f"{estadistica['tottime']:.3f}",
+                    f"{estadistica['cumtime']:.3f}",
                 )
-                for f in datos["top"][:8]
+                for estadistica in datos["top"][:8]
             ]
             partes.append(
                 f"<p><strong>{ETIQUETAS[version]}</strong> — "
@@ -1868,22 +1889,27 @@ def generar_reporte(resultados):
             )
 
     if memoria_:
+        filas_memoria = []
+
+        for version in VERSIONES:
+            medida = memoria_.get(version, {})
+
+            if "pico_mb" not in medida:
+                continue
+
+            filas_memoria.append(
+                (
+                    ETIQUETAS[version],
+                    f"{_mb(medida['base_mb'])} MB",
+                    f"{_mb(medida['pico_mb'])} MB",
+                    f"{_mb(medida['pico_mb'] - medida['base_mb'])} MB",
+                )
+            )
+
         partes.append(
             "<h3>memory_profiler — RSS muestreado</h3>"
             '<div class="envoltura-tabla">'
-            + _tabla_html(
-                ("Versión", "Base", "Pico", "Crecimiento"),
-                [
-                    (
-                        ETIQUETAS[v],
-                        f"{_mb(memoria_[v]['base_mb'])} MB",
-                        f"{_mb(memoria_[v]['pico_mb'])} MB",
-                        f"{_mb(memoria_[v]['pico_mb'] - memoria_[v]['base_mb'])} MB",
-                    )
-                    for v in VERSIONES
-                    if v in memoria_ and "pico_mb" in memoria_[v]
-                ],
-            )
+            + _tabla_html(("Versión", "Base", "Pico", "Crecimiento"), filas_memoria)
             + "</div>"
             + '<p class="nota">Cada versión se automuestrea dentro de su propio '
             "proceso, "
@@ -1917,12 +1943,12 @@ def generar_reporte(resultados):
             resumen_sc = datos["resumen"]
             filas = [
                 (
-                    f"<code>{modulo_html.escape(f['ubicacion'])}</code>",
-                    f"<code>{modulo_html.escape(f['codigo'])}</code>",
-                    f"{f['cpu_pct']:.1f} %",
-                    f"{f['memoria_mb']:.1f} MB",
+                    f"<code>{modulo_html.escape(linea['ubicacion'])}</code>",
+                    f"<code>{modulo_html.escape(linea['codigo'])}</code>",
+                    f"{linea['cpu_pct']:.1f} %",
+                    f"{linea['memoria_mb']:.1f} MB",
                 )
-                for f in (resumen_sc.get("top") or [])[:8]
+                for linea in (resumen_sc.get("top") or [])[:8]
             ]
             partes.append(
                 f"<p><strong>{ETIQUETAS[version]}</strong> — "
@@ -2130,7 +2156,9 @@ def main():
         )
 
     tamanos = (
-        tuple(int(t) for t in args.tamanos.split(",")) if args.tamanos else TAMANOS
+        tuple(int(tamano) for tamano in args.tamanos.split(","))
+        if args.tamanos
+        else TAMANOS
     )
 
     # El corpus chico mantiene acotado el costo de las herramientas

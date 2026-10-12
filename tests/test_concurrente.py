@@ -11,7 +11,7 @@ def test_lotes_equitativos_reparte_el_resto():
     lotes = _lotes_equitativos(list(range(10)), 3)
 
     assert [len(lote) for lote in lotes] == [4, 3, 3]
-    assert [item for lote in lotes for item in lote] == list(range(10))
+    assert [numero for lote in lotes for numero in lote] == list(range(10))
 
 
 def test_lotes_equitativos_casos_borde():
