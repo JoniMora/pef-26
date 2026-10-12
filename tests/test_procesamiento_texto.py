@@ -21,6 +21,32 @@ def test_normalize_quita_mayusculas_y_signos():
 # STEMMING
 # ============================================================
 
+# Los 16 pares sobre los que el README documenta la validación del
+# stemmer: cada plural tiene que reducirse a su singular.
+PARES_SINGULAR_PLURAL = [
+    ("dato", "datos"),
+    ("indice", "indices"),
+    ("lista", "listas"),
+    ("clase", "clases"),
+    ("red", "redes"),
+    ("vector", "vectores"),
+    ("variable", "variables"),
+    ("funcion", "funciones"),
+    ("metodo", "metodos"),
+    ("papel", "papeles"),
+    ("arbol", "arboles"),
+    ("usuario", "usuarios"),
+    ("servidor", "servidores"),
+    ("documento", "documentos"),
+    ("luz", "luces"),
+    ("vez", "veces"),
+]
+
+
+@pytest.mark.parametrize(("singular", "plural"), PARES_SINGULAR_PLURAL)
+def test_stem_unifica_singular_y_plural(singular, plural):
+    assert stem(plural) == stem(singular) == singular
+
 
 @pytest.mark.parametrize(
     ("palabra", "esperado"),

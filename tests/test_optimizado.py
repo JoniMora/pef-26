@@ -44,6 +44,19 @@ def test_construir_indice_ignora_archivos_ilegibles(tmp_path):
     assert indice == {"algoritmo": {0: 1}, "dato": {0: 1}}
 
 
+def test_construir_indice_admite_archivos_vacios(tmp_path):
+    (tmp_path / "a.txt").write_bytes(b"")  # 0 bytes
+    (tmp_path / "b.txt").write_text("algoritmo datos", encoding="utf-8")
+
+    indice, archivos = construir_indice(tmp_path)
+
+    # El archivo vacío conserva su doc_id (0) pero no aporta términos,
+    # y la búsqueda sobre ese índice funciona normalmente.
+    assert len(archivos) == 2
+    assert indice == {"algoritmo": {1: 1}, "dato": {1: 1}}
+    assert Buscador(indice, archivos).buscar("algoritmo")[0] == 1
+
+
 # ============================================================
 # CACHÉ DE CONSULTAS
 # ============================================================
