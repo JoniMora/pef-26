@@ -63,7 +63,6 @@ def _lotes_equitativos(items, cantidad_lotes):
     El resto de la división se distribuye de a un elemento entre
     los primeros lotes, de modo que ninguno difiera en más de uno.
     """
-
     total = len(items)
 
     if total == 0 or cantidad_lotes <= 0:
@@ -104,7 +103,6 @@ def _procesar_lote(lote_archivos):
     Función pura: no lee ni escribe estado compartido, por lo que
     el resultado no depende del orden de despacho de los lotes.
     """
-
     parcial = {}
 
     for doc_id, ruta in lote_archivos:
@@ -140,7 +138,6 @@ def _fusionar(indice, parcial):
     parciales: la fusión no necesita sumar frecuencias y el dict de
     postings del primer parcial se adopta tal cual, sin copiarlo.
     """
-
     for termino, postings in parcial.items():
         destino = indice.get(termino)
 
@@ -159,7 +156,6 @@ def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCE
 
         término -> {doc_id -> frecuencia}
     """
-
     archivos = sorted(Path(corpus_dir).glob("*.txt"))
 
     if not archivos:

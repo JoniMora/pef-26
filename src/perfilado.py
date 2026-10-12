@@ -130,7 +130,6 @@ def _rss_mb():
     kilobytes en Linux. Windows no tiene el módulo `resource`: ahí se
     recurre a `psutil`, cuyo `peak_wset` es el equivalente exacto.
     """
-
     if resource is not None:
         pico = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         return pico / (1024 * 1024) if sys.platform == "darwin" else pico / 1024
@@ -161,7 +160,6 @@ def _rankear_sorted(indice, terminos, candidatos, k, total_docs):
     reemplazó, y se conserva aquí para que la tabla comparativa
     pueda medir el efecto aislado del heap.
     """
-
     if not candidatos or k <= 0:
         return []
 
@@ -198,7 +196,6 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     tabla comparativa. La atribución de memoria se hace en una
     pasada aparte, que no se cronometra.
     """
-
     if con_tracemalloc:
         tracemalloc.start()
 
@@ -299,7 +296,6 @@ def _medir_en_subproceso(
     todas las versiones corrieran en el mismo intérprete, la primera
     en construir el índice fijaría el máximo para todas las demás.
     """
-
     orden = [
         sys.executable,
         str(SRC_DIR / "perfilado.py"),
@@ -342,7 +338,6 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
     Se descartan las primeras `descartar` rondas —el page cache no
     está en régimen estacionario— y se reporta la mediana del resto.
     """
-
     # Una máquina sobresuscripta invalida la medición sin avisar: los
     # tiempos salen inflados de forma despareja y aparecen resultados
     # imposibles, como que la versión paralela tarde más que la
@@ -439,7 +434,6 @@ def asegurar_corpus(tamano):
     vocabulario y la distribución sean idénticos y la única variable
     del barrido sea el volumen.
     """
-
     directorio = corpus_de(tamano)
 
     existentes = len(list(directorio.glob("*.txt"))) if directorio.exists() else 0
@@ -469,7 +463,6 @@ def escalabilidad(tamanos, rondas, repeticiones):
     sostiene al aumentar el volumen: una optimización que solo gana
     en corpus chicos se delata acá.
     """
-
     resultados = {}
 
     for tamano in tamanos:
@@ -497,7 +490,6 @@ def perfilar_cprofile(corpus_dir, versiones):
     orquestador. Devuelve las funciones más caras por tiempo
     acumulado y deja el `.prof` para inspección con snakeviz.
     """
-
     import pstats
 
     hallazgos = {}
@@ -571,7 +563,6 @@ def perfilar_line(corpus_dir, versiones):
     intérpretes separados—. Es una limitación de la herramienta, no
     del código, y queda registrada como tal.
     """
-
     from line_profiler import LineProfiler
 
     hallazgos = {}
@@ -631,7 +622,6 @@ def perfilar_memoria(corpus_dir, versiones):
     concurrente: sin él se mediría solo al padre y la memoria de los
     workers quedaría invisible.
     """
-
     hallazgos = {}
 
     for version in versiones:
@@ -676,7 +666,6 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
     Scalene 2.3 escribe un JSON y lo renderiza aparte con
     `scalene view <archivo>`.
     """
-
     en_windows = sys.platform.startswith("win")
 
     scalene = (
@@ -749,7 +738,6 @@ def _resumir_scalene(archivo):
     El esquema cambia entre versiones, así que la lectura es
     defensiva: si no se reconoce, se informa y se deja el archivo.
     """
-
     try:
         datos = json.loads(archivo.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -800,7 +788,6 @@ def perfilar_pyspy(corpus_dir, versiones, ejecutar):
     única herramienta de las cinco que puede perfilar un proceso ya
     en marcha sin instrumentarlo.
     """
-
     en_windows = sys.platform.startswith("win")
 
     pyspy = (
@@ -927,7 +914,6 @@ def _celda_ms(valor):
 
 def tabla_markdown(resumen):
     """Tabla comparativa obligatoria, lista para pegar en el README."""
-
     filas = [
         "| Versión | Tiempo de consulta | Costo de indexación | Memoria (RSS) | Observación |",
         "| :--- | ---: | ---: | ---: | :--- |",
@@ -985,7 +971,6 @@ def _figura(paleta, alto=4.2):
 
 def _cromo(ejes, paleta, titulo, etiqueta_x=None, etiqueta_y=None, grilla="y"):
     """Grilla y ejes en hairline sólido, recesivos; texto en tintas."""
-
     ejes.set_title(
         titulo,
         color=paleta["tinta"],
@@ -1044,7 +1029,6 @@ def _etiquetas_al_final(ejes, puntos, paleta, separacion_px=17):
     etiquetas una sobre otra. Se ordenan por altura y se empujan
     verticalmente hasta respetar una separación mínima.
     """
-
     ejes.figure.canvas.draw()
 
     # (posición en píxeles, x, y, texto), de abajo hacia arriba
@@ -1190,7 +1174,6 @@ def _grafico_consulta_por_version(resumen, paleta, modo):
     0,002 ms): una barra sobre eje log mentiría, porque su longitud
     ya no es proporcional al valor. El punto no promete esa lectura.
     """
-
     figura, ejes = _figura(paleta, alto=3.4)
 
     etiquetas = [ETIQUETAS[v] for v in VERSIONES]
@@ -1239,7 +1222,6 @@ def _grafico_consulta_por_version(resumen, paleta, modo):
 
 def _grafico_memoria_por_version(resumen, paleta, modo):
     """Una sola serie: un color para todas las barras, nunca un ramp."""
-
     figura, ejes = _figura(paleta, alto=3.4)
 
     etiquetas = [ETIQUETAS[v] for v in VERSIONES]
@@ -1326,7 +1308,6 @@ def _grafico_memoria_en_el_tiempo(memoria, paleta, modo):
 
 def generar_graficos(resultados):
     """Renderiza cada gráfico en sus dos modos: claro y oscuro."""
-
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1373,7 +1354,6 @@ def responder_preguntas(resultados):
     Si una medición falta, la respuesta lo dice en lugar de inventar
     un valor.
     """
-
     comparativa_ = resultados.get("comparativa")
     escalabilidad_ = resultados.get("escalabilidad")
     cprofile_ = resultados.get("cprofile") or {}
@@ -1497,7 +1477,6 @@ def responder_preguntas(resultados):
 
 def _incrustar(nombre, modo):
     """PNG como data URI, para que el reporte sea un único archivo."""
-
     import base64
 
     archivo = DIR_PERFILES / f"{nombre}-{modo}.png"
@@ -1623,7 +1602,6 @@ footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--linea)
 
 def generar_reporte(resultados):
     """Arma el reporte HTML autocontenido en profiles/reporte.html."""
-
     import html as modulo_html
 
     comparativa_ = resultados.get("comparativa") or {}
@@ -1961,7 +1939,6 @@ def generar_reporte(resultados):
 
 def _estado_del_gil():
     """`sys._is_gil_enabled()` existe recién desde Python 3.13."""
-
     consultar = getattr(sys, "_is_gil_enabled", None)
 
     if consultar is None:

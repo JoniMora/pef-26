@@ -79,7 +79,6 @@ def normalize(token):
     - convierte a minúsculas
     - elimina caracteres no alfanuméricos
     """
-
     token = token.lower()
     token = re.sub(r"[^a-záéíóúüñ0-9]", "", token)
 
@@ -95,7 +94,6 @@ def stem(token):
     tras consonante. Se invierte esa regla en lugar de recortar
     sufijos a ciegas, que era lo que separaba "datos" de "dato".
     """
-
     if len(token) > 8 and token.endswith("mente"):
         token = token[:-5]
 
@@ -132,7 +130,6 @@ def tokenizar(texto):
     """
     Convierte el texto en una lista de tokens normalizados.
     """
-
     palabras = re.findall(r"\b[\wáéíóúüñÁÉÍÓÚÜÑ]+\b", texto.lower())
 
     tokens = []
@@ -177,7 +174,6 @@ def construir_indice(corpus_dir):
             }
         }
     """
-
     indice = {}
 
     archivos = sorted(corpus_dir.glob("*.txt"))
@@ -268,7 +264,6 @@ def normalizar_consulta(consulta):
 
     tengan la misma representación.
     """
-
     tokens = tokenizar(consulta)
 
     return tuple(sorted(set(tokens)))
@@ -331,7 +326,6 @@ def rankear(indice, terminos, candidatos, k, total_docs):
     heapq.nlargest mantiene solo k elementos en el heap. No se
     materializa ningún diccionario de tamaño O(r).
     """
-
     if not candidatos or k <= 0:
         return []
 
