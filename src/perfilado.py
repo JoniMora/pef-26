@@ -31,6 +31,7 @@ Comandos (requieren el venv con las herramientas instaladas)::
 """
 
 import argparse
+import html
 import json
 import math
 import os
@@ -1992,351 +1993,503 @@ footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--linea)
 """
 
 
+def _html_encabezado(entorno):
+    """
+    Arma el encabezado del reporte, con el entorno de medición como etiquetas.
+
+    :param entorno: Descripción del equipo y del intérprete (ver :func:`_entorno`).
+    :type entorno: dict[str, str]
+    :return: El HTML del encabezado.
+    :rtype: str
+    """
+    chips = "".join(
+        f'<span class="chip">{html.escape(str(valor))}</span>'
+        for valor in entorno.values()
+    )
+
+    return f"""
+    <header>
+      <h1>Perfilado y medición — Buscador Eficiente de Información</h1>
+      <p class="subtitulo">Comparativa de las cinco versiones con cProfile,
+         line_profiler, memory_profiler, Scalene y py-spy.</p>
+      <div class="chips">{chips}</div>
+    </header>"""
+
+
+def _html_comparativa(resumen):
+    """
+    Arma la tabla comparativa obligatoria de las cinco versiones.
+
+    :param resumen: Mediana por versión, tal como la devuelve :func:`comparativa`.
+    :type resumen: dict[str, dict]
+    :return: El HTML de la sección, o una cadena vacía si no hay comparativa.
+    :rtype: str
+    """
+    if not resumen:
+        return ""
+
+    filas = [
+        (
+            resumen[version]["etiqueta"],
+            _celda_ms(resumen[version]["consulta_ms"]),
+            _celda_ms(resumen[version]["indexacion_ms"]),
+            f"{_mb(resumen[version]['rss_mb'])} MB",
+            resumen[version]["observacion"],
+        )
+        for version in VERSIONES
+    ]
+
+    return (
+        "<h2>Comparación obligatoria</h2>"
+        '<div class="envoltura-tabla">'
+        + _tabla_html(
+            (
+                "Versión",
+                "Tiempo de consulta",
+                "Costo de indexación",
+                "Memoria (RSS)",
+                "Observación",
+            ),
+            filas,
+        )
+        + "</div>"
+        + '<p class="nota">Mediana de las rondas útiles; cada versión se mide en '
+        "un "
+        "proceso limpio y las versiones se alternan dentro de cada ronda. "
+        "El total de coincidencias es idéntico en las cinco versiones "
+        f"({_num(resumen['inicial']['coincidencias'])} documentos), que es el "
+        "testigo de equivalencia.</p>"
+    )
+
+
+def _html_preguntas(respuestas):
+    """
+    Arma la sección con las respuestas a las cinco preguntas de la medición.
+
+    :param respuestas: Respuestas en HTML, tal como las devuelve
+        :func:`responder_preguntas`.
+    :type respuestas: dict[str, str]
+    :return: El HTML de la sección, o una cadena vacía si no hay respuestas.
+    :rtype: str
+    """
+    if not respuestas:
+        return ""
+
+    titulos = (
+        ("cuello", "¿Dónde está el principal cuello de botella?"),
+        ("optimizacion", "¿Qué optimización se realizó?"),
+        ("impacto", "¿Qué impacto tuvo?"),
+        (
+            "escalabilidad",
+            "¿La mejora se mantiene al aumentar el volumen de datos?",
+        ),
+        ("tradeoff", "¿Qué trade-off se produjo?"),
+    )
+
+    return "<h2>Las cinco preguntas</h2>" + "".join(
+        f'<div class="pregunta"><h3>{titulo}</h3>'
+        f"<p>{respuestas.get(clave, '—')}</p></div>"
+        for clave, titulo in titulos
+    )
+
+
+def _figuras_escalabilidad(por_tamano):
+    """
+    Arma las figuras de consulta e indexación según el tamaño del corpus.
+
+    :param por_tamano: Resumen por tamaño de corpus, tal como lo devuelve
+        :func:`escalabilidad`.
+    :type por_tamano: dict[str, dict]
+    :return: El HTML de las dos figuras, cada una con su tabla de datos.
+    :rtype: list[str]
+    """
+    tamanos = sorted(int(tamano) for tamano in por_tamano)
+
+    return [
+        _figura_html(
+            "escalabilidad-consulta",
+            "Tiempo de consulta según el volumen",
+            _tabla_html(
+                ["Versión"] + [f"{tamano:,}".replace(",", ".") for tamano in tamanos],
+                [
+                    [ETIQUETAS[version]]
+                    + [
+                        _celda_ms(por_tamano[str(tamano)][version]["consulta_ms"])
+                        for tamano in tamanos
+                    ]
+                    for version in VERSIONES
+                ],
+            ),
+        ),
+        _figura_html(
+            "escalabilidad-indexacion",
+            "Costo de indexación según el volumen",
+            _tabla_html(
+                ["Versión"] + [f"{tamano:,}".replace(",", ".") for tamano in tamanos],
+                [
+                    [ETIQUETAS[version]]
+                    + [
+                        _celda_ms(por_tamano[str(tamano)][version]["indexacion_ms"])
+                        for tamano in tamanos
+                    ]
+                    for version in ("algoritmo", "concurrencia")
+                ],
+            ),
+        ),
+    ]
+
+
+def _figuras_comparativa(resumen):
+    """
+    Arma las figuras de tiempo por consulta y de memoria por versión.
+
+    :param resumen: Mediana por versión, tal como la devuelve :func:`comparativa`.
+    :type resumen: dict[str, dict]
+    :return: El HTML de las dos figuras, cada una con su tabla de datos.
+    :rtype: list[str]
+    """
+    return [
+        _figura_html(
+            "consulta-por-version",
+            "Tiempo por consulta",
+            _tabla_html(
+                ("Versión", "Tiempo de consulta"),
+                [
+                    (ETIQUETAS[version], _celda_ms(resumen[version]["consulta_ms"]))
+                    for version in VERSIONES
+                ],
+            ),
+        ),
+        _figura_html(
+            "memoria-por-version",
+            "Pico de memoria por versión",
+            _tabla_html(
+                ("Versión", "RSS", "tracemalloc"),
+                [
+                    (
+                        ETIQUETAS[version],
+                        f"{_mb(resumen[version]['rss_mb'])} MB",
+                        f"{_mb(resumen[version]['tracemalloc_mb'])} MB",
+                    )
+                    for version in VERSIONES
+                ],
+            ),
+        ),
+    ]
+
+
+def _figura_memoria(memoria):
+    """
+    Arma la figura del RSS a lo largo de la corrida de cada versión.
+
+    :param memoria: Series de RSS por versión, tal como las devuelve
+        :func:`perfilar_memoria`.
+    :type memoria: dict[str, dict]
+    :return: El HTML de la figura con su tabla de datos, o una cadena vacía si el
+        gráfico no existe.
+    :rtype: str
+    """
+    return _figura_html(
+        "memoria-en-el-tiempo",
+        "Memoria residente en el tiempo",
+        _tabla_html(
+            ("Versión", "Base", "Pico", "Muestras"),
+            [
+                (
+                    ETIQUETAS[version],
+                    f"{_mb(memoria[version]['base_mb'])} MB",
+                    f"{_mb(memoria[version]['pico_mb'])} MB",
+                    len(memoria[version]["serie_mb"]),
+                )
+                for version in VERSIONES
+                if version in memoria and "serie_mb" in memoria[version]
+            ],
+        ),
+    )
+
+
+def _html_graficos(resumen, por_tamano, memoria):
+    """
+    Arma la sección de gráficos con los que haya datos para dibujar.
+
+    :param resumen: Mediana por versión (ver :func:`comparativa`).
+    :type resumen: dict[str, dict]
+    :param por_tamano: Resumen por tamaño de corpus (ver :func:`escalabilidad`).
+    :type por_tamano: dict[str, dict]
+    :param memoria: Series de RSS por versión (ver :func:`perfilar_memoria`).
+    :type memoria: dict[str, dict]
+    :return: El HTML de la sección, o una cadena vacía si no hay ningún gráfico.
+    :rtype: str
+    """
+    graficos = []
+
+    if por_tamano:
+        graficos += _figuras_escalabilidad(por_tamano)
+
+    if resumen:
+        graficos += _figuras_comparativa(resumen)
+
+    if memoria:
+        graficos.append(_figura_memoria(memoria))
+
+    graficos = [grafico for grafico in graficos if grafico]
+
+    if not graficos:
+        return ""
+
+    return "<h2>Gráficos</h2>" + "".join(graficos)
+
+
+def _html_cprofile(cprofile):
+    """
+    Arma la sección de cProfile: las funciones más caras de cada versión.
+
+    :param cprofile: Hallazgos por versión, tal como los devuelve
+        :func:`perfilar_cprofile`.
+    :type cprofile: dict[str, dict]
+    :return: El HTML de la sección, o una cadena vacía si no hay datos.
+    :rtype: str
+    """
+    if not cprofile:
+        return ""
+
+    partes = ["<h3>cProfile — costo por función</h3>"]
+
+    for version, datos in cprofile.items():
+        filas = [
+            (
+                f"<code>{html.escape(estadistica['funcion'])}</code>",
+                f"{estadistica['llamadas']:,}".replace(",", "."),
+                f"{estadistica['tottime']:.3f}",
+                f"{estadistica['cumtime']:.3f}",
+            )
+            for estadistica in datos["top"][:8]
+        ]
+        partes.append(
+            f"<p><strong>{ETIQUETAS[version]}</strong> — "
+            f"{datos['total_s']:.2f} s instrumentados · "
+            f"<code>{datos['archivo']}</code></p>"
+            '<div class="envoltura-tabla">'
+            + _tabla_html(("Función", "Llamadas", "tottime (s)", "cumtime (s)"), filas)
+            + "</div>"
+        )
+
+    partes.append(
+        '<p class="nota">Visualizable con '
+        "<code>.venv/bin/snakeviz "
+        "profiles/cprofile-&lt;version&gt;.prof</code>.</p>"
+    )
+
+    return "".join(partes)
+
+
+def _html_line_profiler(line_profiler):
+    """
+    Arma la sección de line_profiler: un extracto del costo por línea.
+
+    :param line_profiler: Hallazgos por versión, tal como los devuelve
+        :func:`perfilar_line`.
+    :type line_profiler: dict[str, dict]
+    :return: El HTML de la sección, o una cadena vacía si no hay datos.
+    :rtype: str
+    """
+    if not line_profiler:
+        return ""
+
+    partes = ["<h3>line_profiler — costo por línea</h3>"]
+
+    for version, datos in line_profiler.items():
+        if "omitido" in datos:
+            partes.append(
+                f"<p><strong>{ETIQUETAS[version]}</strong> — omitido: "
+                f"{html.escape(datos['omitido'])}.</p>"
+            )
+            continue
+
+        extracto = "\n".join(datos["texto"].splitlines()[:44])
+        partes.append(
+            f"<p><strong>{ETIQUETAS[version]}</strong> — "
+            f"<code>{datos['archivo']}</code></p>"
+            f"<pre><code>{html.escape(extracto)}</code></pre>"
+        )
+
+    return "".join(partes)
+
+
+def _html_memoria(memoria):
+    """
+    Arma la tabla de memory_profiler: base, pico y crecimiento del RSS.
+
+    :param memoria: Series de RSS por versión, tal como las devuelve
+        :func:`perfilar_memoria`.
+    :type memoria: dict[str, dict]
+    :return: El HTML de la sección, o una cadena vacía si no hay datos.
+    :rtype: str
+    """
+    if not memoria:
+        return ""
+
+    filas_memoria = []
+
+    for version in VERSIONES:
+        medida = memoria.get(version, {})
+
+        if "pico_mb" not in medida:
+            continue
+
+        filas_memoria.append(
+            (
+                ETIQUETAS[version],
+                f"{_mb(medida['base_mb'])} MB",
+                f"{_mb(medida['pico_mb'])} MB",
+                f"{_mb(medida['pico_mb'] - medida['base_mb'])} MB",
+            )
+        )
+
+    return (
+        "<h3>memory_profiler — RSS muestreado</h3>"
+        '<div class="envoltura-tabla">'
+        + _tabla_html(("Versión", "Base", "Pico", "Crecimiento"), filas_memoria)
+        + "</div>"
+        + '<p class="nota">Cada versión se automuestrea dentro de su propio '
+        "proceso, "
+        "con <code>include_children=True</code>: sin esa opción la versión "
+        "concurrente "
+        "reportaría solo la memoria del padre. Estos picos son "
+        "<strong>mayores</strong> que "
+        "la columna RSS de la tabla comparativa porque no miden lo mismo: "
+        "<code>include_children</code> <strong>suma</strong> padre e hijos, "
+        "mientras "
+        "<code>ru_maxrss</code> informa el <strong>máximo</strong> de un solo "
+        "proceso del "
+        "árbol. Las dos cifras son correctas; responden preguntas distintas.</p>"
+    )
+
+
+def _html_scalene(scalene):
+    """
+    Arma la sección de Scalene: las líneas más caras en CPU y memoria.
+
+    :param scalene: Hallazgos por versión, tal como los devuelve
+        :func:`perfilar_scalene`.
+    :type scalene: dict
+    :return: El HTML de la sección, o una cadena vacía si no hay datos.
+    :rtype: str
+    """
+    if not scalene:
+        return ""
+
+    partes = ["<h3>Scalene — CPU y memoria por línea</h3>"]
+
+    for version, datos in scalene.items():
+        if isinstance(datos, dict) and "omitido" in datos:
+            partes.append(
+                f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — omitido: "
+                f"{html.escape(datos['omitido'])}.</p>"
+            )
+            continue
+
+        if not isinstance(datos, dict) or "resumen" not in datos:
+            partes.append(
+                f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — "
+                f"{html.escape(str(datos)[:300])}</p>"
+            )
+            continue
+
+        resumen_sc = datos["resumen"]
+        filas = [
+            (
+                f"<code>{html.escape(linea['ubicacion'])}</code>",
+                f"<code>{html.escape(linea['codigo'])}</code>",
+                f"{linea['cpu_pct']:.1f} %",
+                f"{linea['memoria_mb']:.1f} MB",
+            )
+            for linea in (resumen_sc.get("top") or [])[:8]
+        ]
+        partes.append(
+            f"<p><strong>{ETIQUETAS[version]}</strong> — "
+            f"<code>{datos['ver_con']}</code></p>"
+            + (
+                '<div class="envoltura-tabla">'
+                + _tabla_html(("Línea", "Código", "CPU", "Memoria pico"), filas)
+                + "</div>"
+                if filas
+                else "<p>Sin líneas por encima del umbral de muestreo.</p>"
+            )
+        )
+
+    return "".join(partes)
+
+
+def _html_pyspy(pyspy):
+    """
+    Arma la sección de py-spy: los flamegraphs o los comandos para generarlos.
+
+    :param pyspy: Hallazgos de :func:`perfilar_pyspy`: por versión, o con la
+        clave ``omitido`` si no se ejecutó.
+    :type pyspy: dict
+    :return: El HTML de la sección, o una cadena vacía si no hay datos.
+    :rtype: str
+    """
+    if not pyspy:
+        return ""
+
+    partes = ["<h3>py-spy — muestreo externo y flamegraph</h3>"]
+
+    if "omitido" in pyspy:
+        comandos = "\n".join(pyspy["comandos"])
+        partes.append(
+            f"<p>{html.escape(pyspy['omitido'])}. Es la única de las cinco "
+            "que "
+            "perfila un proceso <strong>ya en marcha</strong> sin instrumentarlo, "
+            "y la única "
+            "que ve los procesos hijos con <code>--subprocesses</code>.</p>"
+            f"<pre><code>{html.escape(comandos)}</code></pre>"
+        )
+        return "".join(partes)
+
+    for version, datos in pyspy.items():
+        detalle = datos.get("archivo") or datos.get("error", "")
+        partes.append(
+            f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — "
+            f"{html.escape(str(detalle))}</p>"
+        )
+
+    return "".join(partes)
+
+
 def generar_reporte(resultados):
     """
     Arma el reporte HTML autocontenido en profiles/reporte.html.
+
+    Cada sección la arma su propia función y queda vacía si no hay datos
+    para ella; el reporte las concatena en orden.
 
     :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
     :type resultados: dict
     :return: Ruta de ``profiles/reporte.html``.
     :rtype: pathlib.Path
     """
-    import html as modulo_html
+    resumen = resultados.get("comparativa") or {}
+    memoria = resultados.get("memoria") or {}
 
-    comparativa_ = resultados.get("comparativa") or {}
-    escalabilidad_ = resultados.get("escalabilidad") or {}
-    memoria_ = resultados.get("memoria") or {}
-    cprofile_ = resultados.get("cprofile") or {}
-    line_ = resultados.get("line_profiler") or {}
-    scalene_ = resultados.get("scalene") or {}
-    pyspy_ = resultados.get("pyspy") or {}
-    entorno = resultados.get("entorno") or {}
-
-    respuestas = responder_preguntas(resultados)
-    partes = []
-
-    # ---------------------------------------------- encabezado
-    chips = "".join(
-        f'<span class="chip">{modulo_html.escape(str(valor))}</span>'
-        for valor in entorno.values()
-    )
-
-    partes.append(f"""
-    <header>
-      <h1>Perfilado y medición — Buscador Eficiente de Información</h1>
-      <p class="subtitulo">Comparativa de las cinco versiones con cProfile,
-         line_profiler, memory_profiler, Scalene y py-spy.</p>
-      <div class="chips">{chips}</div>
-    </header>""")
-
-    # ---------------------------------------------- tabla obligatoria
-    if comparativa_:
-        filas = [
-            (
-                comparativa_[version]["etiqueta"],
-                _celda_ms(comparativa_[version]["consulta_ms"]),
-                _celda_ms(comparativa_[version]["indexacion_ms"]),
-                f"{_mb(comparativa_[version]['rss_mb'])} MB",
-                comparativa_[version]["observacion"],
-            )
-            for version in VERSIONES
-        ]
-        partes.append(
-            "<h2>Comparación obligatoria</h2>"
-            '<div class="envoltura-tabla">'
-            + _tabla_html(
-                (
-                    "Versión",
-                    "Tiempo de consulta",
-                    "Costo de indexación",
-                    "Memoria (RSS)",
-                    "Observación",
-                ),
-                filas,
-            )
-            + "</div>"
-            + '<p class="nota">Mediana de las rondas útiles; cada versión se mide en '
-            "un "
-            "proceso limpio y las versiones se alternan dentro de cada ronda. "
-            "El total de coincidencias es idéntico en las cinco versiones "
-            f"({_num(comparativa_['inicial']['coincidencias'])} documentos), que es el "
-            "testigo de equivalencia.</p>"
-        )
-
-    # ---------------------------------------------- preguntas
-    if respuestas:
-        titulos = (
-            ("cuello", "¿Dónde está el principal cuello de botella?"),
-            ("optimizacion", "¿Qué optimización se realizó?"),
-            ("impacto", "¿Qué impacto tuvo?"),
-            (
-                "escalabilidad",
-                "¿La mejora se mantiene al aumentar el volumen de datos?",
-            ),
-            ("tradeoff", "¿Qué trade-off se produjo?"),
-        )
-        partes.append("<h2>Las cinco preguntas</h2>")
-        for clave, titulo in titulos:
-            partes.append(
-                f'<div class="pregunta"><h3>{titulo}</h3>'
-                f"<p>{respuestas.get(clave, '—')}</p></div>"
-            )
-
-    # ---------------------------------------------- gráficos
-    graficos = []
-
-    if escalabilidad_:
-        tamanos = sorted(int(tamano) for tamano in escalabilidad_)
-
-        graficos.append(
-            _figura_html(
-                "escalabilidad-consulta",
-                "Tiempo de consulta según el volumen",
-                _tabla_html(
-                    ["Versión"]
-                    + [f"{tamano:,}".replace(",", ".") for tamano in tamanos],
-                    [
-                        [ETIQUETAS[version]]
-                        + [
-                            _celda_ms(
-                                escalabilidad_[str(tamano)][version]["consulta_ms"]
-                            )
-                            for tamano in tamanos
-                        ]
-                        for version in VERSIONES
-                    ],
-                ),
-            )
-        )
-
-        graficos.append(
-            _figura_html(
-                "escalabilidad-indexacion",
-                "Costo de indexación según el volumen",
-                _tabla_html(
-                    ["Versión"]
-                    + [f"{tamano:,}".replace(",", ".") for tamano in tamanos],
-                    [
-                        [ETIQUETAS[version]]
-                        + [
-                            _celda_ms(
-                                escalabilidad_[str(tamano)][version]["indexacion_ms"]
-                            )
-                            for tamano in tamanos
-                        ]
-                        for version in ("algoritmo", "concurrencia")
-                    ],
-                ),
-            )
-        )
-
-    if comparativa_:
-        graficos.append(
-            _figura_html(
-                "consulta-por-version",
-                "Tiempo por consulta",
-                _tabla_html(
-                    ("Versión", "Tiempo de consulta"),
-                    [
-                        (
-                            ETIQUETAS[version],
-                            _celda_ms(comparativa_[version]["consulta_ms"]),
-                        )
-                        for version in VERSIONES
-                    ],
-                ),
-            )
-        )
-        graficos.append(
-            _figura_html(
-                "memoria-por-version",
-                "Pico de memoria por versión",
-                _tabla_html(
-                    ("Versión", "RSS", "tracemalloc"),
-                    [
-                        (
-                            ETIQUETAS[version],
-                            f"{_mb(comparativa_[version]['rss_mb'])} MB",
-                            f"{_mb(comparativa_[version]['tracemalloc_mb'])} MB",
-                        )
-                        for version in VERSIONES
-                    ],
-                ),
-            )
-        )
-
-    if memoria_:
-        graficos.append(
-            _figura_html(
-                "memoria-en-el-tiempo",
-                "Memoria residente en el tiempo",
-                _tabla_html(
-                    ("Versión", "Base", "Pico", "Muestras"),
-                    [
-                        (
-                            ETIQUETAS[version],
-                            f"{_mb(memoria_[version]['base_mb'])} MB",
-                            f"{_mb(memoria_[version]['pico_mb'])} MB",
-                            len(memoria_[version]["serie_mb"]),
-                        )
-                        for version in VERSIONES
-                        if version in memoria_ and "serie_mb" in memoria_[version]
-                    ],
-                ),
-            )
-        )
-
-    graficos = [grafico for grafico in graficos if grafico]
-
-    if graficos:
-        partes.append("<h2>Gráficos</h2>" + "".join(graficos))
-
-    # ---------------------------------------------- herramientas
-    partes.append("<h2>Hallazgos por herramienta</h2>")
-
-    if cprofile_:
-        partes.append("<h3>cProfile — costo por función</h3>")
-        for version, datos in cprofile_.items():
-            filas = [
-                (
-                    f"<code>{modulo_html.escape(estadistica['funcion'])}</code>",
-                    f"{estadistica['llamadas']:,}".replace(",", "."),
-                    f"{estadistica['tottime']:.3f}",
-                    f"{estadistica['cumtime']:.3f}",
-                )
-                for estadistica in datos["top"][:8]
-            ]
-            partes.append(
-                f"<p><strong>{ETIQUETAS[version]}</strong> — "
-                f"{datos['total_s']:.2f} s instrumentados · "
-                f"<code>{datos['archivo']}</code></p>"
-                '<div class="envoltura-tabla">'
-                + _tabla_html(
-                    ("Función", "Llamadas", "tottime (s)", "cumtime (s)"), filas
-                )
-                + "</div>"
-            )
-        partes.append(
-            '<p class="nota">Visualizable con '
-            "<code>.venv/bin/snakeviz "
-            "profiles/cprofile-&lt;version&gt;.prof</code>.</p>"
-        )
-
-    if line_:
-        partes.append("<h3>line_profiler — costo por línea</h3>")
-        for version, datos in line_.items():
-            if "omitido" in datos:
-                partes.append(
-                    f"<p><strong>{ETIQUETAS[version]}</strong> — omitido: "
-                    f"{modulo_html.escape(datos['omitido'])}.</p>"
-                )
-                continue
-            extracto = "\n".join(datos["texto"].splitlines()[:44])
-            partes.append(
-                f"<p><strong>{ETIQUETAS[version]}</strong> — "
-                f"<code>{datos['archivo']}</code></p>"
-                f"<pre><code>{modulo_html.escape(extracto)}</code></pre>"
-            )
-
-    if memoria_:
-        filas_memoria = []
-
-        for version in VERSIONES:
-            medida = memoria_.get(version, {})
-
-            if "pico_mb" not in medida:
-                continue
-
-            filas_memoria.append(
-                (
-                    ETIQUETAS[version],
-                    f"{_mb(medida['base_mb'])} MB",
-                    f"{_mb(medida['pico_mb'])} MB",
-                    f"{_mb(medida['pico_mb'] - medida['base_mb'])} MB",
-                )
-            )
-
-        partes.append(
-            "<h3>memory_profiler — RSS muestreado</h3>"
-            '<div class="envoltura-tabla">'
-            + _tabla_html(("Versión", "Base", "Pico", "Crecimiento"), filas_memoria)
-            + "</div>"
-            + '<p class="nota">Cada versión se automuestrea dentro de su propio '
-            "proceso, "
-            "con <code>include_children=True</code>: sin esa opción la versión "
-            "concurrente "
-            "reportaría solo la memoria del padre. Estos picos son "
-            "<strong>mayores</strong> que "
-            "la columna RSS de la tabla comparativa porque no miden lo mismo: "
-            "<code>include_children</code> <strong>suma</strong> padre e hijos, "
-            "mientras "
-            "<code>ru_maxrss</code> informa el <strong>máximo</strong> de un solo "
-            "proceso del "
-            "árbol. Las dos cifras son correctas; responden preguntas distintas.</p>"
-        )
-
-    if scalene_:
-        partes.append("<h3>Scalene — CPU y memoria por línea</h3>")
-        for version, datos in scalene_.items():
-            if isinstance(datos, dict) and "omitido" in datos:
-                partes.append(
-                    f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — omitido: "
-                    f"{modulo_html.escape(datos['omitido'])}.</p>"
-                )
-                continue
-            if not isinstance(datos, dict) or "resumen" not in datos:
-                partes.append(
-                    f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — "
-                    f"{modulo_html.escape(str(datos)[:300])}</p>"
-                )
-                continue
-            resumen_sc = datos["resumen"]
-            filas = [
-                (
-                    f"<code>{modulo_html.escape(linea['ubicacion'])}</code>",
-                    f"<code>{modulo_html.escape(linea['codigo'])}</code>",
-                    f"{linea['cpu_pct']:.1f} %",
-                    f"{linea['memoria_mb']:.1f} MB",
-                )
-                for linea in (resumen_sc.get("top") or [])[:8]
-            ]
-            partes.append(
-                f"<p><strong>{ETIQUETAS[version]}</strong> — "
-                f"<code>{datos['ver_con']}</code></p>"
-                + (
-                    '<div class="envoltura-tabla">'
-                    + _tabla_html(("Línea", "Código", "CPU", "Memoria pico"), filas)
-                    + "</div>"
-                    if filas
-                    else "<p>Sin líneas por encima del umbral de muestreo.</p>"
-                )
-            )
-
-    if pyspy_:
-        partes.append("<h3>py-spy — muestreo externo y flamegraph</h3>")
-        if "omitido" in pyspy_:
-            comandos = "\n".join(pyspy_["comandos"])
-            partes.append(
-                f"<p>{modulo_html.escape(pyspy_['omitido'])}. Es la única de las cinco "
-                "que "
-                "perfila un proceso <strong>ya en marcha</strong> sin instrumentarlo, "
-                "y la única "
-                "que ve los procesos hijos con <code>--subprocesses</code>.</p>"
-                f"<pre><code>{modulo_html.escape(comandos)}</code></pre>"
-            )
-        else:
-            for version, datos in pyspy_.items():
-                detalle = datos.get("archivo") or datos.get("error", "")
-                partes.append(
-                    f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — "
-                    f"{modulo_html.escape(str(detalle))}</p>"
-                )
-
-    partes.append("""
+    partes = [
+        _html_encabezado(resultados.get("entorno") or {}),
+        _html_comparativa(resumen),
+        _html_preguntas(responder_preguntas(resultados)),
+        _html_graficos(resumen, resultados.get("escalabilidad") or {}, memoria),
+        "<h2>Hallazgos por herramienta</h2>",
+        _html_cprofile(resultados.get("cprofile") or {}),
+        _html_line_profiler(resultados.get("line_profiler") or {}),
+        _html_memoria(memoria),
+        _html_scalene(resultados.get("scalene") or {}),
+        _html_pyspy(resultados.get("pyspy") or {}),
+        """
     <footer>
       <p>Generado por <code>src/perfilado.py</code>.
          Reproducible con <code>.venv/bin/python src/perfilado.py --todo</code>.</p>
-    </footer>""")
+    </footer>""",
+    ]
 
     documento = f"""<!doctype html>
 <html lang="es">
@@ -2393,13 +2546,13 @@ def _entorno():
     }
 
 
-def main():
+def _crear_parser():
     """
-    Ejecuta las fases de medición pedidas por línea de comandos.
+    Define las opciones de la línea de comandos.
 
-    Cada fase vuelca su resultado en ``profiles/perfilado.json`` apenas
-    termina. Con ``--medir`` corre en modo interno: mide una sola
-    versión e imprime su JSON para el proceso orquestador.
+    :return: El parser con las fases que se pueden pedir y las opciones
+        internas (``--medir`` y sus variantes) que usa el propio orquestador.
+    :rtype: argparse.ArgumentParser
     """
     parser = argparse.ArgumentParser(description="Perfilado y medición del buscador")
 
@@ -2451,125 +2604,177 @@ def main():
         help="tamaños del barrido, separados por coma",
     )
 
-    args = parser.parse_args()
+    return parser
 
-    corpus_dir = Path(args.directorio)
 
-    # ---- modo interno: una versión, un proceso limpio
-    if args.medir:
-        if args.serie_memoria:
-            from memory_profiler import memory_usage
+def _medir_modo_interno(args, corpus_dir):
+    """
+    Mide una sola versión en este proceso e imprime su JSON.
 
-            serie, medicion = memory_usage(
-                (
-                    medir_version,
-                    (args.medir, corpus_dir, args.repeticiones, args.con_tracemalloc),
-                ),
-                interval=0.05,
-                include_children=True,
-                retval=True,
-            )
-            medicion["serie_mb"] = serie
+    Es el modo que usa :func:`_medir_en_subproceso`: el orquestador se
+    invoca a sí mismo con ``--medir`` para medir cada versión en un
+    proceso limpio. Según las opciones, envuelve la medición en
+    memory_profiler o en cProfile.
 
-        elif args.perfil_cprofile:
-            import cProfile
+    :param args: Opciones de la línea de comandos.
+    :type args: argparse.Namespace
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    """
+    if args.serie_memoria:
+        from memory_profiler import memory_usage
 
-            perfilador = cProfile.Profile()
-            perfilador.enable()
-            medicion = medir_version(
-                args.medir, corpus_dir, args.repeticiones, args.con_tracemalloc
-            )
-            perfilador.disable()
-            perfilador.dump_stats(args.perfil_cprofile)
-        else:
-            medicion = medir_version(
-                args.medir, corpus_dir, args.repeticiones, args.con_tracemalloc
-            )
-
-        print(MARCA_JSON + json.dumps(medicion))
-        return
-
-    DIR_PERFILES.mkdir(exist_ok=True)
-
-    archivo_resultados = DIR_PERFILES / "perfilado.json"
-
-    resultados = (
-        json.loads(archivo_resultados.read_text(encoding="utf-8"))
-        if archivo_resultados.exists()
-        else {}
-    )
-    resultados["entorno"] = _entorno()
-
-    def persistir(fase):
-        """
-        Vuelca el estado apenas termina una fase.
-
-        Las fases son largas y esta máquina se queda sin aire: si el
-        volcado fuera solo al final, un corte a mitad de camino
-        tiraría también las fases que ya habían terminado bien.
-
-        :param fase: Nombre de la fase que terminó, para el mensaje.
-        :type fase: str
-        """
-        archivo_resultados.write_text(
-            json.dumps(resultados, indent=2, ensure_ascii=False),
-            encoding="utf-8",
+        serie, medicion = memory_usage(
+            (
+                medir_version,
+                (args.medir, corpus_dir, args.repeticiones, args.con_tracemalloc),
+            ),
+            interval=0.05,
+            include_children=True,
+            retval=True,
         )
-        print(
-            f"  ✓ {fase} guardada en {archivo_resultados.relative_to(BASE_DIR)}",
-            flush=True,
+        medicion["serie_mb"] = serie
+
+    elif args.perfil_cprofile:
+        import cProfile
+
+        perfilador = cProfile.Profile()
+        perfilador.enable()
+        medicion = medir_version(
+            args.medir, corpus_dir, args.repeticiones, args.con_tracemalloc
+        )
+        perfilador.disable()
+        perfilador.dump_stats(args.perfil_cprofile)
+    else:
+        medicion = medir_version(
+            args.medir, corpus_dir, args.repeticiones, args.con_tracemalloc
         )
 
-    tamanos = (
-        tuple(int(tamano) for tamano in args.tamanos.split(","))
-        if args.tamanos
-        else TAMANOS
+    print(MARCA_JSON + json.dumps(medicion))
+
+
+def _persistir(resultados, archivo, fase):
+    """
+    Vuelca el estado apenas termina una fase.
+
+    Las fases son largas y esta máquina se queda sin aire: si el
+    volcado fuera solo al final, un corte a mitad de camino
+    tiraría también las fases que ya habían terminado bien.
+
+    :param resultados: Resultados acumulados hasta el momento.
+    :type resultados: dict
+    :param archivo: Ruta de ``profiles/perfilado.json``.
+    :type archivo: pathlib.Path
+    :param fase: Nombre de la fase que terminó, para el mensaje.
+    :type fase: str
+    """
+    archivo.write_text(
+        json.dumps(resultados, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    print(
+        f"  ✓ {fase} guardada en {archivo.relative_to(BASE_DIR)}",
+        flush=True,
     )
 
-    # El corpus chico mantiene acotado el costo de las herramientas
-    # que instrumentan línea a línea.
-    corpus_liviano = corpus_de(min(tamanos))
 
+def _correr_mediciones(args, resultados, archivo, corpus_dir, tamanos):
+    """
+    Corre la comparativa y el barrido de escalabilidad, si se pidieron.
+
+    :param args: Opciones de la línea de comandos.
+    :type args: argparse.Namespace
+    :param resultados: Resultados acumulados; se completan en el lugar.
+    :type resultados: dict
+    :param archivo: Ruta de ``profiles/perfilado.json``.
+    :type archivo: pathlib.Path
+    :param corpus_dir: Directorio del corpus de la comparativa.
+    :type corpus_dir: pathlib.Path
+    :param tamanos: Tamaños de corpus del barrido de escalabilidad.
+    :type tamanos: tuple[int, ...]
+    """
     if args.todo or args.comparativa:
         print(f"\n[comparativa] corpus {corpus_dir}")
         resultados["comparativa"] = comparativa(
             corpus_dir, args.rondas, args.repeticiones
         )["resumen"]
-        persistir("comparativa")
+        _persistir(resultados, archivo, "comparativa")
 
     if args.todo or args.escalabilidad:
         resultados["escalabilidad"] = escalabilidad(
             tamanos, max(1, args.rondas - 1), args.repeticiones
         )
-        persistir("escalabilidad")
+        _persistir(resultados, archivo, "escalabilidad")
 
-    if args.todo or args.cprofile:
-        print("\n[cProfile]")
-        resultados["cprofile"] = perfilar_cprofile(corpus_liviano, VERSIONES)
-        persistir("cProfile")
 
-    if args.todo or args.line:
-        print("\n[line_profiler]")
-        resultados["line_profiler"] = perfilar_line(corpus_liviano, VERSIONES)
-        persistir("line_profiler")
+def _correr_perfiladores(args, resultados, archivo, corpus_dir, corpus_liviano):
+    """
+    Corre las herramientas de perfilado que se pidieron, en orden.
 
-    if args.todo or args.memoria:
-        print("\n[memory_profiler]")
-        resultados["memoria"] = perfilar_memoria(corpus_dir, VERSIONES)
-        persistir("memory_profiler")
+    :param args: Opciones de la línea de comandos.
+    :type args: argparse.Namespace
+    :param resultados: Resultados acumulados; se completan en el lugar.
+    :type resultados: dict
+    :param archivo: Ruta de ``profiles/perfilado.json``.
+    :type archivo: pathlib.Path
+    :param corpus_dir: Directorio del corpus principal, para memory_profiler.
+    :type corpus_dir: pathlib.Path
+    :param corpus_liviano: Corpus chico, para las herramientas que
+        instrumentan línea a línea y encarecen mucho la ejecución.
+    :type corpus_liviano: pathlib.Path
+    """
+    # (pedida, clave en perfilado.json, nombre de la fase, perfilador)
+    fases = (
+        (
+            args.cprofile,
+            "cprofile",
+            "cProfile",
+            lambda: perfilar_cprofile(corpus_liviano, VERSIONES),
+        ),
+        (
+            args.line,
+            "line_profiler",
+            "line_profiler",
+            lambda: perfilar_line(corpus_liviano, VERSIONES),
+        ),
+        (
+            args.memoria,
+            "memoria",
+            "memory_profiler",
+            lambda: perfilar_memoria(corpus_dir, VERSIONES),
+        ),
+        (
+            args.scalene,
+            "scalene",
+            "scalene",
+            lambda: perfilar_scalene(corpus_liviano, VERSIONES),
+        ),
+        (
+            args.pyspy,
+            "pyspy",
+            "py-spy",
+            lambda: perfilar_pyspy(corpus_liviano, VERSIONES, args.ejecutar_pyspy),
+        ),
+    )
 
-    if args.todo or args.scalene:
-        print("\n[scalene]")
-        resultados["scalene"] = perfilar_scalene(corpus_liviano, VERSIONES)
-        persistir("scalene")
+    for pedida, clave, nombre, perfilar in fases:
+        if not (args.todo or pedida):
+            continue
 
-    if args.todo or args.pyspy:
-        print("\n[py-spy]")
-        resultados["pyspy"] = perfilar_pyspy(
-            corpus_liviano, VERSIONES, args.ejecutar_pyspy
-        )
-        persistir("py-spy")
+        print(f"\n[{nombre}]")
+        resultados[clave] = perfilar()
+        _persistir(resultados, archivo, nombre)
 
+
+def _generar_salidas(args, resultados):
+    """
+    Genera los gráficos, el reporte HTML y la tabla comparativa.
+
+    :param args: Opciones de la línea de comandos.
+    :type args: argparse.Namespace
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    """
     if args.todo or args.graficos:
         print("\n[gráficos]")
         generar_graficos(resultados)
@@ -2586,6 +2791,51 @@ def main():
             tabla_markdown(resultados["comparativa"]) + "\n", encoding="utf-8"
         )
         print(f"\nTabla guardada en {tabla.relative_to(BASE_DIR)}")
+
+
+def main():
+    """
+    Ejecuta las fases de medición pedidas por línea de comandos.
+
+    Cada fase vuelca su resultado en ``profiles/perfilado.json`` apenas
+    termina. Con ``--medir`` corre en modo interno: mide una sola
+    versión e imprime su JSON para el proceso orquestador.
+    """
+    args = _crear_parser().parse_args()
+
+    corpus_dir = Path(args.directorio)
+
+    # ---- modo interno: una versión, un proceso limpio
+    if args.medir:
+        _medir_modo_interno(args, corpus_dir)
+        return
+
+    DIR_PERFILES.mkdir(exist_ok=True)
+
+    archivo_resultados = DIR_PERFILES / "perfilado.json"
+
+    resultados = (
+        json.loads(archivo_resultados.read_text(encoding="utf-8"))
+        if archivo_resultados.exists()
+        else {}
+    )
+    resultados["entorno"] = _entorno()
+
+    tamanos = (
+        tuple(int(tamano) for tamano in args.tamanos.split(","))
+        if args.tamanos
+        else TAMANOS
+    )
+
+    # El corpus chico mantiene acotado el costo de las herramientas
+    # que instrumentan línea a línea.
+    corpus_liviano = corpus_de(min(tamanos))
+
+    _correr_mediciones(args, resultados, archivo_resultados, corpus_dir, tamanos)
+    _correr_perfiladores(
+        args, resultados, archivo_resultados, corpus_dir, corpus_liviano
+    )
+    _generar_salidas(args, resultados)
 
 
 if __name__ == "__main__":
