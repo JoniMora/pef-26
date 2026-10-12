@@ -60,9 +60,11 @@ for _flujo in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import baseline
-import concurrente
-import optimizado
+# Estos imports van después del sys.path.insert: el script se ejecuta
+# directamente y necesita src/ en el path para encontrar los módulos.
+import baseline  # noqa: E402
+import concurrente  # noqa: E402
+import optimizado  # noqa: E402
 
 
 # ============================================================
@@ -93,7 +95,9 @@ ETIQUETAS = {
 
 OBSERVACIONES = {
     "inicial": "Baseline — escaneo secuencial O(n·m), relee el corpus en cada consulta",
-    "estructura": "Mejora de búsqueda — índice invertido + set, ranking con sorted() O(r·log r)",
+    "estructura": (
+        "Mejora de búsqueda — índice invertido + set, ranking con sorted() O(r·log r)"
+    ),
     "algoritmo": "Mejor escalabilidad — heap top-k O(r·log k) + caché LRU de consultas",
     "concurrencia": "Evaluar overhead — indexación MapReduce sobre ProcessPoolExecutor",
     "final": "Resultado final — indexación paralela + caché caliente",
@@ -915,7 +919,8 @@ def _celda_ms(valor):
 def tabla_markdown(resumen):
     """Tabla comparativa obligatoria, lista para pegar en el README."""
     filas = [
-        "| Versión | Tiempo de consulta | Costo de indexación | Memoria (RSS) | Observación |",
+        "| Versión | Tiempo de consulta | Costo de indexación | Memoria (RSS) | "
+        "Observación |",
         "| :--- | ---: | ---: | ---: | :--- |",
     ]
 
@@ -1210,9 +1215,10 @@ def _grafico_consulta_por_version(resumen, paleta, modo):
     _cromo(
         ejes,
         paleta,
-        f"Tiempo por consulta — corpus de {resumen['inicial']['documentos']:,} documentos".replace(
-            ",", "."
-        ),
+        (
+            "Tiempo por consulta — corpus de "
+            f"{resumen['inicial']['documentos']:,} documentos"
+        ).replace(",", "."),
         "milisegundos (escala log)",
         grilla="x",
     )
@@ -1383,36 +1389,49 @@ def responder_preguntas(resultados):
             break
 
     respuestas["cuello"] = (
-        f"En la línea base, releer y escanear el corpus completo en <strong>cada</strong> "
-        f"consulta: {_ms(inicial['consulta_ms'])} ms por búsqueda, con E/S proporcional al "
-        f"corpus. Una vez introducido el índice, el cuello de botella se <strong>desplaza</strong> "
-        f"al costo único de indexación ({_ms(algoritmo['indexacion_ms'])} ms), y dentro de él a la "
+        "En la línea base, releer y escanear el corpus completo en "
+        "<strong>cada</strong> "
+        f"consulta: {_ms(inicial['consulta_ms'])} ms por búsqueda, con E/S "
+        "proporcional al "
+        "corpus. Una vez introducido el índice, el cuello de botella se "
+        "<strong>desplaza</strong> "
+        f"al costo único de indexación ({_ms(algoritmo['indexacion_ms'])} ms), y "
+        "dentro de él a la "
         f"tokenización.{top_indexacion}"
     )
 
     # ---- 2. qué optimización
     respuestas["optimizacion"] = (
         "Cuatro incrementos acumulativos: <strong>(1)</strong> índice invertido con "
-        "<code>dict</code> más intersección de <code>set</code>, que cambia el escaneo O(n·m) por "
-        "resolución O(1) promedio; <strong>(2)</strong> ranking top-k con <code>heapq.nlargest</code> "
+        "<code>dict</code> más intersección de <code>set</code>, que cambia el escaneo "
+        "O(n·m) por "
+        "resolución O(1) promedio; <strong>(2)</strong> ranking top-k con "
+        "<code>heapq.nlargest</code> "
         "en O(r·log k) y memoria auxiliar O(k), más caché LRU de consultas; "
-        "<strong>(3)</strong> indexación MapReduce sobre <code>ProcessPoolExecutor</code> para evadir "
+        "<strong>(3)</strong> indexación MapReduce sobre "
+        "<code>ProcessPoolExecutor</code> para evadir "
         "el GIL en la fase CPU-bound; <strong>(4)</strong> la combinación de ambas."
     )
 
     # ---- 3. impacto
+    mejora_consulta = inicial["consulta_ms"] / algoritmo["consulta_ms"]
+    mejora_cache = inicial["consulta_ms"] / final["consulta_ms"]
+    mejora_heap = estructura["consulta_ms"] / algoritmo["consulta_ms"]
+    mejora_indexacion = algoritmo["indexacion_ms"] / concurrencia["indexacion_ms"]
+
     respuestas["impacto"] = (
         f"La consulta pasa de {_ms(inicial['consulta_ms'])} ms a "
         f"{_ms(algoritmo['consulta_ms'])} ms "
-        f"(<strong>{_num(inicial['consulta_ms'] / algoritmo['consulta_ms'])}×</strong>) y a "
+        f"(<strong>{_num(mejora_consulta)}×</strong>) y a "
         f"{_ms(final['consulta_ms'])} ms con caché caliente "
-        f"(<strong>{_num(inicial['consulta_ms'] / final['consulta_ms'])}×</strong>). "
-        f"El heap por sí solo lleva la resolución de {_ms(estructura['consulta_ms'])} ms a "
+        f"(<strong>{_num(mejora_cache)}×</strong>). "
+        "El heap por sí solo lleva la resolución de "
+        f"{_ms(estructura['consulta_ms'])} ms a "
         f"{_ms(algoritmo['consulta_ms'])} ms "
-        f"(<strong>{_num(estructura['consulta_ms'] / algoritmo['consulta_ms'], 1)}×</strong>). "
+        f"(<strong>{_num(mejora_heap, 1)}×</strong>). "
         f"La indexación paralela baja de {_ms(algoritmo['indexacion_ms'])} ms a "
         f"{_ms(concurrencia['indexacion_ms'])} ms "
-        f"(<strong>{_num(algoritmo['indexacion_ms'] / concurrencia['indexacion_ms'], 2)}×</strong>)."
+        f"(<strong>{_num(mejora_indexacion, 2)}×</strong>)."
     )
 
     # ---- 4. escalabilidad
@@ -1438,13 +1457,19 @@ def responder_preguntas(resultados):
         )
 
         respuestas["escalabilidad"] = (
-            f"Sí, y se <strong>amplifica</strong>. La ventaja de la consulta indexada sobre la línea "
-            f"base crece de <strong>{_num(ratio_menor)}×</strong> con {_num(menor)} documentos a "
-            f"<strong>{_num(ratio_mayor)}×</strong> con {_num(mayor)}: la búsqueda secuencial crece "
-            f"con el corpus mientras la indexada depende de los documentos candidatos, no del total. "
+            "Sí, y se <strong>amplifica</strong>. La ventaja de la consulta indexada "
+            "sobre la línea "
+            f"base crece de <strong>{_num(ratio_menor)}×</strong> con {_num(menor)} "
+            "documentos a "
+            f"<strong>{_num(ratio_mayor)}×</strong> con {_num(mayor)}: la búsqueda "
+            "secuencial crece "
+            "con el corpus mientras la indexada depende de los documentos candidatos, "
+            "no del total. "
             f"El paralelismo se comporta distinto: su ventaja va de "
-            f"<strong>{_num(speedup_menor, 2)}×</strong> a <strong>{_num(speedup_mayor, 2)}×</strong>, "
-            f"porque el costo fijo de levantar los procesos solo se amortiza con volumen."
+            f"<strong>{_num(speedup_menor, 2)}×</strong> a "
+            f"<strong>{_num(speedup_mayor, 2)}×</strong>, "
+            "porque el costo fijo de levantar los procesos solo se amortiza con "
+            "volumen."
         )
     else:
         respuestas["escalabilidad"] = (
@@ -1457,14 +1482,18 @@ def responder_preguntas(resultados):
     )
 
     respuestas["tradeoff"] = (
-        f"<strong>Memoria y arranque a cambio de latencia.</strong> El pico de RSS sube de "
+        "<strong>Memoria y arranque a cambio de latencia.</strong> El pico de RSS "
+        "sube de "
         f"{_mb(inicial['rss_mb'])} MB a {_mb(algoritmo['rss_mb'])} MB con el índice "
         f"(<strong>{_num(algoritmo['rss_mb'] / inicial['rss_mb'], 1)}×</strong>) y a "
         f"{_mb(concurrencia['rss_mb'])} MB con los procesos "
-        f"(<strong>{_num(concurrencia['rss_mb'] / algoritmo['rss_mb'], 2)}×</strong> adicional por los "
+        f"(<strong>{_num(concurrencia['rss_mb'] / algoritmo['rss_mb'], 2)}×</strong> "
+        "adicional por los "
         f"índices parciales en vuelo). Además hay un costo único de indexación de "
-        f"{_ms(final['indexacion_ms'])} ms que la línea base no paga: el punto de equilibrio está en "
-        f"<strong>~{math.ceil(equilibrio)} consultas</strong>. Por debajo de eso, la línea base gana."
+        f"{_ms(final['indexacion_ms'])} ms que la línea base no paga: el punto de "
+        "equilibrio está en "
+        f"<strong>~{math.ceil(equilibrio)} consultas</strong>. Por debajo de eso, la "
+        "línea base gana."
     )
 
     return respuestas
@@ -1502,10 +1531,16 @@ def _figura_html(nombre, titulo, tabla_html=""):
         else ""
     )
 
+    detalle = (
+        f"<details><summary>Ver los datos como tabla</summary>{tabla_html}</details>"
+        if tabla_html
+        else ""
+    )
+
     return f"""
     <figure class="grafico">
       <picture>{fuente}<img src="{claro}" alt="{titulo}"></picture>
-      {f"<details><summary>Ver los datos como tabla</summary>{tabla_html}</details>" if tabla_html else ""}
+      {detalle}
     </figure>"""
 
 
@@ -1542,7 +1577,9 @@ body {
   font: 14px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 .envoltorio { max-width: 940px; margin: 0 auto; }
-header { padding: 52px 0 30px; border-bottom: 1px solid var(--linea); margin-bottom: 34px; }
+header {
+  padding: 52px 0 30px; border-bottom: 1px solid var(--linea); margin-bottom: 34px;
+}
 h1 { font-size: 27px; line-height: 1.25; margin: 0 0 10px; letter-spacing: -0.015em; }
 .subtitulo { color: var(--tinta-2); margin: 0 0 20px; font-size: 15px; }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -1625,8 +1662,8 @@ def generar_reporte(resultados):
     partes.append(f"""
     <header>
       <h1>Perfilado y medición — Buscador Eficiente de Información</h1>
-      <p class="subtitulo">Comparativa de las cinco versiones con cProfile, line_profiler,
-         memory_profiler, Scalene y py-spy.</p>
+      <p class="subtitulo">Comparativa de las cinco versiones con cProfile,
+         line_profiler, memory_profiler, Scalene y py-spy.</p>
       <div class="chips">{chips}</div>
     </header>""")
 
@@ -1656,7 +1693,8 @@ def generar_reporte(resultados):
                 filas,
             )
             + "</div>"
-            + '<p class="nota">Mediana de las rondas útiles; cada versión se mide en un '
+            + '<p class="nota">Mediana de las rondas útiles; cada versión se mide en '
+            "un "
             "proceso limpio y las versiones se alternan dentro de cada ronda. "
             "El total de coincidencias es idéntico en las cinco versiones "
             f"({_num(comparativa_['inicial']['coincidencias'])} documentos), que es el "
@@ -1809,7 +1847,8 @@ def generar_reporte(resultados):
             )
         partes.append(
             '<p class="nota">Visualizable con '
-            "<code>.venv/bin/snakeviz profiles/cprofile-&lt;version&gt;.prof</code>.</p>"
+            "<code>.venv/bin/snakeviz "
+            "profiles/cprofile-&lt;version&gt;.prof</code>.</p>"
         )
 
     if line_:
@@ -1846,12 +1885,17 @@ def generar_reporte(resultados):
                 ],
             )
             + "</div>"
-            + '<p class="nota">Cada versión se automuestrea dentro de su propio proceso, '
-            "con <code>include_children=True</code>: sin esa opción la versión concurrente "
-            "reportaría solo la memoria del padre. Estos picos son <strong>mayores</strong> que "
+            + '<p class="nota">Cada versión se automuestrea dentro de su propio '
+            "proceso, "
+            "con <code>include_children=True</code>: sin esa opción la versión "
+            "concurrente "
+            "reportaría solo la memoria del padre. Estos picos son "
+            "<strong>mayores</strong> que "
             "la columna RSS de la tabla comparativa porque no miden lo mismo: "
-            "<code>include_children</code> <strong>suma</strong> padre e hijos, mientras "
-            "<code>ru_maxrss</code> informa el <strong>máximo</strong> de un solo proceso del "
+            "<code>include_children</code> <strong>suma</strong> padre e hijos, "
+            "mientras "
+            "<code>ru_maxrss</code> informa el <strong>máximo</strong> de un solo "
+            "proceso del "
             "árbol. Las dos cifras son correctas; responden preguntas distintas.</p>"
         )
 
@@ -1897,16 +1941,19 @@ def generar_reporte(resultados):
         if "omitido" in pyspy_:
             comandos = "\n".join(pyspy_["comandos"])
             partes.append(
-                f"<p>{modulo_html.escape(pyspy_['omitido'])}. Es la única de las cinco que "
-                "perfila un proceso <strong>ya en marcha</strong> sin instrumentarlo, y la única "
+                f"<p>{modulo_html.escape(pyspy_['omitido'])}. Es la única de las cinco "
+                "que "
+                "perfila un proceso <strong>ya en marcha</strong> sin instrumentarlo, "
+                "y la única "
                 "que ve los procesos hijos con <code>--subprocesses</code>.</p>"
                 f"<pre><code>{modulo_html.escape(comandos)}</code></pre>"
             )
         else:
             for version, datos in pyspy_.items():
+                detalle = datos.get("archivo") or datos.get("error", "")
                 partes.append(
                     f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — "
-                    f"{modulo_html.escape(str(datos.get('archivo') or datos.get('error', '')))}</p>"
+                    f"{modulo_html.escape(str(detalle))}</p>"
                 )
 
     partes.append("""
