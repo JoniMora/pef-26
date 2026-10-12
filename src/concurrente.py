@@ -1,21 +1,22 @@
 """
-Versión Concurrente — Buscador Eficiente de Información
-------------------------------------------------------------
+Versión concurrente del Buscador Eficiente de Información.
+
 Refactorización de la fase de indexación como un MapReduce de un
 solo nodo. La construcción del índice es CPU-bound (tokenización,
-normalización y stemming), por lo que `threading` no aporta
-paralelismo real bajo el GIL: se usa `ProcessPoolExecutor`, donde
+normalización y stemming), por lo que ``threading`` no aporta
+paralelismo real bajo el GIL: se usa ``ProcessPoolExecutor``, donde
 cada intérprete hijo posee su propio GIL.
 
-    Particionado   lista de documentos -> P * K lotes equitativos
-    Map            _procesar_lote() -> índice invertido parcial
-    Reduce         fusión de los parciales en el índice global
+- **Particionado:** lista de documentos -> P * K lotes equitativos.
+- **Map:** ``_procesar_lote()`` -> índice invertido parcial.
+- **Reduce:** fusión de los parciales en el índice global.
 
 Los lotes son disjuntos y los workers no comparten estado mutable:
 no hay locks ni condiciones de carrera por construcción.
 
-Comandos para correr el script (desde cualquier directorio;
-el corpus siempre se genera/lee en <repo>/data/corpus):
+Comandos para correr el script (desde cualquier directorio; el corpus
+siempre se genera y se lee en ``<repo>/data/corpus``)::
+
     python3 src/baseline.py --generar --num-docs 50000
     python3 src/concurrente.py --query "algoritmo" --top-k 10
     python3 src/concurrente.py --query "algoritmo" --workers 4 --comparar
@@ -92,13 +93,11 @@ def _lotes_equitativos(items, cantidad_lotes):
 
 def _procesar_lote(lote_archivos):
     """
-    Construye el índice invertido parcial de un subconjunto del
-    corpus. Se ejecuta en un proceso hijo.
+    Construye el índice invertido parcial de un lote del corpus.
 
-    Recibe pares (doc_id, ruta) — el doc_id se asigna en el padre
-    para que sea global y estable — y retorna:
-
-        término -> {doc_id -> frecuencia}
+    Se ejecuta en un proceso hijo. Recibe pares ``(doc_id, ruta)`` —el
+    doc_id se asigna en el padre para que sea global y estable— y
+    devuelve la estructura ``término -> {doc_id: frecuencia}``.
 
     Función pura: no lee ni escribe estado compartido, por lo que
     el resultado no depende del orden de despacho de los lotes.
@@ -149,12 +148,23 @@ def _fusionar(indice, parcial):
 
 def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCESO):
     """
-    Construye el índice invertido en paralelo.
+    Construye el índice invertido en paralelo, con un pool de procesos.
 
-    Devuelve (indice, archivos), con la misma estructura y el mismo
-    orden de doc_id que la versión secuencial:
+    Devuelve la misma estructura y el mismo orden de doc_id que
+    :func:`optimizado.construir_indice`. Con un solo proceso, o con menos
+    de ``UMBRAL_PARALELO`` archivos, indexa en el proceso padre: por
+    debajo de ese volumen, levantar el pool cuesta más de lo que ahorra.
 
-        término -> {doc_id -> frecuencia}
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: str | pathlib.Path
+    :param workers: Cantidad de procesos; por defecto, ``os.cpu_count()``.
+    :type workers: int | None
+    :param lotes_por_proceso: Lotes por proceso. Con más de uno, el pool
+        reequilibra la carga cuando un lote resulta más pesado que otro.
+    :type lotes_por_proceso: int
+    :return: Tupla ``(indice, archivos)``: el índice invertido y la lista
+        ordenada de rutas, cuya posición es el doc_id.
+    :rtype: tuple[dict[str, dict[int, int]], list[pathlib.Path]]
     """
     archivos = sorted(Path(corpus_dir).glob("*.txt"))
 
@@ -192,7 +202,14 @@ def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCE
 
 
 def main():
+    """
+    Ejecuta el buscador concurrente desde la línea de comandos.
 
+    Construye el índice en paralelo. Con ``--comparar`` también lo
+    construye en forma secuencial para informar el speedup y verificar
+    que los dos índices sean idénticos. Si se pasa ``--query``, resuelve
+    la consulta y muestra el ranking.
+    """
     parser = argparse.ArgumentParser(
         description="Buscador con indexación paralela (MapReduce)"
     )

@@ -1,20 +1,22 @@
 """
-Versión Optimizada — Buscador Eficiente de Información
-------------------------------------------------------------
+Versión optimizada del Buscador Eficiente de Información.
+
 Índice invertido en memoria. El costo se invierte: se paga una
 indexación única O(N) sobre el total de tokens del corpus, y cada
-consulta pasa de O(n * m) a O(t + r), donde t = términos de la
-consulta y r = documentos candidatos (no el tamaño del corpus).
+consulta pasa de O(n * m) a O(t + r), donde t son los términos de la
+consulta y r los documentos candidatos (no el tamaño del corpus).
 
 Estructuras y técnicas usadas en este script:
-    dict            índice invertido: término -> {doc_id: frecuencia}
-    set             intersección de postings, O(min(|A|, |B|))
-    heapq.nlargest  ranking top-k en O(r * log k) en vez de O(r * log r)
-    lru_cache       memoización de normalize() y stem()
-    OrderedDict     caché LRU de consultas (QueryCache)
 
-Comandos para correr el script (desde cualquier directorio;
-el corpus siempre se genera/lee en <repo>/data/corpus):
+- ``dict``: índice invertido, término -> {doc_id: frecuencia}.
+- ``set``: intersección de postings en ``O(min(|A|, |B|))``.
+- ``heapq.nlargest``: ranking top-k en O(r * log k) en vez de O(r * log r).
+- ``lru_cache``: memoización de :func:`normalize` y :func:`stem`.
+- ``OrderedDict``: caché LRU de consultas (:class:`QueryCache`).
+
+Comandos para correr el script (desde cualquier directorio; el corpus
+siempre se genera y se lee en ``<repo>/data/corpus``)::
+
     python3 src/baseline.py --generar --num-docs 50000
     python3 src/optimizado.py --query "algoritmo" --top-k 10
 """
@@ -75,9 +77,14 @@ STOPWORDS = {
 @lru_cache(maxsize=10000)
 def normalize(token):
     """
-    Normaliza un token:
-    - convierte a minúsculas
-    - elimina caracteres no alfanuméricos
+    Normaliza un token: lo pasa a minúsculas y le quita los signos.
+
+    Conserva letras (incluidas las acentuadas y la ñ) y dígitos.
+
+    :param token: Palabra tal como aparece en el texto.
+    :type token: str
+    :return: El token normalizado; puede quedar vacío si solo tenía signos.
+    :rtype: str
     """
     token = token.lower()
     token = re.sub(r"[^a-záéíóúüñ0-9]", "", token)
@@ -93,6 +100,12 @@ def stem(token):
     Regla general: el plural se forma con -s tras vocal y con -es
     tras consonante. Se invierte esa regla en lugar de recortar
     sufijos a ciegas, que era lo que separaba "datos" de "dato".
+    También quita el sufijo -mente de los adverbios largos.
+
+    :param token: Token ya normalizado con :func:`normalize`.
+    :type token: str
+    :return: El token en singular, o sin cambios si no es un plural reconocido.
+    :rtype: str
     """
     if len(token) > 8 and token.endswith("mente"):
         token = token[:-5]
@@ -128,7 +141,15 @@ def stem(token):
 
 def tokenizar(texto):
     """
-    Convierte el texto en una lista de tokens normalizados.
+    Convierte un texto en la lista de tokens que se indexan.
+
+    Separa las palabras, las normaliza (:func:`normalize`), descarta las
+    stopwords y lleva cada token a singular (:func:`stem`).
+
+    :param texto: Texto de un documento o de una consulta.
+    :type texto: str
+    :return: Tokens en el orden en que aparecen, con repeticiones.
+    :rtype: list[str]
     """
     palabras = re.findall(r"\b[\wáéíóúüñÁÉÍÓÚÜÑ]+\b", texto.lower())
 
@@ -158,21 +179,21 @@ def tokenizar(texto):
 
 def construir_indice(corpus_dir):
     """
-    Construye el índice invertido.
+    Construye el índice invertido de todos los ``.txt`` del corpus.
 
-    Estructura:
+    El doc_id de cada documento es su posición en la lista ordenada de
+    archivos. Los archivos que no se pueden leer quedan fuera del índice,
+    pero conservan su doc_id. Estructura y ejemplo::
 
-        término -> {doc_id -> frecuencia}
+        término -> {doc_id: frecuencia}
 
-    Ejemplo:
+        {"java": {1: 3, 5: 2, 8: 1}}
 
-        {
-            "java": {
-                1: 3,
-                5: 2,
-                8: 1
-            }
-        }
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :return: Tupla ``(indice, archivos)``: el índice invertido y la lista
+        ordenada de rutas, cuya posición es el doc_id.
+    :rtype: tuple[dict[str, dict[int, int]], list[pathlib.Path]]
     """
     indice = {}
 
@@ -205,12 +226,20 @@ def construir_indice(corpus_dir):
 
 class QueryCache:
     """
-    Caché LRU para guardar resultados de consultas.
+    Caché LRU de resultados de consultas.
 
-    Mantiene como máximo maxsize consultas.
+    Guarda como máximo ``maxsize`` consultas y, al superar ese límite,
+    descarta la usada hace más tiempo. Cuenta aciertos y fallos para
+    poder medir su efectividad (ver :meth:`info`).
     """
 
     def __init__(self, maxsize=1024):
+        """
+        Crea una caché vacía.
+
+        :param maxsize: Cantidad máxima de consultas que se guardan.
+        :type maxsize: int
+        """
         self.maxsize = maxsize
         self.cache = OrderedDict()
 
@@ -218,7 +247,16 @@ class QueryCache:
         self.misses = 0
 
     def get(self, clave):
+        """
+        Devuelve el resultado guardado para una clave y lo marca como reciente.
 
+        Cuenta un acierto si la clave está y un fallo si no.
+
+        :param clave: Clave de la consulta, ``(terminos, top_k)``.
+        :type clave: tuple
+        :return: El resultado guardado, o ``None`` si la clave no está.
+        :rtype: object | None
+        """
         if clave not in self.cache:
             self.misses += 1
             return None
@@ -231,7 +269,14 @@ class QueryCache:
         return self.cache[clave]
 
     def put(self, clave, valor):
+        """
+        Guarda un resultado y, si se supera el límite, descarta el más viejo.
 
+        :param clave: Clave de la consulta, ``(terminos, top_k)``.
+        :type clave: tuple
+        :param valor: Resultado que se guarda.
+        :type valor: object
+        """
         if clave in self.cache:
             self.cache.move_to_end(clave)
 
@@ -242,6 +287,13 @@ class QueryCache:
             self.cache.popitem(last=False)
 
     def info(self):
+        """
+        Devuelve las estadísticas de uso de la caché.
+
+        :return: Diccionario con ``hits`` (aciertos), ``misses`` (fallos) y
+            ``size`` (consultas guardadas).
+        :rtype: dict[str, int]
+        """
         return {"hits": self.hits, "misses": self.misses, "size": len(self.cache)}
 
 
@@ -252,17 +304,16 @@ class QueryCache:
 
 def normalizar_consulta(consulta):
     """
-    Convierte la consulta en una tupla canónica.
+    Convierte la consulta en una tupla canónica de términos.
 
-    Esto permite que:
+    Elimina repetidos y ordena los términos, para que consultas
+    equivalentes como ``"Java Concurrencia"`` y ``"concurrencia java"``
+    tengan la misma representación y compartan la entrada de la caché.
 
-        "Java Concurrencia"
-
-    y
-
-        "concurrencia java"
-
-    tengan la misma representación.
+    :param consulta: Texto de la consulta.
+    :type consulta: str
+    :return: Términos normalizados, sin repetidos y en orden alfabético.
+    :rtype: tuple[str, ...]
     """
     tokens = tokenizar(consulta)
 
@@ -318,15 +369,33 @@ def buscar(indice, terminos):
 # ============================================================
 
 
-def rankear(indice, terminos, candidatos, k, total_docs):
+def rankear(indice, terminos, candidatos, top_k, total_docs):
     """
-    Puntúa los candidatos con TF-IDF y devuelve los k mejores.
+    Puntúa los candidatos con TF-IDF y devuelve los ``top_k`` mejores.
 
-    Memoria auxiliar O(k): los scores se evalúan al vuelo y
-    heapq.nlargest mantiene solo k elementos en el heap. No se
-    materializa ningún diccionario de tamaño O(r).
+    Memoria auxiliar O(top_k): los scores se evalúan al vuelo y
+    ``heapq.nlargest`` mantiene solo ``top_k`` elementos en el heap. No
+    se materializa ningún diccionario de tamaño O(r). Los empates se
+    resuelven a favor del doc_id más bajo, para que el orden sea
+    determinista.
+
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param terminos: Términos normalizados de la consulta. Si hay
+        candidatos, todos figuran en el índice.
+    :type terminos: tuple[str, ...]
+    :param candidatos: Documentos que contienen todos los términos (ver
+        :func:`buscar`).
+    :type candidatos: set[int]
+    :param top_k: Cantidad máxima de documentos a devolver.
+    :type top_k: int
+    :param total_docs: Cantidad de documentos del corpus, para el IDF.
+    :type total_docs: int
+    :return: Pares ``(doc_id, score)`` ordenados de mayor a menor score.
+        Vacío si no hay candidatos o si ``top_k`` no es positivo.
+    :rtype: list[tuple[int, float]]
     """
-    if not candidatos or k <= 0:
+    if not candidatos or top_k <= 0:
         return []
 
     pesos = [
@@ -357,7 +426,7 @@ def rankear(indice, terminos, candidatos, k, total_docs):
     # antiguo y hacer el orden determinista.
     return [
         (-doc_id_invertido, score)
-        for score, doc_id_invertido in heapq.nlargest(k, puntuados())
+        for score, doc_id_invertido in heapq.nlargest(top_k, puntuados())
     ]
 
 
@@ -441,7 +510,15 @@ class Buscador:
 
 
 def mostrar_resultados(resultados, archivos):
+    """
+    Imprime el ranking en la consola, un documento por línea.
 
+    :param resultados: Pares ``(doc_id, score)`` devueltos por
+        :meth:`Buscador.buscar`.
+    :type resultados: list[tuple[int, float]]
+    :param archivos: Rutas del corpus; la posición de cada una es su doc_id.
+    :type archivos: list[pathlib.Path]
+    """
     print()
     print("Resultados:")
     print("-" * 60)
@@ -462,7 +539,13 @@ def mostrar_resultados(resultados, archivos):
 
 
 def main():
+    """
+    Ejecuta el buscador optimizado desde la línea de comandos.
 
+    Construye el índice del corpus e informa cuánto tardó. Si se pasa
+    ``--query``, resuelve la consulta y muestra el ranking y el estado
+    de la caché.
+    """
     parser = argparse.ArgumentParser(
         description="Buscador optimizado con índice invertido"
     )

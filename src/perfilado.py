@@ -1,25 +1,27 @@
 """
-Perfilado y Medición — Buscador Eficiente de Información
-------------------------------------------------------------
+Perfilado y medición del Buscador Eficiente de Información.
+
 Orquestador de las cinco herramientas exigidas por la consigna
-(`cProfile`, `line_profiler`, `memory_profiler`, `Scalene`, `py-spy`)
-más el banco de pruebas que produce la tabla comparativa obligatoria.
+(``cProfile``, ``line_profiler``, ``memory_profiler``, ``Scalene`` y
+``py-spy``) más el banco de pruebas que produce la tabla comparativa
+obligatoria.
 
 Cada versión se mide en un **proceso limpio** —el orquestador se
-invoca a sí mismo con `--medir`— para que el pico de RSS sea
+invoca a sí mismo con ``--medir``— para que el pico de RSS sea
 atribuible y no arrastre la memoria de las versiones anteriores.
 Las versiones se miden **alternadas** dentro de cada ronda: medirlas
 en bloque contamina el resultado con el estado del page cache.
 
 Las cinco versiones de la tabla se mapean sobre los tres scripts:
 
-    inicial       baseline.py — búsqueda secuencial O(n·m)
-    estructura    índice invertido + set, ranking con sorted() completo
-    algoritmo     optimizado.py — heap top-k + QueryCache
-    concurrencia  concurrente.py — indexación MapReduce multiproceso
-    final         concurrencia + caché de consultas caliente
+- ``inicial``: ``baseline.py``, búsqueda secuencial O(n·m).
+- ``estructura``: índice invertido + ``set``, ranking con ``sorted()`` completo.
+- ``algoritmo``: ``optimizado.py``, heap top-k + ``QueryCache``.
+- ``concurrencia``: ``concurrente.py``, indexación MapReduce multiproceso.
+- ``final``: concurrencia + caché de consultas caliente.
 
-Comandos (requieren el venv con las herramientas instaladas):
+Comandos (requieren el venv con las herramientas instaladas)::
+
     .venv/bin/python src/perfilado.py --todo
     .venv/bin/python src/perfilado.py --comparativa
     .venv/bin/python src/perfilado.py --escalabilidad
@@ -154,17 +156,17 @@ def _rss_mb():
 # ============================================================
 
 
-def _rankear_sorted(indice, terminos, candidatos, k, total_docs):
+def _rankear_sorted(indice, terminos, candidatos, top_k, total_docs):
     """
-    Ranking de la etapa "estructura optimizada": ya hay índice
-    invertido y set, pero todavía no hay heap ni caché.
+    Ranking de la etapa "estructura optimizada", previa al heap.
 
-    Materializa un dict de scores de tamaño O(r) y ordena la lista
-    completa en O(r · log r). Es la implementación que `rankear()`
-    reemplazó, y se conserva aquí para que la tabla comparativa
-    pueda medir el efecto aislado del heap.
+    En esa etapa ya hay índice invertido y set, pero todavía no hay
+    heap ni caché. Materializa un dict de scores de tamaño O(r) y
+    ordena la lista completa en O(r · log r). Es la implementación que
+    `rankear()` reemplazó, y se conserva aquí para que la tabla
+    comparativa pueda medir el efecto aislado del heap.
     """
-    if not candidatos or k <= 0:
+    if not candidatos or top_k <= 0:
         return []
 
     scores = {}
@@ -181,7 +183,7 @@ def _rankear_sorted(indice, terminos, candidatos, k, total_docs):
 
     ordenados = sorted(scores.items(), key=lambda par: (-par[1], par[0]))
 
-    return ordenados[:k]
+    return ordenados[:top_k]
 
 
 # ============================================================
@@ -664,11 +666,10 @@ def perfilar_memoria(corpus_dir, versiones):
 
 def perfilar_scalene(corpus_dir, versiones, limite_s=150):
     """
-    Perfil combinado de CPU y memoria, línea a línea, con separación
-    entre tiempo de Python y tiempo nativo.
+    Perfila CPU y memoria línea a línea con Scalene.
 
-    Scalene 2.3 escribe un JSON y lo renderiza aparte con
-    `scalene view <archivo>`.
+    Separa el tiempo de Python del tiempo nativo. Scalene 2.3 escribe
+    un JSON y lo renderiza aparte con `scalene view <archivo>`.
     """
     en_windows = sys.platform.startswith("win")
 
@@ -1026,8 +1027,7 @@ def _guardar(figura, nombre, modo):
 
 def _etiquetas_al_final(ejes, puntos, paleta, separacion_px=17):
     """
-    Rotula cada serie en su extremo derecho, separando las etiquetas
-    que se pisarían.
+    Rotula cada serie en su extremo derecho sin que las etiquetas se pisen.
 
     Dos series con valores casi iguales —el caso de "algoritmo" y
     "concurrencia", que comparten el camino de consulta— dejan sus
@@ -2006,7 +2006,13 @@ def _entorno():
 
 
 def main():
+    """
+    Ejecuta las fases de medición pedidas por línea de comandos.
 
+    Cada fase vuelca su resultado en ``profiles/perfilado.json`` apenas
+    termina. Con ``--medir`` corre en modo interno: mide una sola
+    versión e imprime su JSON para el proceso orquestador.
+    """
     parser = argparse.ArgumentParser(description="Perfilado y medición del buscador")
 
     parser.add_argument(

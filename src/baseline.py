@@ -1,15 +1,16 @@
 """
-Línea Base (Baseline) — Buscador Eficiente de Información
-------------------------------------------------------------
-Búsqueda secuencial por fuerza bruta. Complejidad O(n * m):
-n = cantidad de documentos, m = tamaño promedio de cada documento.
+Línea base (baseline) del Buscador Eficiente de Información.
+
+Búsqueda secuencial por fuerza bruta. Complejidad O(n * m), donde n es
+la cantidad de documentos y m el tamaño promedio de cada documento.
 
 Prohibido intencionalmente en este script: índices invertidos,
-diccionarios como caché, estructuras set, generadores (yield),
-concurrencia/paralelismo y librerías de optimización.
+diccionarios como caché, estructuras ``set``, generadores (``yield``),
+concurrencia o paralelismo y librerías de optimización.
 
-Comandos para correr el script (desde cualquier directorio;
-el corpus siempre se genera/lee en <repo>/data/corpus):
+Comandos para correr el script (desde cualquier directorio; el corpus
+siempre se genera y se lee en ``<repo>/data/corpus``)::
+
     python3 src/baseline.py --generar --num-docs 50000
     python3 src/baseline.py --query "algoritmo"
 """
@@ -72,15 +73,22 @@ VOCABULARIO = [
 
 def generar_corpus_prueba(num_docs, directorio=DIRECTORIO_CORPUS_DEFAULT):
     """
-    Genera num_docs archivos .txt con texto aleatorio ficticio
-    dentro de 'directorio', para disponer de volumen de datos
-    de prueba.
+    Genera un corpus de prueba con texto aleatorio ficticio.
+
+    Crea ``num_docs`` archivos ``doc_000000.txt``, ``doc_000001.txt``, etc.,
+    cada uno con entre 50 y 300 palabras tomadas al azar de ``VOCABULARIO``.
+    Crea el directorio si no existe y sobrescribe los archivos que ya estén.
+
+    :param num_docs: Cantidad de documentos a generar.
+    :type num_docs: int
+    :param directorio: Directorio donde se escriben los documentos.
+    :type directorio: str
     """
     if not os.path.exists(directorio):
         os.makedirs(directorio)
 
-    for i in range(num_docs):
-        nombre_archivo = "doc_" + str(i).zfill(6) + ".txt"
+    for numero_doc in range(num_docs):
+        nombre_archivo = "doc_" + str(numero_doc).zfill(6) + ".txt"
         ruta_completa = os.path.join(directorio, nombre_archivo)
 
         # random solo genera texto ficticio de prueba, sin uso criptográfico.
@@ -95,8 +103,14 @@ def generar_corpus_prueba(num_docs, directorio=DIRECTORIO_CORPUS_DEFAULT):
         with open(ruta_completa, "w", encoding="utf-8") as archivo:
             archivo.write(contenido)
 
-        if (i + 1) % 1000 == 0:
-            print("Generados " + str(i + 1) + " / " + str(num_docs) + " documentos")
+        if (numero_doc + 1) % 1000 == 0:
+            print(
+                "Generados "
+                + str(numero_doc + 1)
+                + " / "
+                + str(num_docs)
+                + " documentos"
+            )
 
     print(
         "Corpus de prueba generado en '"
@@ -109,10 +123,18 @@ def generar_corpus_prueba(num_docs, directorio=DIRECTORIO_CORPUS_DEFAULT):
 
 def busqueda_secuencial(directorio, query):
     """
-    Recorre secuencialmente todos los archivos del directorio.
-    Por cada archivo, lee TODO su contenido en memoria, lo pasa
-    a minúsculas y verifica si la query está presente.
-    Devuelve la lista de nombres de archivo donde hubo coincidencia.
+    Busca una consulta recorriendo todos los archivos, uno por uno.
+
+    Por cada archivo ``.txt`` lee todo su contenido en memoria, lo pasa a
+    minúsculas y verifica si contiene la consulta. No usa ningún índice:
+    es la línea base contra la que se mide la versión optimizada.
+
+    :param directorio: Directorio del corpus.
+    :type directorio: str
+    :param query: Texto a buscar; no distingue mayúsculas de minúsculas.
+    :type query: str
+    :return: Nombres de los archivos que contienen la consulta.
+    :rtype: list[str]
     """
     resultados = []
     query_minuscula = query.lower()
@@ -137,6 +159,12 @@ def busqueda_secuencial(directorio, query):
 
 
 def main():
+    """
+    Ejecuta la línea base desde la línea de comandos.
+
+    Con ``--generar`` crea el corpus de prueba; con ``--query`` busca la
+    consulta e imprime el tiempo y la cantidad de documentos encontrados.
+    """
     parser = argparse.ArgumentParser(description="Buscador secuencial (Línea Base)")
     parser.add_argument(
         "--generar", action="store_true", help="genera el corpus de prueba"
