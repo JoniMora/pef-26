@@ -17,7 +17,7 @@ El sistema se compone de cuatro etapas:
 | **Indexación / Búsqueda** | Resolución de los términos de la consulta contra la estructura de datos de acceso. |
 | **Ranking** | Puntuación TF-IDF de los documentos candidatos y selección del *top-k*. |
 
-El requisito central de la asignatura no es la funcionalidad —ambas versiones deben devolver **resultados idénticos**, lo que se verificará por test de equivalencia—, sino la **evidencia cuantificada de la mejora**. Cada optimización debe estar justificada por su complejidad algorítmica y validada con mediciones reproducibles de tiempo y memoria obtenidas mediante herramientas de perfilado formales.
+El requisito central de la asignatura no es la funcionalidad —ambas versiones deben devolver **resultados idénticos**, lo que verifica el test de equivalencia de [`tests/`](tests/)—, sino la **evidencia cuantificada de la mejora**. Cada optimización debe estar justificada por su complejidad algorítmica y validada con mediciones reproducibles de tiempo y memoria obtenidas mediante herramientas de perfilado formales.
 
 El proyecto se versiona en cuatro incrementos medibles y comparables entre sí:
 
@@ -183,7 +183,7 @@ def puntuados():
 
 return [
     (-doc_id_invertido, score)
-    for score, doc_id_invertido in heapq.nlargest(k, puntuados())
+    for score, doc_id_invertido in heapq.nlargest(top_k, puntuados())
 ]
 ```
 
@@ -626,6 +626,76 @@ Construir `src/perfilado.py` expuso cuatro defectos en **cómo se medía**, no e
 
 ---
 
+## Calidad, Legibilidad y Documentación
+
+Primera etapa del segundo parcial: estandarizar y documentar el código antes de refactorizarlo. Cada punto se controla en el pipeline de CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), que corre en cada pull request y en cada push a `master`.
+
+### Formato y estilo (PEP 8)
+
+[Ruff](https://docs.astral.sh/ruff/) cumple dos funciones, configuradas en [`pyproject.toml`](pyproject.toml):
+
+| Comando | Qué controla |
+| :--- | :--- |
+| `ruff format` | Formato PEP 8: indentación, espacios, comillas dobles y largo de línea de 88 caracteres. |
+| `ruff check` | Reglas `E` y `W` (PEP 8), `F` (pyflakes: imports y variables sin usar), `N` (nombres PEP 8) y `D` (docstrings, convención PEP 257). Los tests están exentos de docstrings. |
+
+`target-version` es `py311`, la versión mínima que soporta el proyecto, y no la del CI. Así el formateador no introduce sintaxis exclusiva de versiones más nuevas: con `py314` había reescrito dos `except (A, B):` como `except A, B:` (PEP 758), que en Python 3.11–3.13 es un error de sintaxis. Con `py311`, `ruff check` rechaza esa forma.
+
+**Nombres.** Se reemplazaron los nombres de una sola letra del motor: `i` pasó a `numero_doc` en `generar_corpus_prueba()`, y `k` pasó a `top_k` en `rankear()`, el mismo nombre que ya usaba `Buscador.buscar()`.
+
+### Docstrings
+
+Todas las funciones y clases públicas del motor (`baseline`, `optimizado` y `concurrente`) documentan qué hacen, sus parámetros y su retorno en **reStructuredText**, el formato que `sphinx.ext.autodoc` interpreta sin extensiones adicionales:
+
+```python
+def buscar(indice, terminos):
+    """
+    Busca los documentos que contienen todos los términos de la consulta.
+
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param terminos: Términos normalizados de la consulta.
+    :type terminos: tuple[str, ...]
+    :return: Identificadores de los documentos que contienen todos los
+        términos. Vacío si la consulta no tiene términos o si alguno no
+        figura en el índice.
+    :rtype: set[int]
+    """
+```
+
+### Documentación técnica con Sphinx
+
+[`docs/`](docs/) genera una página HTML por módulo de `src/` a partir de los docstrings, con `sphinx.ext.autodoc`. La documentación se genera sin advertencias. El comando está en [Documentación](#documentación).
+
+### Análisis estático con SonarCloud
+
+SonarCloud analiza cada pull request desde el CI, junto con la cobertura que genera `pytest-cov`. Según [`sonar-project.properties`](sonar-project.properties), toma `src/` como código y `tests/` como tests, y deja fuera `src/perfilado.py`, que es el arnés de medición y no el motor. Panel del proyecto: <https://sonarcloud.io/dashboard?id=JoniMora_pef-26>.
+
+| Métrica | Resultado |
+| :--- | :--- |
+| Quality gate | Aprobado |
+| Fiabilidad, seguridad y mantenibilidad | A, A, A |
+| Bugs / vulnerabilidades / *code smells* | 0 / 0 / 0 |
+| Cobertura | 99,7 % |
+| Código duplicado | 3,7 % de 485 líneas |
+
+El análisis marcó cuatro vulnerabilidades en `baseline.py`, que se revisaron y se aceptaron:
+
+| Regla | Dónde | Decisión |
+| :--- | :--- | :--- |
+| S2245 — generador pseudoaleatorio | `generar_corpus_prueba()`, dos usos de `random` | Aceptada: solo genera texto ficticio para el corpus de prueba, sin uso criptográfico. Bandit marca lo mismo (B311) y está justificado con `# nosec`. |
+| S8707 — ruta recibida por línea de comandos | `generar_corpus_prueba()` y `busqueda_secuencial()` | Aceptada: es un script local y quien lo ejecuta elige su propio directorio de corpus, así que no se cruza ningún límite de permisos. |
+
+### Pipeline de CI
+
+| Job | Qué hace |
+| :--- | :--- |
+| Lint (Ruff) | `ruff check` y `ruff format --check`. |
+| Seguridad (Bandit) | Análisis de seguridad del código. |
+| Tests, cobertura y Performance Gate | Corre los tests con una cobertura mínima del 80 %, envía el análisis a SonarCloud y, aparte y sin cobertura, los 2 tests de rendimiento. Solo corre si los dos jobs anteriores pasan. |
+
+---
+
 ## Instrucciones de Ejecución
 
 ### Requisitos previos
@@ -643,6 +713,9 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 # (baseline, optimizado y concurrente NO tienen dependencias:
 #  usan solo la biblioteca estándar. Esto es únicamente para medir.)
 pip install line_profiler memory_profiler scalene py-spy snakeviz matplotlib
+
+# Herramientas de calidad y documentación (las mismas versiones que el CI)
+pip install -r requirements-dev.txt
 ```
 
 > Los comandos se ejecutan desde cualquier directorio: los cuatro scripts resuelven la ruta del corpus a partir de la ubicación del propio archivo (`<repo>/data/corpus`), no del directorio de trabajo.
@@ -878,7 +951,14 @@ mprof plot
 
 ### Validación de equivalencia
 
-> **Test automatizado pendiente.** La equivalencia se verifica hoy a mano, comparando el total de coincidencias que informa cada versión:
+> ✅ **Automatizada** en [`tests/`](tests/), sobre un corpus sintético de 2.000 documentos generado con semilla fija (no necesita `data/corpus`):
+>
+> | Test | Qué verifica |
+> | :--- | :--- |
+> | `test_equivalencia.py` | La línea base y la versión optimizada encuentran la misma cantidad de documentos para `"algoritmo"`. |
+> | `test_concurrente.py::test_indice_paralelo_igual_al_secuencial` | El índice paralelo es idéntico al secuencial: términos, `doc_id` y frecuencias. |
+
+Sobre el corpus completo se verifica a mano, comparando el total de coincidencias que informa cada versión:
 
 ```bash
 python3 src/baseline.py    --query "algoritmo"                # Documentos encontrados: 47797
@@ -902,10 +982,33 @@ La divergencia en `"datos"` **no es un defecto**: es la consecuencia visible del
 
 El caso `"dato"` es el complementario e ilustra por qué la comparación cruda es engañosa: ahí **coinciden por accidente**, porque `.find("dato")` matchea también dentro de `datos` y llega al mismo conjunto que el *stemmer*, por un camino distinto.
 
-De esto se sigue el criterio para el test automatizado: la equivalencia solo puede exigirse sobre consultas cuyos términos sean **invariantes bajo *stemming*** (como `algoritmo`), o bien tokenizando también la línea base con el mismo *pipeline*. Comparar las dos semánticas tal cual están produce falsos negativos.
+De esto se sigue el criterio del test automatizado: la equivalencia solo puede exigirse sobre consultas cuyos términos sean **invariantes bajo *stemming***, como `algoritmo`, o bien tokenizando también la línea base con el mismo *pipeline*. Comparar las dos semánticas tal cual están produce falsos negativos.
 
 ```bash
-# Verificará que la versión optimizada devuelve exactamente los mismos
-# resultados que la línea base para todas las consultas del set de pruebas
-pytest tests/test_equivalence.py -v
+pytest tests/test_equivalencia.py -v
+```
+
+### Calidad y tests
+
+Los mismos controles que corre el CI:
+
+```bash
+ruff format --check .                 # formato PEP 8
+ruff check .                          # PEP 8, pyflakes, nombres y docstrings
+bandit -c pyproject.toml -r .         # análisis de seguridad
+pytest -m "not rendimiento" --cov     # tests con cobertura mínima del 80 %
+pytest -m rendimiento --no-cov -v     # Performance Gate
+```
+
+> Los tests generan su propio corpus en un directorio temporal, así que no necesitan `data/corpus`. `ruff format .` (sin `--check`) aplica el formato en lugar de solo verificarlo.
+
+### Documentación
+
+```bash
+# Genera el HTML a partir de los docstrings de src/
+sphinx-build -b html docs docs/_build/html
+open docs/_build/html/index.html      # Linux: xdg-open
+
+# Solo si se agrega un módulo nuevo a src/: regenera las páginas de docs/api/
+sphinx-apidoc -o docs/api src
 ```
