@@ -727,6 +727,8 @@ La suite usa **pytest** y corre en el CI con una cobertura mínima del 80 % (hoy
 
 `baseline.py` no usa el módulo de procesamiento de texto, y es a propósito: es la búsqueda ingenua contra la que se mide la mejora. Si tokenizara, cambiarían sus resultados (`"datos"` pasaría de 47.788 a 49.702 coincidencias, ver [Validación de equivalencia](#validación-de-equivalencia)) y dejarían de valer las mediciones.
 
+Con este cambio, el código duplicado que mide SonarCloud pasa de 42 líneas (1,1 %) a 0.
+
 Para que la complejidad no vuelva a crecer, Ruff aplica ahora la regla **C901 con un máximo de 10 por función**. La función más compleja del proyecto es `medir_version()`, con 10, justo en el límite. Tampoco quedan funciones muertas ni imports sin usar: Ruff controla los imports en el CI (F401), y las 82 funciones y clases de `src/` tienen al menos una referencia.
 
 **Verificación.** El motor está cubierto por los tests, que pasan sin cambios. `perfilado.py` es el arnés de medición y no tiene tests, así que su refactorización se verificó comparando salidas contra la versión anterior: el reporte HTML sale idéntico byte a byte en 7 variantes de resultados, los 10 gráficos también, y una corrida completa de `--todo` produce la misma salida y el mismo `perfilado.json`, salvo los tiempos medidos. La salida por consola de `optimizado.py` y `concurrente.py` también es idéntica.
