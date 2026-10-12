@@ -677,7 +677,7 @@ SonarCloud analiza cada pull request desde el CI, junto con la cobertura que gen
 | Fiabilidad, seguridad y mantenibilidad | A, A, A |
 | Bugs / vulnerabilidades / *code smells* | 0 / 0 / 0 |
 | Cobertura | 99,7 % |
-| Código duplicado | 3,7 % de 485 líneas |
+| Código duplicado | 3,6 % (42 líneas) |
 
 El análisis marcó cuatro vulnerabilidades en `baseline.py`, que se revisaron y se aceptaron:
 
