@@ -673,18 +673,22 @@ SonarCloud analiza cada pull request desde el CI, junto con la cobertura que gen
 
 | Métrica | Resultado |
 | :--- | :--- |
+| Líneas de código analizadas | 2.052 |
 | Quality gate | Aprobado |
 | Fiabilidad, seguridad y mantenibilidad | A, A, A |
 | Bugs / vulnerabilidades / *code smells* | 0 / 0 / 0 |
 | Cobertura | 99,7 % |
-| Código duplicado | 3,6 % (42 líneas) |
+| Código duplicado | 1,1 % (42 líneas) |
 
-El análisis marcó cuatro vulnerabilidades en `baseline.py`, que se revisaron y se aceptaron:
+> Son las cifras del análisis del pull request de esta etapa. En un pull request, SonarCloud solo reporta problemas en las líneas que el PR modificó: el análisis completo de `master`, que se actualiza con cada merge, puede marcar *code smells* en código que no cambió. Una medición local con las reglas de complejidad de Ruff anticipa dos candidatas, `generar_reporte()` y `main()` de `perfilado.py`.
+
+El análisis marcó cinco vulnerabilidades, que se revisaron y se aceptaron:
 
 | Regla | Dónde | Decisión |
 | :--- | :--- | :--- |
 | S2245 — generador pseudoaleatorio | `generar_corpus_prueba()`, dos usos de `random` | Aceptada: solo genera texto ficticio para el corpus de prueba, sin uso criptográfico. Bandit marca lo mismo (B311) y está justificado con `# nosec`. |
 | S8707 — ruta recibida por línea de comandos | `generar_corpus_prueba()` y `busqueda_secuencial()` | Aceptada: es un script local y quien lo ejecuta elige su propio directorio de corpus, así que no se cruza ningún límite de permisos. |
+| S8705 — argumento de línea de comandos en un subproceso | `perfilado._medir_en_subproceso()` | Aceptada: la orden es una lista, sin shell, y ejecuta el mismo `perfilado.py`; el directorio lo elige quien corre el script. |
 
 ### Pipeline de CI
 
