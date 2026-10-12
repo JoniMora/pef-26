@@ -276,14 +276,22 @@ def normalizar_consulta(consulta):
 
 def buscar(indice, terminos):
     """
-    Busca documentos que contengan TODOS los términos.
+    Busca los documentos que contienen todos los términos de la consulta.
 
-    Recibe la consulta ya normalizada (ver normalizar_consulta)
-    para no volver a tokenizarla en cada etapa.
+    Intersecta las listas de *postings* empezando por la del término
+    menos frecuente, para que el conjunto de candidatos se reduzca lo
+    antes posible. Recibe la consulta ya normalizada (ver
+    :func:`normalizar_consulta`) para no volver a tokenizarla.
 
-    Utiliza intersección de conjuntos.
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param terminos: Términos normalizados de la consulta.
+    :type terminos: tuple[str, ...]
+    :return: Identificadores de los documentos que contienen todos los
+        términos. Vacío si la consulta no tiene términos o si alguno no
+        figura en el índice.
+    :rtype: set[int]
     """
-
     if not terminos:
         return set()
 
@@ -301,8 +309,8 @@ def buscar(indice, terminos):
 
     candidatos = set(postings[0])
 
-    for documentos in postings[1:]:
-        candidatos &= documentos.keys()
+    for posting in postings[1:]:
+        candidatos &= posting.keys()
 
         if not candidatos:
             break
@@ -365,8 +373,27 @@ def rankear(indice, terminos, candidatos, k, total_docs):
 
 
 class Buscador:
-    def __init__(self, indice, archivos, cache_size=1024):
+    """
+    Motor de búsqueda sobre un índice invertido ya construido.
 
+    Combina la intersección de *postings* (:func:`buscar`), el ranking
+    TF-IDF top-k (:func:`rankear`) y una caché LRU de consultas
+    (:class:`QueryCache`). El índice se construye una sola vez con
+    :func:`construir_indice` y se reutiliza en todas las consultas.
+    """
+
+    def __init__(self, indice, archivos, cache_size=1024):
+        """
+        Inicializa el buscador con un índice y su caché de consultas.
+
+        :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+        :type indice: dict[str, dict[int, int]]
+        :param archivos: Rutas del corpus. La posición de cada archivo en
+            la lista es su doc_id.
+        :type archivos: list[pathlib.Path]
+        :param cache_size: Cantidad máxima de consultas que guarda la caché.
+        :type cache_size: int
+        """
         self.indice = indice
         self.archivos = archivos
 
@@ -374,14 +401,23 @@ class Buscador:
 
     def buscar(self, consulta, top_k=10):
         """
-        Devuelve (total_coincidencias, top_k).
+        Resuelve una consulta y devuelve sus mejores resultados.
 
-        total_coincidencias es la cantidad de documentos que
-        satisfacen la consulta; top_k son solo los mejores k.
-        Se devuelven por separado para no confundir el tamaño
-        del resultado con el tamaño de la página mostrada.
+        El total de coincidencias y el top-k se devuelven por separado
+        para no confundir el tamaño del resultado con el tamaño de la
+        página mostrada. Las consultas equivalentes, como
+        ``"Java Concurrencia"`` y ``"concurrencia java"``, comparten la
+        misma entrada de la caché.
+
+        :param consulta: Texto de la consulta, tal como lo escribe el usuario.
+        :type consulta: str
+        :param top_k: Cantidad máxima de documentos a devolver.
+        :type top_k: int
+        :return: Tupla ``(total_coincidencias, resultados)``, donde
+            ``resultados`` es una lista de pares ``(doc_id, score)``
+            ordenada de mayor a menor score.
+        :rtype: tuple[int, list[tuple[int, float]]]
         """
-
         terminos = normalizar_consulta(consulta)
 
         clave = (terminos, top_k)
@@ -392,7 +428,7 @@ class Buscador:
         if resultado_cache is not None:
             return resultado_cache
 
-        # Si no estaba en caché, buscamos
+        # Si no estaba en caché, buscamos y rankeamos
         candidatos = buscar(self.indice, terminos)
 
         resultado = (
@@ -400,7 +436,6 @@ class Buscador:
             rankear(self.indice, terminos, candidatos, top_k, len(self.archivos)),
         )
 
-        # Guardamos el resultado
         self.cache.put(clave, resultado)
 
         return resultado
