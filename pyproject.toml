@@ -6,7 +6,9 @@
 #  Ruff (linter)
 # ─────────────────────────────────────────────────────────────
 [tool.ruff]
-target-version = "py314"
+# Versión mínima soportada (README: Python 3.11+), no la del CI: el
+# formateador solo usa sintaxis que esa versión entiende.
+target-version = "py311"
 line-length = 88
 # Los módulos de src/ se importan entre sí como top-level
 # (`from optimizado import ...`): se declaran como first-party.

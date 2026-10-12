@@ -55,7 +55,7 @@ for _flujo in (sys.stdout, sys.stderr):
     if hasattr(_flujo, "reconfigure"):
         try:
             _flujo.reconfigure(encoding="utf-8", errors="replace")
-        except OSError, ValueError:
+        except (OSError, ValueError):
             pass
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -118,7 +118,7 @@ def _carga_del_sistema():
     """
     try:
         return os.getloadavg()[0]
-    except OSError, AttributeError:
+    except (OSError, AttributeError):
         return None
 
 
