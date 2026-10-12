@@ -39,7 +39,7 @@ def test_indice_paralelo_igual_al_secuencial(corpus_dir):
 
 def test_con_un_proceso_indexa_en_el_padre(tmp_path):
     (tmp_path / "a.txt").write_text("algoritmo datos", encoding="utf-8")
-    (tmp_path / "b.txt").mkdir()    # ilegible: se omite
+    (tmp_path / "b.txt").mkdir()  # ilegible: se omite
 
     indice, archivos = construir_indice(tmp_path, workers=1)
 

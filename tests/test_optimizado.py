@@ -22,6 +22,7 @@ from optimizado import (
 # NORMALIZACIÓN
 # ============================================================
 
+
 def test_normalize_quita_mayusculas_y_signos():
     assert normalize("¡Algoritmo!") == "algoritmo"
 
@@ -29,16 +30,16 @@ def test_normalize_quita_mayusculas_y_signos():
 @pytest.mark.parametrize(
     ("palabra", "esperado"),
     [
-        ("datos", "dato"),            # plural sobre vocal
-        ("redes", "red"),             # -es tras consonante final válida
+        ("datos", "dato"),  # plural sobre vocal
+        ("redes", "red"),  # -es tras consonante final válida
         ("vectores", "vector"),
-        ("variables", "variable"),    # no debe recortar a "variab"
-        ("luces", "luz"),             # alternancia z/c
-        ("corpus", "corpus"),         # invariables
+        ("variables", "variable"),  # no debe recortar a "variab"
+        ("luces", "luz"),  # alternancia z/c
+        ("corpus", "corpus"),  # invariables
         ("analisis", "analisis"),
-        ("rapidamente", "rapida"),    # sufijo -mente
-        ("tests", "tests"),           # -s tras consonante: se deja igual
-        ("mes", "mes"),               # demasiado corta
+        ("rapidamente", "rapida"),  # sufijo -mente
+        ("tests", "tests"),  # -s tras consonante: se deja igual
+        ("mes", "mes"),  # demasiado corta
     ],
 )
 def test_stem(palabra, esperado):
@@ -59,6 +60,7 @@ def test_normalizar_consulta_es_canonica():
 # ÍNDICE
 # ============================================================
 
+
 def test_construir_indice_ignora_archivos_ilegibles(tmp_path):
     (tmp_path / "a.txt").write_text("algoritmo datos", encoding="utf-8")
     # Un directorio que matchea *.txt no se puede leer: OSError.
@@ -74,17 +76,18 @@ def test_construir_indice_ignora_archivos_ilegibles(tmp_path):
 # CACHÉ DE CONSULTAS
 # ============================================================
 
+
 def test_query_cache_lru():
     cache = QueryCache(maxsize=2)
 
     cache.put("a", 1)
     cache.put("b", 2)
-    assert cache.get("a") == 1      # "a" pasa a ser la más reciente
+    assert cache.get("a") == 1  # "a" pasa a ser la más reciente
 
-    cache.put("c", 3)               # desaloja "b", la menos usada
+    cache.put("c", 3)  # desaloja "b", la menos usada
     assert cache.get("b") is None
 
-    cache.put("a", 10)              # actualizar una clave existente
+    cache.put("a", 10)  # actualizar una clave existente
     assert cache.get("a") == 10
 
     assert cache.info() == {"hits": 2, "misses": 1, "size": 2}
@@ -107,7 +110,7 @@ INDICE = {
         ((), set()),
         (("inexistente",), set()),
         (("a", "c"), {0}),
-        (("a", "b", "c"), set()),   # la intersección se vacía antes de terminar
+        (("a", "b", "c"), set()),  # la intersección se vacía antes de terminar
     ],
 )
 def test_buscar(terminos, esperado):

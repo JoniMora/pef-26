@@ -27,14 +27,46 @@ DIRECTORIO_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIRECTORIO_CORPUS_DEFAULT = os.path.join(DIRECTORIO_RAIZ, "data", "corpus")
 
 VOCABULARIO = [
-    "programacion", "eficiente", "algoritmo", "estructura", "datos",
-    "busqueda", "secuencial", "indice", "documento", "consulta",
-    "sistema", "memoria", "tiempo", "ejecucion", "python",
-    "funcion", "variable", "lista", "texto", "archivo",
-    "corpus", "proceso", "resultado", "analisis", "rendimiento",
-    "computadora", "software", "codigo", "modulo", "prueba",
-    "red", "servidor", "cliente", "usuario", "dato",
-    "vector", "matriz", "objeto", "clase", "metodo",
+    "programacion",
+    "eficiente",
+    "algoritmo",
+    "estructura",
+    "datos",
+    "busqueda",
+    "secuencial",
+    "indice",
+    "documento",
+    "consulta",
+    "sistema",
+    "memoria",
+    "tiempo",
+    "ejecucion",
+    "python",
+    "funcion",
+    "variable",
+    "lista",
+    "texto",
+    "archivo",
+    "corpus",
+    "proceso",
+    "resultado",
+    "analisis",
+    "rendimiento",
+    "computadora",
+    "software",
+    "codigo",
+    "modulo",
+    "prueba",
+    "red",
+    "servidor",
+    "cliente",
+    "usuario",
+    "dato",
+    "vector",
+    "matriz",
+    "objeto",
+    "clase",
+    "metodo",
 ]
 
 
@@ -66,7 +98,13 @@ def generar_corpus_prueba(num_docs, directorio=DIRECTORIO_CORPUS_DEFAULT):
         if (i + 1) % 1000 == 0:
             print("Generados " + str(i + 1) + " / " + str(num_docs) + " documentos")
 
-    print("Corpus de prueba generado en '" + directorio + "' (" + str(num_docs) + " documentos)")
+    print(
+        "Corpus de prueba generado en '"
+        + directorio
+        + "' ("
+        + str(num_docs)
+        + " documentos)"
+    )
 
 
 def busqueda_secuencial(directorio, query):
@@ -100,10 +138,21 @@ def busqueda_secuencial(directorio, query):
 
 def main():
     parser = argparse.ArgumentParser(description="Buscador secuencial (Línea Base)")
-    parser.add_argument("--generar", action="store_true", help="genera el corpus de prueba")
-    parser.add_argument("--num-docs", type=int, default=10000, help="cantidad de documentos a generar")
-    parser.add_argument("--directorio", type=str, default=DIRECTORIO_CORPUS_DEFAULT, help="directorio del corpus")
-    parser.add_argument("--query", type=str, default=None, help="consulta a buscar en el corpus")
+    parser.add_argument(
+        "--generar", action="store_true", help="genera el corpus de prueba"
+    )
+    parser.add_argument(
+        "--num-docs", type=int, default=10000, help="cantidad de documentos a generar"
+    )
+    parser.add_argument(
+        "--directorio",
+        type=str,
+        default=DIRECTORIO_CORPUS_DEFAULT,
+        help="directorio del corpus",
+    )
+    parser.add_argument(
+        "--query", type=str, default=None, help="consulta a buscar en el corpus"
+    )
     args = parser.parse_args()
 
     if args.generar:

@@ -55,6 +55,7 @@ UMBRAL_PARALELO = 512
 # PARTICIONADO
 # ============================================================
 
+
 def _lotes_equitativos(items, cantidad_lotes):
     """
     Reparte items en lotes contiguos de tamaño equitativo.
@@ -76,7 +77,6 @@ def _lotes_equitativos(items, cantidad_lotes):
     inicio = 0
 
     for posicion in range(cantidad_lotes):
-
         fin = inicio + tamano + (1 if posicion < resto else 0)
 
         lotes.append(items[inicio:fin])
@@ -89,6 +89,7 @@ def _lotes_equitativos(items, cantidad_lotes):
 # ============================================================
 # FASE MAP
 # ============================================================
+
 
 def _procesar_lote(lote_archivos):
     """
@@ -107,7 +108,6 @@ def _procesar_lote(lote_archivos):
     parcial = {}
 
     for doc_id, ruta in lote_archivos:
-
         try:
             with open(ruta, encoding="utf-8", errors="ignore") as archivo:
                 texto = archivo.read()
@@ -117,7 +117,6 @@ def _procesar_lote(lote_archivos):
         frecuencias = Counter(tokenizar(texto))
 
         for termino, frecuencia in frecuencias.items():
-
             postings = parcial.get(termino)
 
             if postings is None:
@@ -132,6 +131,7 @@ def _procesar_lote(lote_archivos):
 # FASE REDUCE
 # ============================================================
 
+
 def _fusionar(indice, parcial):
     """
     Vuelca un índice parcial sobre el índice global.
@@ -142,7 +142,6 @@ def _fusionar(indice, parcial):
     """
 
     for termino, postings in parcial.items():
-
         destino = indice.get(termino)
 
         if destino is None:
@@ -171,10 +170,7 @@ def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCE
 
     # Las rutas viajan como str: Path se serializa más caro y el
     # worker solo necesita abrirlas.
-    tareas = [
-        (doc_id, str(archivo))
-        for doc_id, archivo in enumerate(archivos)
-    ]
+    tareas = [(doc_id, str(archivo)) for doc_id, archivo in enumerate(archivos)]
 
     if procesos == 1 or len(archivos) < UMBRAL_PARALELO:
         return _procesar_lote(tareas), archivos
@@ -184,11 +180,7 @@ def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCE
     indice = {}
 
     with ProcessPoolExecutor(max_workers=procesos) as pool:
-
-        futuros = [
-            pool.submit(_procesar_lote, lote)
-            for lote in lotes
-        ]
+        futuros = [pool.submit(_procesar_lote, lote) for lote in lotes]
 
         # as_completed fusiona en orden de finalización: el padre
         # reduce mientras los workers siguen mapeando.
@@ -202,50 +194,42 @@ def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCE
 # MAIN
 # ============================================================
 
+
 def main():
 
     parser = argparse.ArgumentParser(
         description="Buscador con indexación paralela (MapReduce)"
     )
 
-    parser.add_argument(
-        "--query",
-        type=str,
-        help="Consulta a realizar"
-    )
+    parser.add_argument("--query", type=str, help="Consulta a realizar")
 
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=10,
-        help="Cantidad de resultados"
-    )
+    parser.add_argument("--top-k", type=int, default=10, help="Cantidad de resultados")
 
     parser.add_argument(
         "--directorio",
         type=str,
         default=str(DEFAULT_CORPUS),
-        help="Directorio donde se encuentra el corpus"
+        help="Directorio donde se encuentra el corpus",
     )
 
     parser.add_argument(
         "--workers",
         type=int,
         default=None,
-        help="Cantidad de procesos (por defecto os.cpu_count())"
+        help="Cantidad de procesos (por defecto os.cpu_count())",
     )
 
     parser.add_argument(
         "--cache-size",
         type=int,
         default=1024,
-        help="Cantidad máxima de consultas almacenadas"
+        help="Cantidad máxima de consultas almacenadas",
     )
 
     parser.add_argument(
         "--comparar",
         action="store_true",
-        help="Mide también la indexación secuencial y el speedup"
+        help="Mide también la indexación secuencial y el speedup",
     )
 
     args = parser.parse_args()
@@ -262,10 +246,7 @@ def main():
 
     inicio_indice = time.perf_counter()
 
-    indice, archivos = construir_indice(
-        corpus_dir,
-        args.workers
-    )
+    indice, archivos = construir_indice(corpus_dir, args.workers)
 
     tiempo_indice = (time.perf_counter() - inicio_indice) * 1000
 
@@ -274,7 +255,6 @@ def main():
     print(f"Tiempo de construcción del índice: {tiempo_indice:.2f} ms")
 
     if args.comparar:
-
         inicio_secuencial = time.perf_counter()
 
         indice_secuencial, _ = construir_indice_secuencial(corpus_dir)
@@ -289,18 +269,11 @@ def main():
     if not args.query:
         return
 
-    buscador = Buscador(
-        indice,
-        archivos,
-        args.cache_size
-    )
+    buscador = Buscador(indice, archivos, args.cache_size)
 
     inicio_busqueda = time.perf_counter()
 
-    total, resultados = buscador.buscar(
-        args.query,
-        args.top_k
-    )
+    total, resultados = buscador.buscar(args.query, args.top_k)
 
     tiempo_busqueda = (time.perf_counter() - inicio_busqueda) * 1000
 
@@ -315,10 +288,7 @@ def main():
     else:
         print(f"Documentos encontrados: {total}")
 
-    mostrar_resultados(
-        resultados,
-        archivos
-    )
+    mostrar_resultados(resultados, archivos)
 
 
 # La guarda es obligatoria: con el método de arranque spawn

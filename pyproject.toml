@@ -7,10 +7,15 @@
 # ─────────────────────────────────────────────────────────────
 [tool.ruff]
 target-version = "py314"
+line-length = 88
 # Los módulos de src/ se importan entre sí como top-level
 # (`from optimizado import ...`): se declaran como first-party.
 src = ["src", "tests"]
 extend-exclude = ["presentacion", "profiles"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

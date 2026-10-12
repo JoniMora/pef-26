@@ -40,21 +40,37 @@ VOCALES = frozenset("aeiouáéíóúü")
 CONSONANTES_FINALES = frozenset("dlnrz")
 
 STOPWORDS = {
-    "el", "la", "los", "las",
-    "un", "una", "unos", "unas",
-    "de", "del", "al",
-    "y", "o",
-    "en", "por", "para",
-    "con", "sin",
-    "que", "es",
-    "se", "su", "sus",
-    "a"
+    "el",
+    "la",
+    "los",
+    "las",
+    "un",
+    "una",
+    "unos",
+    "unas",
+    "de",
+    "del",
+    "al",
+    "y",
+    "o",
+    "en",
+    "por",
+    "para",
+    "con",
+    "sin",
+    "que",
+    "es",
+    "se",
+    "su",
+    "sus",
+    "a",
 }
 
 
 # ============================================================
 # NORMALIZACIÓN
 # ============================================================
+
 
 @lru_cache(maxsize=10000)
 def normalize(token):
@@ -122,7 +138,6 @@ def tokenizar(texto):
     tokens = []
 
     for palabra in palabras:
-
         token = normalize(palabra)
 
         if not token:
@@ -142,6 +157,7 @@ def tokenizar(texto):
 # ============================================================
 # ÍNDICE INVERTIDO
 # ============================================================
+
 
 def construir_indice(corpus_dir):
     """
@@ -167,12 +183,8 @@ def construir_indice(corpus_dir):
     archivos = sorted(corpus_dir.glob("*.txt"))
 
     for doc_id, archivo in enumerate(archivos):
-
         try:
-            texto = archivo.read_text(
-                encoding="utf-8",
-                errors="ignore"
-            )
+            texto = archivo.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
 
@@ -182,7 +194,6 @@ def construir_indice(corpus_dir):
         frecuencias = Counter(tokens)
 
         for termino, frecuencia in frecuencias.items():
-
             if termino not in indice:
                 indice[termino] = {}
 
@@ -194,6 +205,7 @@ def construir_indice(corpus_dir):
 # ============================================================
 # CACHE DE CONSULTAS
 # ============================================================
+
 
 class QueryCache:
     """
@@ -234,16 +246,13 @@ class QueryCache:
             self.cache.popitem(last=False)
 
     def info(self):
-        return {
-            "hits": self.hits,
-            "misses": self.misses,
-            "size": len(self.cache)
-        }
+        return {"hits": self.hits, "misses": self.misses, "size": len(self.cache)}
 
 
 # ============================================================
 # CONSULTA DEL ÍNDICE
 # ============================================================
+
 
 def normalizar_consulta(consulta):
     """
@@ -281,7 +290,6 @@ def buscar(indice, terminos):
     postings = []
 
     for termino in terminos:
-
         if termino not in indice:
             return set()
 
@@ -305,6 +313,7 @@ def buscar(indice, terminos):
 # ============================================================
 # RANKING TOP-K
 # ============================================================
+
 
 def rankear(indice, terminos, candidatos, k, total_docs):
     """
@@ -335,7 +344,6 @@ def rankear(indice, terminos, candidatos, k, total_docs):
             return
 
         for doc_id in candidatos:
-
             score = 0.0
 
             for postings, idf in pesos:
@@ -355,8 +363,8 @@ def rankear(indice, terminos, candidatos, k, total_docs):
 # BUSCADOR COMPLETO
 # ============================================================
 
-class Buscador:
 
+class Buscador:
     def __init__(self, indice, archivos, cache_size=1024):
 
         self.indice = indice
@@ -385,27 +393,15 @@ class Buscador:
             return resultado_cache
 
         # Si no estaba en caché, buscamos
-        candidatos = buscar(
-            self.indice,
-            terminos
-        )
+        candidatos = buscar(self.indice, terminos)
 
         resultado = (
             len(candidatos),
-            rankear(
-                self.indice,
-                terminos,
-                candidatos,
-                top_k,
-                len(self.archivos)
-            )
+            rankear(self.indice, terminos, candidatos, top_k, len(self.archivos)),
         )
 
         # Guardamos el resultado
-        self.cache.put(
-            clave,
-            resultado
-        )
+        self.cache.put(clave, resultado)
 
         return resultado
 
@@ -413,6 +409,7 @@ class Buscador:
 # ============================================================
 # MOSTRAR RESULTADOS
 # ============================================================
+
 
 def mostrar_resultados(resultados, archivos):
 
@@ -425,18 +422,15 @@ def mostrar_resultados(resultados, archivos):
         return
 
     for posicion, (doc_id, score) in enumerate(resultados, start=1):
-
         nombre = archivos[doc_id].name
 
-        print(
-            f"{posicion}. {nombre} "
-            f"(score={score:.4f})"
-        )
+        print(f"{posicion}. {nombre} (score={score:.4f})")
 
 
 # ============================================================
 # MAIN
 # ============================================================
+
 
 def main():
 
@@ -444,31 +438,22 @@ def main():
         description="Buscador optimizado con índice invertido"
     )
 
-    parser.add_argument(
-        "--query",
-        type=str,
-        help="Consulta a realizar"
-    )
+    parser.add_argument("--query", type=str, help="Consulta a realizar")
 
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=10,
-        help="Cantidad de resultados"
-    )
+    parser.add_argument("--top-k", type=int, default=10, help="Cantidad de resultados")
 
     parser.add_argument(
         "--directorio",
         type=str,
         default=str(DEFAULT_CORPUS),
-        help="Directorio donde se encuentra el corpus"
+        help="Directorio donde se encuentra el corpus",
     )
 
     parser.add_argument(
         "--cache-size",
         type=int,
         default=1024,
-        help="Cantidad máxima de consultas almacenadas"
+        help="Cantidad máxima de consultas almacenadas",
     )
 
     args = parser.parse_args()
@@ -476,62 +461,36 @@ def main():
     corpus_dir = Path(args.directorio)
 
     if not corpus_dir.exists():
-        print(
-            f"Error: no existe el directorio "
-            f"{corpus_dir}"
-        )
+        print(f"Error: no existe el directorio {corpus_dir}")
         return
 
     print("Construyendo índice invertido...")
 
     inicio_indice = time.perf_counter()
 
-    indice, archivos = construir_indice(
-        corpus_dir
-    )
+    indice, archivos = construir_indice(corpus_dir)
 
-    tiempo_indice = (
-        time.perf_counter() - inicio_indice
-    ) * 1000
+    tiempo_indice = (time.perf_counter() - inicio_indice) * 1000
 
-    print(
-        f"Documentos indexados: {len(archivos)}"
-    )
+    print(f"Documentos indexados: {len(archivos)}")
 
-    print(
-        f"Términos en el índice: {len(indice)}"
-    )
+    print(f"Términos en el índice: {len(indice)}")
 
-    print(
-        f"Tiempo de construcción del índice: "
-        f"{tiempo_indice:.2f} ms"
-    )
+    print(f"Tiempo de construcción del índice: {tiempo_indice:.2f} ms")
 
     if not args.query:
         return
 
-    buscador = Buscador(
-        indice,
-        archivos,
-        args.cache_size
-    )
+    buscador = Buscador(indice, archivos, args.cache_size)
 
     inicio_busqueda = time.perf_counter()
 
-    total, resultados = buscador.buscar(
-        args.query,
-        args.top_k
-    )
+    total, resultados = buscador.buscar(args.query, args.top_k)
 
-    tiempo_busqueda = (
-        time.perf_counter() - inicio_busqueda
-    ) * 1000
+    tiempo_busqueda = (time.perf_counter() - inicio_busqueda) * 1000
 
     print()
-    print(
-        f"Tiempo de búsqueda: "
-        f"{tiempo_busqueda:.4f} ms"
-    )
+    print(f"Tiempo de búsqueda: {tiempo_busqueda:.4f} ms")
 
     if total > len(resultados):
         print(
@@ -541,10 +500,7 @@ def main():
     else:
         print(f"Documentos encontrados: {total}")
 
-    mostrar_resultados(
-        resultados,
-        archivos
-    )
+    mostrar_resultados(resultados, archivos)
 
     print()
     print("Información de caché:")

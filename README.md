@@ -159,6 +159,7 @@ Ordenar completamente el conjunto de candidatos para devolver solo `k` resultado
 
 ```python
 import heapq
+
 top_k = heapq.nlargest(k, candidatos, key=lambda d: scores[d])
 ```
 
@@ -178,6 +179,7 @@ def puntuados():
         for postings, idf in pesos:
             score += postings.get(doc_id, 0) * idf
         yield (score, -doc_id)
+
 
 return [
     (-doc_id_invertido, score)
@@ -201,7 +203,7 @@ El pico escala con `k` y es indiferente a `r`: multiplicar `k` por 10 multiplica
 El score no es la frecuencia cruda del término (TF), que favorece mecánicamente a los documentos largos, sino **TF-IDF**: la frecuencia del término en el documento ponderada por su rareza en el corpus.
 
 ```python
-idf = math.log(total_docs / df)      # df = len(indice[termino])
+idf = math.log(total_docs / df)  # df = len(indice[termino])
 score += tf * idf
 ```
 
