@@ -408,6 +408,57 @@ def mostrar_resultados(resultados, archivos):
 
 
 # ============================================================
+# LÍNEA DE COMANDOS
+# ============================================================
+
+
+def resolver_consulta(indice, archivos, consulta, top_k, cache_size):
+    """
+    Resuelve una consulta desde la línea de comandos e imprime el resultado.
+
+    Mide el tiempo de búsqueda, informa cuántos documentos coinciden y
+    muestra el ranking. La comparten las líneas de comandos de
+    :mod:`optimizado` y :mod:`concurrente`, que solo difieren en cómo
+    construyen el índice.
+
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param archivos: Rutas del corpus; la posición de cada una es su doc_id.
+    :type archivos: list[pathlib.Path]
+    :param consulta: Texto de la consulta.
+    :type consulta: str
+    :param top_k: Cantidad máxima de documentos a mostrar.
+    :type top_k: int
+    :param cache_size: Cantidad máxima de consultas que guarda la caché.
+    :type cache_size: int
+    :return: El buscador usado, para consultar después el estado de su caché.
+    :rtype: Buscador
+    """
+    buscador = Buscador(indice, archivos, cache_size)
+
+    inicio_busqueda = time.perf_counter()
+
+    total, resultados = buscador.buscar(consulta, top_k)
+
+    tiempo_busqueda = (time.perf_counter() - inicio_busqueda) * 1000
+
+    print()
+    print(f"Tiempo de búsqueda: {tiempo_busqueda:.4f} ms")
+
+    if total > len(resultados):
+        print(
+            f"Documentos encontrados: {total} "
+            f"(se muestran los {len(resultados)} mejores)"
+        )
+    else:
+        print(f"Documentos encontrados: {total}")
+
+    mostrar_resultados(resultados, archivos)
+
+    return buscador
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -467,26 +518,9 @@ def main():
     if not args.query:
         return
 
-    buscador = Buscador(indice, archivos, args.cache_size)
-
-    inicio_busqueda = time.perf_counter()
-
-    total, resultados = buscador.buscar(args.query, args.top_k)
-
-    tiempo_busqueda = (time.perf_counter() - inicio_busqueda) * 1000
-
-    print()
-    print(f"Tiempo de búsqueda: {tiempo_busqueda:.4f} ms")
-
-    if total > len(resultados):
-        print(
-            f"Documentos encontrados: {total} "
-            f"(se muestran los {len(resultados)} mejores)"
-        )
-    else:
-        print(f"Documentos encontrados: {total}")
-
-    mostrar_resultados(resultados, archivos)
+    buscador = resolver_consulta(
+        indice, archivos, args.query, args.top_k, args.cache_size
+    )
 
     print()
     print("Información de caché:")

@@ -32,9 +32,8 @@ from pathlib import Path
 from core.procesamiento_texto import tokenizar
 from optimizado import (
     DEFAULT_CORPUS,
-    Buscador,
     construir_indice as construir_indice_secuencial,
-    mostrar_resultados,
+    resolver_consulta,
 )
 
 
@@ -302,26 +301,7 @@ def main():
     if not args.query:
         return
 
-    buscador = Buscador(indice, archivos, args.cache_size)
-
-    inicio_busqueda = time.perf_counter()
-
-    total, resultados = buscador.buscar(args.query, args.top_k)
-
-    tiempo_busqueda = (time.perf_counter() - inicio_busqueda) * 1000
-
-    print()
-    print(f"Tiempo de búsqueda: {tiempo_busqueda:.4f} ms")
-
-    if total > len(resultados):
-        print(
-            f"Documentos encontrados: {total} "
-            f"(se muestran los {len(resultados)} mejores)"
-        )
-    else:
-        print(f"Documentos encontrados: {total}")
-
-    mostrar_resultados(resultados, archivos)
+    resolver_consulta(indice, archivos, args.query, args.top_k, args.cache_size)
 
 
 # La guarda es obligatoria: con el método de arranque spawn
