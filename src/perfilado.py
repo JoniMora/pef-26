@@ -67,6 +67,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import baseline  # noqa: E402
 import concurrente  # noqa: E402
 import optimizado  # noqa: E402
+from core import procesamiento_texto  # noqa: E402
 
 
 # ============================================================
@@ -696,10 +697,10 @@ def perfilar_line(corpus_dir, versiones):
         perfilador = LineProfiler()
 
         for funcion in (
-            optimizado.tokenizar,
+            procesamiento_texto.tokenizar,
             # `stem` y `normalize` están envueltos por lru_cache: se
             # perfila la función original, no el wrapper.
-            optimizado.stem.__wrapped__,
+            procesamiento_texto.stem.__wrapped__,
             optimizado.construir_indice,
             optimizado.buscar,
             optimizado.rankear,

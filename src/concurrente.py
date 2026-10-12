@@ -29,12 +29,12 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
+from core.procesamiento_texto import tokenizar
 from optimizado import (
     DEFAULT_CORPUS,
     Buscador,
     construir_indice as construir_indice_secuencial,
     mostrar_resultados,
-    tokenizar,
 )
 
 

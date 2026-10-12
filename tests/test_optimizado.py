@@ -1,6 +1,8 @@
 """
-Tests unitarios de las piezas del buscador optimizado: normalización,
-caché de consultas, intersección de postings y ranking top-k.
+Tests unitarios de las piezas del buscador optimizado: consulta canónica,
+índice, caché de consultas, intersección de postings y ranking top-k.
+
+El procesamiento de texto se prueba aparte, en test_procesamiento_texto.py.
 """
 
 import pytest
@@ -11,43 +13,13 @@ from optimizado import (
     buscar,
     construir_indice,
     normalizar_consulta,
-    normalize,
     rankear,
-    stem,
-    tokenizar,
 )
 
 
 # ============================================================
-# NORMALIZACIÓN
+# CONSULTA CANÓNICA
 # ============================================================
-
-
-def test_normalize_quita_mayusculas_y_signos():
-    assert normalize("¡Algoritmo!") == "algoritmo"
-
-
-@pytest.mark.parametrize(
-    ("palabra", "esperado"),
-    [
-        ("datos", "dato"),  # plural sobre vocal
-        ("redes", "red"),  # -es tras consonante final válida
-        ("vectores", "vector"),
-        ("variables", "variable"),  # no debe recortar a "variab"
-        ("luces", "luz"),  # alternancia z/c
-        ("corpus", "corpus"),  # invariables
-        ("analisis", "analisis"),
-        ("rapidamente", "rapida"),  # sufijo -mente
-        ("tests", "tests"),  # -s tras consonante: se deja igual
-        ("mes", "mes"),  # demasiado corta
-    ],
-)
-def test_stem(palabra, esperado):
-    assert stem(palabra) == esperado
-
-
-def test_tokenizar_descarta_stopwords_y_tokens_vacios():
-    assert tokenizar("El algoritmo y los datos ___") == ["algoritmo", "dato"]
 
 
 def test_normalizar_consulta_es_canonica():
