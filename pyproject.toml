@@ -1,0 +1,53 @@
+# Configuración de las herramientas de calidad que corre el pipeline
+# (.github/workflows/ci.yml). No empaqueta el proyecto: los scripts de
+# src/ se siguen ejecutando directamente con `python3 src/<script>.py`.
+
+# ─────────────────────────────────────────────────────────────
+#  Ruff (linter)
+# ─────────────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py314"
+# Los módulos de src/ se importan entre sí como top-level
+# (`from optimizado import ...`): se declaran como first-party.
+src = ["src", "tests"]
+extend-exclude = ["presentacion", "profiles"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+lines-after-imports = 2
+
+# ─────────────────────────────────────────────────────────────
+#  Bandit (análisis de seguridad)
+# ─────────────────────────────────────────────────────────────
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+
+# ─────────────────────────────────────────────────────────────
+#  Pytest
+# ─────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Equivale a ejecutar desde src/: los tests importan `baseline` y
+# `optimizado` igual que lo hacen los propios scripts.
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+markers = [
+    "rendimiento: Performance Gate; se corre aparte y sin cobertura para no medir el overhead del tracing",
+]
+
+# ─────────────────────────────────────────────────────────────
+#  Coverage
+# ─────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["src"]
+# perfilado.py es el arnés de medición (lanza subprocesos, Scalene,
+# py-spy y genera gráficos), no parte del motor de búsqueda.
+omit = ["src/perfilado.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false
+exclude_also = [
+    'if __name__ == "__main__":',
+]

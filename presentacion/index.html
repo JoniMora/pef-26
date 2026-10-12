@@ -1,0 +1,1934 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buscador Eficiente de Información</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* ============================================================
+   TOKENS — panel de instrumento: grafito frío + ámbar de señal
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --paper:      #E9ECEB;
+  --surface:    #FBFBFA;
+  --surface-2:  #F0F3F2;
+  --surface-3:  #E4E9E7;
+  --ink:        #14181A;
+  --ink-2:      #4C575B;
+  --ink-3:      #78868B;
+  --rule:       #DCE1DF;
+  --rule-2:     #C2CAC7;
+  --accent:     #C7891A;
+  --accent-ink: #8A5E12;
+  --accent-soft:#F5E7CC;
+  --s1: #B4452F;
+  --s2: #0A6F96;
+  --s3: #C7891A;
+  --s4: #17804F;
+  --s5: #6A4A9E;
+  --shadow: 0 1px 2px rgba(20,24,26,.06), 0 14px 40px rgba(20,24,26,.10);
+  --glow: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper:      #0A0D0E;
+    --surface:    #16191B;
+    --surface-2:  #1D2224;
+    --surface-3:  #252B2E;
+    --ink:        #ECEFEE;
+    --ink-2:      #A7B1B4;
+    --ink-3:      #7E898D;
+    --rule:       #2A3134;
+    --rule-2:     #3B4448;
+    --accent:     #DBA341;
+    --accent-ink: #E2AE55;
+    --accent-soft:#33291694;
+    --s1: #D96A4E;
+    --s2: #3C9DC2;
+    --s3: #B8831D;
+    --s4: #2FA06E;
+    --s5: #8E7BD6;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 18px 50px rgba(0,0,0,.55);
+    --glow: 0 0 0 1px rgba(219,163,65,.08);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper:      #0A0D0E;
+  --surface:    #16191B;
+  --surface-2:  #1D2224;
+  --surface-3:  #252B2E;
+  --ink:        #ECEFEE;
+  --ink-2:      #A7B1B4;
+  --ink-3:      #7E898D;
+  --rule:       #2A3134;
+  --rule-2:     #3B4448;
+  --accent:     #DBA341;
+  --accent-ink: #E2AE55;
+  --accent-soft:#33291694;
+  --s1: #D96A4E;
+  --s2: #3C9DC2;
+  --s3: #B8831D;
+  --s4: #2FA06E;
+  --s5: #8E7BD6;
+  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 18px 50px rgba(0,0,0,.55);
+  --glow: 0 0 0 1px rgba(219,163,65,.08);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "IBM Plex Serif", Georgia, serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   ESCENARIO
+   ============================================================ */
+.deck { position: fixed; inset: 0; }
+.stage-wrap { position: absolute; inset: 0; display: grid; place-items: center; }
+.stage {
+  width: 1280px; height: 720px;
+  transform-origin: center center;
+  position: relative;
+  background: var(--surface);
+  box-shadow: var(--shadow), var(--glow);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.slide {
+  position: absolute; inset: 0;
+  padding: 44px 60px 34px;
+  display: none;
+  grid-template-rows: auto 1fr auto;
+  gap: 20px;
+}
+.slide.is-active { display: grid; }
+
+/* ---------- cabecera ---------- */
+.head { display: grid; gap: 8px; }
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11.5px; font-weight: 500;
+  letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex; align-items: center; gap: 12px;
+}
+.eyebrow b { color: var(--accent-ink); font-weight: 600; }
+.eyebrow .dash { width: 26px; height: 1px; background: var(--rule-2); display: inline-block; }
+h1.title {
+  margin: 0;
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-variation-settings: "wdth" 112, "wght" 700;
+  font-size: 43px; line-height: 1.04;
+  letter-spacing: -.014em;
+  text-wrap: balance;
+  color: var(--ink);
+}
+.lede {
+  margin: 0; max-width: 62ch;
+  font-size: 18.5px; line-height: 1.48; color: var(--ink-2);
+}
+.lede strong { color: var(--ink); font-weight: 600; }
+
+/* ---------- cuerpo ---------- */
+.body { min-height: 0; display: grid; gap: 18px; align-content: start; }
+.cols   { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.cols-7-5 { display: grid; grid-template-columns: 7fr 5fr; gap: 22px; }
+.cols-5-7 { display: grid; grid-template-columns: 5fr 7fr; gap: 22px; }
+.cols-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.stack  { display: grid; gap: 12px; align-content: start; }
+
+p { margin: 0; font-size: 16.5px; line-height: 1.5; color: var(--ink-2); max-width: 62ch; }
+p strong, li strong { color: var(--ink); font-weight: 600; }
+em { font-style: italic; }
+
+.panel {
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 16px 18px;
+  display: grid; gap: 10px; align-content: start;
+}
+.panel.plain { background: transparent; border: 0; padding: 0; }
+.panel.lift  { background: var(--surface); box-shadow: 0 1px 0 var(--rule-2); }
+
+.plabel {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.plabel.acc { color: var(--accent-ink); }
+
+/* ---------- listas ---------- */
+ul.list { margin: 0; padding: 0; list-style: none; display: grid; gap: 9px; }
+ul.list li {
+  font-size: 16px; line-height: 1.42; color: var(--ink-2);
+  padding-left: 18px; position: relative; max-width: 60ch;
+}
+ul.list li::before {
+  content: ""; position: absolute; left: 0; top: .58em;
+  width: 7px; height: 1.5px; background: var(--rule-2);
+}
+ul.list.acc li::before { background: var(--accent); }
+
+/* ---------- lecturas numéricas ---------- */
+.readouts { display: grid; grid-auto-flow: column; gap: 0; }
+.readout { padding: 0 22px; border-left: 1px solid var(--rule); }
+.readout:first-child { padding-left: 0; border-left: 0; }
+.readout .val {
+  font-family: Archivo, sans-serif;
+  font-variation-settings: "wdth" 100, "wght" 700;
+  font-size: 34px; line-height: 1; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+  display: flex; align-items: baseline; gap: 5px;
+}
+.readout .val .u {
+  font-family: "IBM Plex Mono", monospace; font-size: 13px;
+  font-weight: 500; color: var(--ink-3); letter-spacing: 0;
+}
+.readout .val.hl { color: var(--accent-ink); }
+.readout .cap {
+  margin-top: 7px;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  letter-spacing: .07em; color: var(--ink-3); line-height: 1.35;
+}
+
+/* ---------- tablas ---------- */
+table { border-collapse: collapse; width: 100%; }
+th, td {
+  text-align: left; padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px; line-height: 1.35;
+}
+th {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--ink-3);
+  border-bottom: 1px solid var(--rule-2);
+  padding-bottom: 6px;
+}
+td { color: var(--ink-2); font-family: Archivo, sans-serif; font-variation-settings: "wght" 400; }
+td.num, th.num { text-align: right; font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--ink); }
+td.mono, th.mono { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+tr.hl td { background: var(--accent-soft); }
+tr.hl td.num { color: var(--accent-ink); font-weight: 600; }
+td .sub { color: var(--ink-3); font-size: 12.5px; }
+tbody tr:last-child td { border-bottom: 0; }
+.tbl-wrap { overflow-x: auto; }
+
+/* ---------- código y terminal ---------- */
+pre.code, pre.term {
+  margin: 0; padding: 13px 15px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12.8px; line-height: 1.58;
+  border-radius: 4px; overflow-x: auto;
+  tab-size: 4;
+}
+pre.code { background: var(--surface-3); border: 1px solid var(--rule); color: var(--ink); }
+pre.term { background: #0E1214; border: 1px solid #1E2528; color: #D5DBDA; }
+:root[data-theme="dark"] pre.term, :root:not([data-theme="light"]) pre.term { background: #0B0E0F; }
+.code .k  { color: var(--accent-ink); }
+.code .c  { color: var(--ink-3); font-style: italic; }
+.code .s  { color: var(--s4); }
+.code .f  { color: var(--s2); }
+.term .p  { color: #6C7A7E; }
+.term .g  { color: #6FBF8E; }
+.term .y  { color: #E3B155; }
+.term .w  { color: #F2F5F4; }
+
+code.inline {
+  font-family: "IBM Plex Mono", monospace; font-size: .9em;
+  background: var(--surface-3); border: 1px solid var(--rule);
+  padding: .06em .32em; border-radius: 3px; color: var(--ink);
+}
+
+/* ---------- fichas / diagramas ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
+  padding: 4px 9px; border: 1px solid var(--rule-2); border-radius: 3px;
+  color: var(--ink-2); background: var(--surface);
+}
+.chip.on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); }
+
+.flow { display: flex; align-items: stretch; gap: 0; }
+.flow .step {
+  flex: 1; padding: 11px 13px;
+  border: 1px solid var(--rule); border-right: 0;
+  background: var(--surface-2);
+  display: grid; gap: 4px; align-content: start;
+}
+.flow .step:first-child { border-radius: 4px 0 0 4px; }
+.flow .step:last-child  { border-right: 1px solid var(--rule); border-radius: 0 4px 4px 0; }
+.flow .step .n {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  letter-spacing: .14em; color: var(--ink-3);
+}
+.flow .step .t {
+  font-family: Archivo, sans-serif; font-variation-settings: "wght" 600;
+  font-size: 14.5px; color: var(--ink);
+}
+.flow .step .d { font-size: 12.5px; color: var(--ink-3); line-height: 1.34; }
+.flow .step.on { background: var(--accent-soft); border-color: var(--accent); }
+.flow .step.on .t { color: var(--accent-ink); }
+
+/* ---------- nota al pie de diapositiva ---------- */
+.foot-note {
+  font-size: 14px; line-height: 1.45; color: var(--ink-3);
+  border-left: 2px solid var(--accent); padding-left: 12px; max-width: 78ch;
+}
+.foot-note b { color: var(--ink-2); font-weight: 600; }
+
+/* ---------- pie de diapositiva ---------- */
+.foot {
+  display: flex; align-items: center; gap: 14px;
+  border-top: 1px solid var(--rule); padding-top: 10px;
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+  letter-spacing: .1em; color: var(--ink-3); text-transform: uppercase;
+}
+.foot .sec { color: var(--ink-2); }
+.foot .spacer { flex: 1; }
+.rail { display: flex; align-items: flex-end; gap: 3px; height: 13px; }
+.rail button {
+  width: 6px; padding: 0; border: 0; cursor: pointer;
+  background: var(--rule-2); height: 5px; border-radius: 1px;
+  transition: height .15s ease, background .15s ease;
+}
+.rail button.mark { height: 9px; }
+.rail button.on { background: var(--accent); height: 13px; }
+.rail button:hover { background: var(--ink-3); }
+.rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.count { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+/* ============================================================
+   PORTADA
+   ============================================================ */
+.cover { padding: 0; }
+.cover .inner {
+  position: absolute; inset: 0;
+  padding: 56px 60px 34px;
+  display: grid; grid-template-rows: auto 1fr auto; gap: 0;
+}
+.cover h1 {
+  font-size: 76px; line-height: .98; letter-spacing: -.026em;
+  font-variation-settings: "wdth" 108, "wght" 800;
+  margin: 0; max-width: 15ch;
+}
+.cover .sub {
+  margin-top: 20px; font-size: 20px; line-height: 1.45;
+  color: var(--ink-2); max-width: 54ch;
+}
+.cover .sub b { color: var(--accent-ink); font-weight: 600; }
+.cover-grid {
+  position: absolute; right: 60px; top: 56px;
+  width: 300px; display: grid; gap: 0;
+  border: 1px solid var(--rule); border-radius: 4px; overflow: hidden;
+}
+.cover-grid .row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  padding: 9px 13px; border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+.cover-grid .row:last-child { border-bottom: 0; }
+.cover-grid .k {
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
+}
+.cover-grid .v {
+  font-family: "IBM Plex Mono", monospace; font-size: 13.5px;
+  font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 500;
+}
+.cover-grid .v.hl { color: var(--accent-ink); }
+
+/* ============================================================
+   CAPAS: índice, notas, ayuda
+   ============================================================ */
+.progress {
+  position: fixed; top: 0; left: 0; height: 2px;
+  background: var(--accent); width: 0; z-index: 40;
+  transition: width .22s ease;
+}
+.hud {
+  position: fixed; bottom: 12px; right: 14px; z-index: 30;
+  display: flex; gap: 6px; align-items: center;
+}
+.hud button {
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  letter-spacing: .06em; color: var(--ink-3);
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; padding: 5px 9px; cursor: pointer;
+}
+.hud button:hover { color: var(--ink); border-color: var(--rule-2); }
+.hud button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.hint {
+  position: fixed; bottom: 12px; left: 14px; z-index: 30;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  color: var(--ink-3); letter-spacing: .04em;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; padding: 5px 10px;
+  transition: opacity .6s ease;
+}
+.hint kbd {
+  font-family: inherit; color: var(--ink-2);
+  border: 1px solid var(--rule-2); border-radius: 2px;
+  padding: 0 3px; margin: 0 1px;
+}
+.hint.gone { opacity: 0; pointer-events: none; }
+
+.notes {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+  background: var(--surface); border-top: 1px solid var(--rule-2);
+  padding: 14px 20px 16px; max-height: 34vh; overflow-y: auto;
+  box-shadow: 0 -10px 30px rgba(0,0,0,.16);
+}
+.notes[hidden] { display: none !important; }
+.notes .plabel { margin-bottom: 8px; }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.notes li { font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.notes b { color: var(--ink); }
+
+.overview {
+  position: fixed; inset: 0; z-index: 45;
+  background: var(--paper);
+  padding: 26px 30px; overflow-y: auto;
+}
+.overview[hidden] { display: none !important; }
+.overview h2 {
+  margin: 0 0 16px;
+  font-family: Archivo, sans-serif; font-variation-settings: "wdth" 110, "wght" 700;
+  font-size: 20px; letter-spacing: -.01em; color: var(--ink);
+}
+.ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.ov-card {
+  text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 4px; padding: 11px 12px; display: grid; gap: 5px;
+}
+.ov-card:hover { border-color: var(--accent); }
+.ov-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ov-card .n {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  letter-spacing: .14em; color: var(--ink-3);
+}
+.ov-card .t {
+  font-family: Archivo, sans-serif; font-variation-settings: "wght" 600;
+  font-size: 13.5px; line-height: 1.25; color: var(--ink);
+}
+.ov-card.on { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ============================================================
+   GRÁFICOS
+   ============================================================ */
+svg.chart { display: block; width: 100%; height: auto; }
+.chart text { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.ax-line { stroke: var(--rule-2); stroke-width: 1; }
+.grid-line { stroke: var(--rule); stroke-width: 1; }
+.tick-txt { font-size: 10.5px; fill: var(--ink-3); }
+.cat-txt  { font-size: 12.5px; fill: var(--ink-2); }
+.cat-txt.on { fill: var(--accent-ink); font-weight: 600; }
+.val-txt  { font-size: 12.5px; fill: var(--ink); font-weight: 500; }
+.val-txt.on { fill: var(--accent-ink); font-weight: 600; }
+.note-txt { font-size: 11px; fill: var(--ink-3); }
+.leader   { stroke: var(--rule-2); stroke-width: 1; stroke-dasharray: 1 4; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; }
+.legend span {
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
+  color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px;
+}
+.legend i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck">
+  <div class="stage-wrap"><div class="stage" id="stage">
+
+<!-- ========== 01 · PORTADA ========== -->
+<section class="slide cover is-active" data-sec="Portada" data-title="Portada" data-mark="1">
+  <div class="inner">
+    <div>
+      <div class="eyebrow"><b>Trabajo Práctico Final</b><span class="dash"></span>Programación Eficiente · 2026</div>
+    </div>
+    <div style="align-self:center">
+      <h1 class="title">Buscador Eficiente de Información</h1>
+      <p class="sub">Motor de búsqueda <em>full-text</em> sobre 50.000 documentos.
+      De <b>2.485 ms</b> a <b>0,002 ms</b> por consulta — sin cambiar un solo resultado.</p>
+    </div>
+    <div class="foot">
+      <span class="sec">github.com/JoniMora/pef-26</span>
+      <span class="spacer"></span>
+      <span>CPython 3.14 · macOS · i5-7267U · 2 núcleos físicos</span>
+    </div>
+  </div>
+  <div class="cover-grid">
+    <div class="row"><span class="k">Corpus</span><span class="v">50.000 docs · 68,7 MB</span></div>
+    <div class="row"><span class="k">Versiones medidas</span><span class="v">5</span></div>
+    <div class="row"><span class="k">Consulta</span><span class="v">"algoritmo"</span></div>
+    <div class="row"><span class="k">Coincidencias</span><span class="v hl">47.797 en las 5</span></div>
+    <div class="row"><span class="k">Mejora total</span><span class="v hl">≈1.100.000×</span></div>
+  </div>
+  <template class="nt"><ul>
+    <li>Presentar el proyecto en una frase: <b>el resultado nunca cambia, lo que cambia es el costo de obtenerlo</b>.</li>
+    <li>Las cinco versiones devuelven 47.797 coincidencias: ese número es el testigo de equivalencia de todo el trabajo.</li>
+    <li>Aclarar el entorno: 2 núcleos físicos / 4 lógicos — importa después, en concurrencia.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 02 · EL PROBLEMA ========== -->
+<section class="slide" data-sec="El problema" data-n="1" data-title="Qué resolvimos" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>&sect;1</b><span class="dash"></span>El problema</div>
+    <h1 class="title">Buscar en 50.000 documentos: qué lo hace lento y qué lo hace rápido</h1>
+    <p class="lede"><strong>La finalidad del proyecto</strong> es construir un buscador que, dada una consulta,
+    devuelva los documentos más relevantes de un corpus grande — y <strong>demostrar con mediciones</strong>
+    de qué depende que tarde 2 segundos o 2 microsegundos.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="plabel">Las variables que definen el rendimiento de una búsqueda</div>
+        <div class="tbl-wrap">
+          <table class="tight">
+            <thead><tr><th>Variable</th><th>Qué es</th><th>Efecto</th><th>Detalle</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">n</td><td class="sub">Documentos del corpus</td><td class="efecto" style="color:var(--s1)">empeora</td><td class="sub">sin índice el tiempo crece con <em>n</em>; con índice, no participa</td></tr>
+              <tr><td class="mono">m</td><td class="sub">Palabras por documento</td><td class="efecto" style="color:var(--s1)">empeora</td><td class="sub">encarece leer y tokenizar — con índice se paga una sola vez</td></tr>
+              <tr><td class="mono">t</td><td class="sub">Términos de la consulta</td><td class="efecto" style="color:var(--s1)">empeora</td><td class="sub">lineal y barato: 1 → 9 ms · 2 → 17 ms · 4 → 29 ms</td></tr>
+              <tr><td class="mono">r</td><td class="sub">Documentos que coinciden</td><td class="efecto" style="color:var(--s1)">empeora</td><td class="sub">es el único costo real de la consulta indexada</td></tr>
+              <tr><td class="mono">k</td><td class="sub">Resultados que se muestran</td><td class="efecto" style="color:var(--ink-3)">casi nulo</td><td class="sub">entra como <code class="inline">log k</code>: pedir 10 o 100 cuesta casi igual</td></tr>
+              <tr><td class="mono">E/S</td><td class="sub">Archivos abiertos por consulta</td><td class="efecto" style="color:var(--s1)">empeora</td><td class="sub"><strong>la que más pesa</strong>: era el 88 % del costo; el índice la lleva a cero</td></tr>
+              <tr><td class="mono">repetición</td><td class="sub">Consultas que se repiten</td><td class="efecto" style="color:var(--s4)">mejora</td><td class="sub">con caché, una consulta ya vista deja de costar</td></tr>
+              <tr><td class="mono">núcleos</td><td class="sub">Procesos en paralelo</td><td class="efecto" style="color:var(--s4)">mejora</td><td class="sub">aceleran la indexación, no la consulta — y menos de lo esperado</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">La regla del trabajo</div>
+          <p style="font-size:15.5px">Las cinco versiones deben devolver <strong>resultados idénticos</strong>.
+          Lo que se evalúa no es la funcionalidad sino la <strong>evidencia cuantificada</strong> de la mejora:
+          complejidad justificada y medición reproducible.</p>
+          <div class="readouts" style="margin-top:2px">
+            <div class="readout"><div class="val hl">47.797<span class="u">docs</span></div><div class="cap">coincidencias en<br>las 5 versiones</div></div>
+          </div>
+        </div>
+        <div class="panel plain stack">
+          <div class="plabel">De qué se compone una búsqueda</div>
+          <ul class="list">
+            <li><strong>Ingesta</strong> — leer los documentos del disco.</li>
+            <li><strong>Normalización</strong> — partir el texto en palabras y unificarlas.</li>
+            <li><strong>Búsqueda</strong> — resolver los términos de la consulta.</li>
+            <li><strong>Ranking</strong> — puntuar y quedarse con los mejores <em>k</em>.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>El mensaje de la diapositiva: <b>el costo no depende del resultado</b>. Buscar una palabra que est&aacute; en 47.797 documentos y una que no est&aacute; en ninguno le cuesta lo mismo a la l&iacute;nea base.</li>
+    <li>Las dos variables sobre las que se puede actuar son <b>la E/S</b> (con el &iacute;ndice) y <b>la repetici&oacute;n</b> (con la cach&eacute;). Las dem&aacute;s son datos del problema.</li>
+    <li>El corpus es sint&eacute;tico: 50.000 archivos <code>.txt</code>, 68,7 MB de texto, vocabulario de 40 palabras.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 03 · DISEÑO INICIAL ========== -->
+<section class="slide" data-sec="Diseño inicial" data-n="2" data-title="Línea base por fuerza bruta" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§2</b><span class="dash"></span>Diseño inicial</div>
+    <h1 class="title">Fuerza bruta: abrir los 50.000 archivos en cada consulta</h1>
+    <p class="lede">Sin índices, sin <code class="inline">set</code>, sin caché, sin concurrencia.
+    Es <strong>ingenua a propósito</strong>: su función es ser el oráculo contra el que se mide todo lo demás.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="plabel">src/baseline.py · busqueda_secuencial()</div>
+<pre class="code"><span class="k">def</span> <span class="f">busqueda_secuencial</span>(directorio, query):
+    resultados = []
+    query_minuscula = query.lower()
+
+    <span class="k">for</span> nombre_archivo <span class="k">in</span> os.listdir(directorio):
+        <span class="c"># abre, lee TODO el archivo y lo baja a minúsculas</span>
+        archivo = <span class="f">open</span>(ruta_completa, <span class="s">"r"</span>, encoding=<span class="s">"utf-8"</span>)
+        contenido = archivo.read()
+        archivo.close()
+
+        <span class="k">if</span> contenido.lower().find(query_minuscula) != -<span class="s">1</span>:
+            resultados.append(nombre_archivo)
+
+    <span class="k">return</span> resultados</pre>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel">Salida real · corpus completo</div>
+<pre class="term"><span class="p">$</span> python3 src/baseline.py --query <span class="y">"algoritmo"</span>
+<span class="w">Tiempo de ejecucion: 2485.312 ms</span>
+<span class="w">Documentos encontrados:</span> <span class="g">47797</span></pre>
+        </div>
+        <div class="panel plain">
+          <div class="plabel">Lo que la línea base <em>no</em> hace</div>
+          <ul class="list">
+            <li>No tokeniza: compara <strong>subcadena cruda</strong> sobre el texto.</li>
+            <li>No puntúa ni ordena: devuelve todas las coincidencias, sin <em>top-k</em>.</li>
+            <li>No conserva nada entre consultas.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="foot-note">Las etapas de <b>Normalización</b> y <b>Ranking</b> aparecen recién en la versión optimizada. Para que la comparación sea válida, ambas semánticas de coincidencia tienen que acordar: se adopta la de <b>tokens</b>. Sobre este corpus las dos convergen — ninguna palabra del vocabulario es subcadena de otra — y las dos versiones dan 47.797.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Mostrar el bucle: <b>una apertura de archivo por documento y por consulta</b>. Ahí está todo el problema.</li>
+    <li>Si preguntan por la equivalencia: <code>.find()</code> haría que "algo" matchee dentro de "algoritmo"; el índice por tokens no. Sobre este corpus no ocurre, pero la unificación formal del criterio queda declarada como deuda.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 04 · COMPLEJIDAD ========== -->
+<section class="slide" data-sec="Complejidad algorítmica" data-n="3" data-title="Costo de la línea base" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§3</b><span class="dash"></span>Complejidad algorítmica</div>
+    <h1 class="title">O(n · m) por consulta, y el resultado no participa del costo</h1>
+    <p class="lede">Con <code class="inline">n</code> = documentos y <code class="inline">m</code> = tokens promedio por documento,
+    la línea base paga el corpus entero <strong>cada vez</strong>.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Operación crítica</th><th class="mono">Costo</th><th>Observación</th></tr></thead>
+          <tbody>
+            <tr><td>Búsqueda por consulta</td><td class="num">O(n · m)</td><td class="sub">Escaneo lineal del corpus completo</td></tr>
+            <tr><td>Comprobación de pertenencia</td><td class="num">O(m)</td><td class="sub"><code class="inline">str.find()</code> sobre todo el contenido</td></tr>
+            <tr><td>E/S de disco</td><td class="num">O(n)</td><td class="sub">50.000 <code class="inline">open()</code> + <code class="inline">read()</code> por consulta</td></tr>
+            <tr><td>Ordenamiento del ranking</td><td class="num">—</td><td class="sub">No implementado</td></tr>
+            <tr><td>Memoria</td><td class="num">O(m)</td><td class="sub">Un documento por vez: 18,3 MB de RSS</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">Problemas de escalabilidad</div>
+        <ul class="list acc">
+          <li>El tiempo crece con el <strong>corpus</strong>, no con el tamaño del resultado.</li>
+          <li>Un término inexistente cuesta lo mismo que uno presente en 47.797 documentos.</li>
+          <li>Con corpus mayores que la RAM, el proceso queda atado al ancho de banda del disco.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel plain stack">
+        <div class="plabel">Medición: el escalado es lineal</div>
+        <div class="readouts">
+          <div class="readout"><div class="val">280<span class="u">ms · 5.000 docs</span></div><div class="cap">consulta de referencia</div></div>
+          <div class="readout"><div class="val">2.322<span class="u">ms · 50.000 docs</span></div><div class="cap">×8,3 ante ×10 de datos</div></div>
+        </div>
+      </div>
+      <div class="foot-note">Y una advertencia que condiciona <b>toda</b> la medición posterior: sobre código idéntico, la misma consulta osciló entre <b>2.408 ms</b> y <b>14.040 ms</b> según el estado del <em>page cache</em> del sistema operativo — una dispersión de <b>5,8×</b>. Sin estabilizar el caché estaríamos midiendo el disco, no el algoritmo.</div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>El punto que más rinde explicar: <b>el costo no depende del resultado</b>. Esa es la patología que ataca el índice invertido.</li>
+    <li>El dato del page cache anticipa la sección de perfilado: por eso el protocolo exige régimen estacionario y corridas alternadas.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 05 · EL CUELLO REAL ========== -->
+<section class="slide" data-sec="Complejidad algorítmica" data-n="3" data-title="El cuello real es la E/S">
+  <div class="head">
+    <div class="eyebrow"><b>§3</b><span class="dash"></span>Complejidad algorítmica · diagnóstico</div>
+    <h1 class="title">El 88 % del costo es E/S, no lógica de coincidencia</h1>
+    <p class="lede">Antes de optimizar nada, <code class="inline">cProfile</code> dice dónde está el tiempo.
+    Y no está donde la intuición lo pone.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="plabel">cProfile · línea base sobre 50.000 documentos, ordenado por tiempo acumulado</div>
+<pre class="term"><span class="p">   ncalls  tottime  cumtime  filename:lineno(function)</span>
+        1    0.717   23.112  <span class="w">baseline.py:71(busqueda_secuencial)</span>
+    50000   <span class="y">16.008</span>   16.434  <span class="w">{method 'read' of '_io.TextIOWrapper'}</span>
+    50000    <span class="y">4.307</span>    4.408  <span class="w">{built-in method _io.open}</span></pre>
+        <div class="foot-note">La corrida instrumentada tarda <b>23,1 s</b> contra <b>2,5 s</b> sin perfilador: ~9× de sobrecarga por los 100.000 eventos de llamada que <code class="inline">cProfile</code> intercepta. De ahí la regla del protocolo: <b>el perfilador atribuye costo, nunca cronometra.</b></div>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Reparto del tiempo</div>
+          <div class="readouts">
+            <div class="readout"><div class="val hl">69<span class="u">%</span></div><div class="cap">read()</div></div>
+            <div class="readout"><div class="val hl">19<span class="u">%</span></div><div class="cap">open()</div></div>
+            <div class="readout"><div class="val">3<span class="u">%</span></div><div class="cap">matching</div></div>
+          </div>
+        </div>
+        <div class="panel plain stack">
+          <div class="plabel">Consecuencia estratégica</div>
+          <p style="font-size:16px">Eliminar las <strong>50.000 aperturas de archivo por consulta</strong>
+          rinde más que cualquier mejora sobre el algoritmo de coincidencia.</p>
+          <p style="font-size:16px">Es exactamente lo que hace un índice invertido: <strong>mover la lectura del corpus
+          a una fase única</strong> y dejar la consulta trabajando en memoria.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Esta diapositiva justifica <b>por qué</b> la primera optimización fue estructural y no algorítmica: el perfil lo ordenó.</li>
+    <li>Si hay tiempo, mencionar que el mismo perfil sobre la versión optimizada muestra read+open en 61 % — pero pagado <b>una sola vez</b>.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 06 · DECISIONES ========== -->
+<section class="slide" data-sec="Algoritmos y estructuras" data-n="4" data-title="Decisiones y justificación" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>&sect;4</b><span class="dash"></span>Algoritmos y estructuras de datos</div>
+    <h1 class="title">Cinco decisiones, cinco razones</h1>
+    <p class="lede">Cada estructura se eligió por una <strong>propiedad concreta</strong> de la operación que resuelve,
+    no por costumbre.</p>
+  </div>
+  <div class="body">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Tema</th><th>Qué había que resolver</th><th class="mono">Decisión</th><th>Por qué</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Acceso</strong></td>
+            <td class="sub">Saber en qué documentos aparece una palabra</td>
+            <td class="mono">dict</td>
+            <td class="sub">Un diccionario va <strong>directo</strong> a la palabra: no recorre el corpus. Además Python guarda el hash dentro del texto, así que buscar la misma palabra dos veces no lo recalcula.</td>
+          </tr>
+          <tr>
+            <td><strong>Combinación</strong></td>
+            <td class="sub">Cruzar los documentos de varios términos</td>
+            <td class="mono">set</td>
+            <td class="sub">Python recorre el conjunto <strong>más chico</strong> y pregunta en el más grande — no compara todos contra todos. Empezamos por el término más raro para achicar el resultado cuanto antes.</td>
+          </tr>
+          <tr>
+            <td><strong>Ranking</strong></td>
+            <td class="sub">Elegir los 10 mejores entre 47.797</td>
+            <td class="mono">heapq.nlargest</td>
+            <td class="sub">Ordenar los 47.797 para mostrar 10 es <strong>trabajo tirado</strong>. El heap mantiene sólo los 10 mejores mientras recorre: menos comparaciones y memoria fija.</td>
+          </tr>
+          <tr>
+            <td><strong>Relevancia</strong></td>
+            <td class="sub">Decidir qué documento es "mejor"</td>
+            <td class="mono">TF · IDF</td>
+            <td class="sub">Contar apariciones favorece a los documentos largos. Al dividir por qué tan común es la palabra, <strong>una palabra rara pesa más</strong> que una que está en todos lados.</td>
+          </tr>
+          <tr>
+            <td><strong>Normalización</strong></td>
+            <td class="sub">Que buscar "dato" encuentre "datos"</td>
+            <td class="mono">stemmer propio</td>
+            <td class="sub">Reglas que <strong>deshacen el plural del español</strong>, sin librerías externas. Unifica 16 de 16 pares singular/plural probados.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="foot-note">La primera versión del <em>stemmer</em> cortaba las palabras por longitud y hacía lo contrario de lo que prometía: <code class="inline">datos</code> quedaba como <code class="inline">dat</code>, <b>más corto que</b> <code class="inline">dato</code>, así que buscar "dato" no encontraba los documentos con "datos". La regla nueva exige <b>una vocal antes de la consonante final</b>: por eso <code class="inline">papeles &rarr; papel</code> pero <code class="inline">variables &rarr; variable</code>, no <code class="inline">variab</code>.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Alternativas que se descartaron, por si preguntan: recorrer una <code>list</code> (O(n·m)), &aacute;rbol balanceado (O(log n)) y trie para el acceso; bucles anidados para la combinaci&oacute;n; <code>sorted()</code> completo para el ranking; NLTK / Snowball para el <em>stemming</em>.</li>
+    <li>El trie se descart&oacute; porque no necesitamos b&uacute;squeda por prefijo: el <code>dict</code> da acceso directo y sin el costo de punteros por nodo.</li>
+    <li>El detalle del hash guardado en el objeto <code>str</code> (<code>ob_shash</code>) es el tipo de justificaci&oacute;n que pide la consigna: se apoya en c&oacute;mo est&aacute; implementado CPython.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 07 · QUÉ ES UN ÍNDICE INVERTIDO ========== -->
+<section class="slide" data-sec="Algoritmos y estructuras" data-n="4" data-title="Qué es un índice invertido">
+  <div class="head">
+    <div class="eyebrow"><b>&sect;4</b><span class="dash"></span>Algoritmos y estructuras · la idea</div>
+    <h1 class="title">Un índice invertido es un diccionario: palabra &rarr; dónde aparece</h1>
+    <p class="lede">En vez de <em>documento &rarr; palabras</em>, guardamos <em>palabra &rarr; documentos</em>.</p>
+  </div>
+  <div class="body">
+    <div class="cols">
+      <div class="stack">
+        <div class="plabel">1 · Se recorre el corpus una sola vez</div>
+<pre class="code">documentos = {
+    <span class="s">"documento_1.txt"</span>: <span class="s">"Java permite trabajar con concurrencia"</span>,
+    <span class="s">"documento_2.txt"</span>: <span class="s">"Python permite trabajar con archivos"</span>,
+    <span class="s">"documento_3.txt"</span>: <span class="s">"Java y Python son lenguajes"</span>
+}
+indice = {}
+<span class="k">for</span> nombre, contenido <span class="k">in</span> documentos.items():
+    <span class="k">for</span> palabra <span class="k">in</span> contenido.lower().split():
+        <span class="k">if</span> palabra <span class="k">not in</span> indice:
+            indice[palabra] = []
+        <span class="k">if</span> nombre <span class="k">not in</span> indice[palabra]:
+            indice[palabra].append(nombre)</pre>
+      </div>
+      <div class="stack">
+        <div class="plabel">2 · Queda esto en memoria</div>
+<pre class="code">indice = {
+  <span class="s">"java"</span>:         [<span class="s">"documento_1.txt"</span>, <span class="s">"documento_3.txt"</span>],
+  <span class="s">"python"</span>:       [<span class="s">"documento_2.txt"</span>, <span class="s">"documento_3.txt"</span>],
+  <span class="s">"permite"</span>:      [<span class="s">"documento_1.txt"</span>, <span class="s">"documento_2.txt"</span>],
+  <span class="s">"trabajar"</span>:     [<span class="s">"documento_1.txt"</span>, <span class="s">"documento_2.txt"</span>],
+  <span class="s">"concurrencia"</span>: [<span class="s">"documento_1.txt"</span>],
+  <span class="s">"archivos"</span>:     [<span class="s">"documento_2.txt"</span>],
+  <span class="s">"lenguajes"</span>:    [<span class="s">"documento_3.txt"</span>]
+}</pre>
+        <div class="panel">
+          <div class="plabel acc">3 · Buscar deja de ser recorrer</div>
+<pre class="code">&gt;&gt;&gt; indice[<span class="s">"java"</span>]
+[<span class="s">'documento_1.txt'</span>, <span class="s">'documento_3.txt'</span>]  <span class="c"># sin abrir nada</span></pre>
+        </div>
+      </div>
+    </div>
+    <div class="foot-note">En el proyecto la lista de nombres se reemplaza por <code class="inline">{doc_id: frecuencia}</code> —hace falta para puntuar— y las palabras pasan antes por la normalización.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Es la diapositiva para explicar la idea en el pizarr&oacute;n: la clave del diccionario es la <b>palabra</b>, el valor es <b>d&oacute;nde aparece</b>.</li>
+    <li>Con 3 documentos parece innecesario. Con 50.000 es la diferencia entre 2.345 ms y 8 ms por consulta.</li>
+    <li>El costo se paga una vez al construirlo; despu&eacute;s cada consulta es una lectura de tabla.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 08 · ÍNDICE INVERTIDO ========== -->
+<section class="slide" data-sec="Algoritmos y estructuras" data-n="4" data-title="Índice invertido: invertir el costo">
+  <div class="head">
+    <div class="eyebrow"><b>§4</b><span class="dash"></span>Algoritmos y estructuras · estructura central</div>
+    <h1 class="title">Invertir el costo: pagar O(N) una vez para que la consulta deje de pagar O(n · m)</h1>
+    <p class="lede">La consulta pasa a costar en proporción al <strong>tamaño del resultado</strong>, no al del corpus.</p>
+  </div>
+  <div class="body">
+    <div class="cols">
+      <div class="stack">
+        <div class="plabel">Estructura · src/optimizado.py</div>
+<pre class="code">indice: dict[str, dict[int, int]]
+<span class="c"># término -> { doc_id -> frecuencia }</span>
+
+{ <span class="s">"algoritmo"</span>: {<span class="s">1</span>: <span class="s">3</span>, <span class="s">5</span>: <span class="s">2</span>, <span class="s">8</span>: <span class="s">1</span>} }</pre>
+        <div class="plabel" style="margin-top:2px">Resolución de la consulta · buscar()</div>
+<pre class="code"><span class="c"># menos frecuente primero: el candidato se achica antes</span>
+postings.sort(key=<span class="f">len</span>)
+candidatos = <span class="f">set</span>(postings[<span class="s">0</span>])
+
+<span class="k">for</span> documentos <span class="k">in</span> postings[<span class="s">1</span>:]:
+    candidatos &amp;= documentos.keys()
+    <span class="k">if</span> <span class="k">not</span> candidatos:
+        <span class="k">break</span>          <span class="c"># corte temprano</span></pre>
+      </div>
+      <div class="stack">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Operación</th><th class="mono">list · baseline</th><th class="mono">dict · optimizado</th></tr></thead>
+            <tbody>
+              <tr><td>Resolver un término</td><td class="num">O(n · m)</td><td class="num">O(1) prom.</td></tr>
+              <tr><td>Consulta de <em>t</em> términos</td><td class="num">O(t · n · m)</td><td class="num">O(t) prom.</td></tr>
+              <tr><td>Combinar dos <em>postings</em></td><td class="num">O(|A| · |B|)</td><td class="num">O(min(|A|,|B|))</td></tr>
+              <tr><td>Lecturas de disco</td><td class="num">en cada consulta</td><td class="num">una sola vez</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <div class="plabel acc">Impacto medido · consulta de referencia</div>
+          <div class="readouts">
+            <div class="readout"><div class="val">2.345<span class="u">ms</span></div><div class="cap">escaneo secuencial</div></div>
+            <div class="readout"><div class="val hl">100,98<span class="u">ms</span></div><div class="cap">índice + set<br>(ranking con sorted)</div></div>
+            <div class="readout"><div class="val hl">23<span class="u">×</span></div><div class="cap">sólo por la<br>estructura</div></div>
+          </div>
+        </div>
+        <div class="foot-note">La consulta se normaliza <b>una sola vez</b> en <code class="inline">Buscador.buscar()</code> y la tupla de términos se propaga a <code class="inline">buscar()</code> y <code class="inline">rankear()</code>: tokenizarla en cada etapa repetía el trabajo tres veces por consulta.</div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Explicar el orden por frecuencia documental ascendente: intersecar primero por el término más raro reduce el conjunto candidato lo antes posible.</li>
+    <li>El <code>&amp;=</code> opera sobre <code>.keys()</code>, que ya implementa el protocolo de conjunto: no se materializa un <code>set</code> por término.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 09 · RANKING TOP-K ========== -->
+<section class="slide" data-sec="Algoritmos y estructuras" data-n="4" data-title="Ranking top-k en O(k) de memoria">
+  <div class="head">
+    <div class="eyebrow"><b>§4</b><span class="dash"></span>Algoritmos y estructuras · ranking</div>
+    <h1 class="title">Ordenar 47.797 candidatos para mostrar 10 es trabajo tirado</h1>
+    <p class="lede"><code class="inline">heapq.nlargest</code> sobre un generador: <strong>O(r · log k)</strong> en tiempo y <strong>O(k)</strong> en memoria.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="plabel">src/optimizado.py · rankear()</div>
+<pre class="code"><span class="c"># el IDF se calcula UNA vez por término, fuera del bucle</span>
+pesos = [(indice[t], math.log(total_docs / <span class="f">len</span>(indice[t])))
+         <span class="k">for</span> t <span class="k">in</span> terminos]
+<span class="k">def</span> <span class="f">puntuados</span>():
+    <span class="k">for</span> doc_id <span class="k">in</span> candidatos:
+        score = <span class="s">0.0</span>
+        <span class="k">for</span> postings, idf <span class="k">in</span> pesos:
+            score += postings.get(doc_id, <span class="s">0</span>) * idf
+        <span class="k">yield</span> (score, -doc_id)   <span class="c"># negado: desempate determinista</span>
+<span class="k">return</span> heapq.nlargest(k, puntuados())</pre>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">La cota O(k) es real, no nominal</div>
+          <p style="font-size:15px"><code class="inline">tracemalloc</code> sobre un índice de <strong>200.000 candidatos</strong>,
+          midiendo sólo la memoria auxiliar del ranking:</p>
+          <div class="readouts">
+            <div class="readout"><div class="val">2.832<span class="u">B · k=10</span></div><div class="cap">0,0014 % de r</div></div>
+            <div class="readout"><div class="val">22.736<span class="u">B · k=100</span></div><div class="cap">0,011 % de r</div></div>
+          </div>
+          <p style="font-size:14.5px">El pico escala con <code class="inline">k</code> y es <strong>indiferente a r</strong>.
+          El <code class="inline">dict scores</code> equivalente costaba ~10 MB.</p>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Implementación de rankear()</th><th class="num">Memoria</th><th class="num">1 térm.</th><th class="num">4 térm.</th></tr></thead>
+            <tbody>
+              <tr><td class="sub">dict scores + nlargest(key=…)</td><td class="num">O(r)</td><td class="num">11,86</td><td class="num">24,43</td></tr>
+              <tr><td class="sub">Generador anidado + nlargest</td><td class="num">O(k)</td><td class="num">29,53</td><td class="num">38,91</td></tr>
+              <tr class="hl"><td class="sub">Bucle explícito + nlargest</td><td class="num">O(k)</td><td class="num">7,60</td><td class="num">22,07</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="foot-note"><b>La cota de memoria y la velocidad no estaban en conflicto:</b> la versión intermedia no era lenta por hacer <em>streaming</em>, sino por crear ~48.000 objetos generador.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Números de la comparativa: el heap lleva la resolución de <b>100,98 ms a 8,27 ms — 12,2×</b>, sin tocar el índice.</li>
+    <li>El <code>-doc_id</code> negado hace determinista el desempate entre scores iguales: gana el documento más antiguo, no el orden de iteración del <code>set</code>.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 10 · CACHING ========== -->
+<section class="slide" data-sec="Memoización y caching" data-n="5" data-title="Caché: no repetir trabajo" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>&sect;5</b><span class="dash"></span>Memoización y caching</div>
+    <h1 class="title">Guardar el resultado para no volver a calcularlo</h1>
+    <p class="lede">Una caché guarda lo ya calculado: si la misma pregunta vuelve, se responde con lo guardado. Se usó en <strong>dos lugares</strong>, por dos razones distintas.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Nivel 1 · palabras sueltas</div>
+          <ul class="list">
+            <li><strong>Qué guarda:</strong> el resultado de limpiar y singularizar cada palabra.</li>
+            <li><strong>Cómo:</strong> <code class="inline">@lru_cache</code> sobre <code class="inline">normalize()</code> y <code class="inline">stem()</code>: una línea, y viene con Python.</li>
+            <li><strong>Por qué sirve:</strong> el corpus tiene <strong>8,7 millones de palabras</strong> pero apenas <strong>40 distintas</strong>: cada una se procesa de verdad una sola vez.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <div class="plabel acc">Nivel 2 · consultas enteras</div>
+          <ul class="list">
+            <li><strong>Qué guarda:</strong> la respuesta completa — los <em>k</em> documentos ya elegidos.</li>
+            <li><strong>Cómo:</strong> <code class="inline">QueryCache</code>, clase propia con lugar para 1.024 consultas; cuando se llena tira la menos usada.</li>
+            <li><strong>El truco de la clave:</strong> <code class="inline">"Java Concurrencia"</code> y <code class="inline">"concurrencia java"</code> son <strong>la misma entrada</strong>: la clave son los términos ordenados.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Impacto medido</div>
+          <div class="readouts">
+            <div class="readout"><div class="val">9,06<span class="u">ms</span></div><div class="cap">sin caché</div></div>
+            <div class="readout"><div class="val hl">0,0020<span class="u">ms</span></div><div class="cap">con caché</div></div>
+          </div>
+          <p style="font-size:15px">La misma consulta, en el mismo proceso: <strong>≈4.600× más rápida</strong>.
+          No la acelera — la elimina.</p>
+          <p style="font-size:15px">En el nivel 1: <strong>8.771.763 aciertos contra 41 fallos</strong> durante la indexación
+          completa (99,9995 %).</p>
+        </div>
+        <div class="panel plain stack">
+          <div class="plabel">Cuándo se borra lo guardado</div>
+          <ul class="list">
+            <li>Se llena → se descarta la consulta menos usada. <strong>Hecho.</strong></li>
+            <li>Termina el proceso → el índice vive en memoria y muere con él: no queda nada viejo. <strong>Gratis.</strong></li>
+            <li>Cambia un documento → habría que borrar sólo las consultas afectadas. <strong>Pendiente.</strong></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="foot-note"><b>Límite honesto:</b> el programa resuelve una consulta y termina, así que desde la terminal la caché siempre informa <code class="inline">{'hits': 0, 'misses': 1}</code>.</div>
+  </div>
+  <template class="nt"><ul>
+    <li><b>Por qu&eacute; no alcanzaba <code>lru_cache</code> en el nivel 2:</b> no deja borrar entradas sueltas, no tiene vencimiento y no deja medir cu&aacute;ntas consultas aciertan. <code>OrderedDict</code> da <code>move_to_end()</code> y <code>popitem()</code> en O(1), que son las primitivas de una pol&iacute;tica LRU.</li>
+    <li>El 99,9995 % del nivel 1 es tan alto porque el vocabulario sint&eacute;tico tiene 40 palabras. En lenguaje natural el tama&ntilde;o m&aacute;ximo de la cach&eacute; pasar&iacute;a a ser el par&aacute;metro importante.</li>
+    <li>La asimetr&iacute;a que justifica la pol&iacute;tica: un fallo de cach&eacute; cuesta milisegundos; un acierto viejo devuelve un resultado <b>incorrecto</b>. Ante la duda, se borra.</li>
+    <li>Dato para cerrar: una palabra que no est&aacute; en el &iacute;ndice se resuelve en <b>0,003 ms</b>, contra los 2.485 ms que la l&iacute;nea base necesita para llegar a la misma conclusi&oacute;n.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 11 · CONCURRENCIA: QUÉ SE PARALELIZÓ ========== -->
+<section class="slide" data-sec="Concurrencia y paralelismo" data-n="6" data-title="Qué se paralelizó" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>&sect;6</b><span class="dash"></span>Concurrencia y paralelismo</div>
+    <h1 class="title">El cuello se mudó: ahora está en construir el índice</h1>
+    <p class="lede">Con el índice armado, la consulta cuesta <strong>9 ms</strong> y la indexación <strong>8.607 ms</strong>.
+    Se paraleliza la indexación — y sólo ella.</p>
+  </div>
+  <div class="body">
+    <div class="stack">
+      <div class="plabel">Reparto medido del costo de indexación · 50.000 documentos en régimen estacionario</div>
+      <svg class="chart" viewBox="0 0 700 170" role="img" aria-label="Reparto del costo de indexación: E/S 26,3 %, tokenización 54,4 %, conteo y postings 19,2 %">
+        <text class="tick-txt" x="20" y="16">0 %</text>
+        <text class="tick-txt" x="680" y="16" text-anchor="end">100 % · 8.478 ms</text>
+        <rect x="20"    y="26" width="171.6" height="64" fill="var(--s2)" rx="2"><title>Lectura + decodificación — 2.234 ms (26,3 %)</title></rect>
+        <rect x="193.6" y="26" width="357.0" height="64" fill="var(--s3)" rx="2"><title>Tokenización + stopwords + stemming — 4.616 ms (54,4 %)</title></rect>
+        <rect x="552.6" y="26" width="126.7" height="64" fill="var(--s4)" rx="2"><title>Conteo + construcción de postings — 1.628 ms (19,2 %)</title></rect>
+        <line class="grid-line" x1="105" y1="94" x2="105" y2="104"></line>
+        <line class="grid-line" x1="372" y1="94" x2="372" y2="104"></line>
+        <line class="grid-line" x1="616" y1="94" x2="616" y2="104"></line>
+        <text class="val-txt" x="105" y="122" text-anchor="middle">2.234 ms · 26,3 %</text>
+        <text class="cat-txt" x="105" y="140" text-anchor="middle">Lectura + decodificación</text>
+        <text class="note-txt" x="105" y="156" text-anchor="middle">solapa entre procesos</text>
+        <text class="val-txt" x="372" y="122" text-anchor="middle">4.616 ms · 54,4 %</text>
+        <text class="cat-txt on" x="372" y="140" text-anchor="middle">Tokenización + stemming</text>
+        <text class="note-txt" x="372" y="156" text-anchor="middle">CPU pura — es lo que paraleliza</text>
+        <text class="val-txt" x="616" y="122" text-anchor="middle">1.628 ms · 19,2 %</text>
+        <text class="cat-txt" x="616" y="140" text-anchor="middle">Conteo + postings</text>
+        <text class="note-txt" x="616" y="156" text-anchor="middle">la fusión final es serial</text>
+      </svg>
+    </div>
+    <div class="foot-note">Con el corpus ya en memoria del sistema, <b>tres cuartas partes del costo son CPU</b> y no disco. Como el GIL de Python impide que los hilos ejecuten código a la vez, la técnica correcta es <b>repartir el trabajo entre procesos</b>, cada uno con su propio intérprete.</div>
+  </div>
+  <template class="nt"><ul>
+    <li><b>Procesos y no hilos:</b> el build es CPython 3.14 con GIL activo (verificado con <code>sys._is_gil_enabled()</code>). Con carga CPU-bound, <code>threading</code> no da paralelismo real. Se us&oacute; <code>ProcessPoolExecutor</code> por su API de <code>Future</code> y <code>as_completed()</code>.</li>
+    <li><b>Techo te&oacute;rico:</b> por la ley de Amdahl sobre esta fracci&oacute;n y 2 n&uacute;cleos f&iacute;sicos, 1/(0,263 + 0,737/2) &asymp; <b>1,58&times;</b>. Medimos 1,84&times;, algo por encima porque la E/S tambi&eacute;n se solapa entre procesos.</li>
+    <li>El reparto invierte la expectativa inicial: cre&iacute;amos que la E/S dominaba y result&oacute; ser el 26 %.</li>
+    <li>Se descart&oacute; un pool de hilos para la lectura: cada worker ya abre sus propios archivos.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 12 · MAPREDUCE ========== -->
+<section class="slide" data-sec="Concurrencia y paralelismo" data-n="6" data-title="Arquitectura MapReduce">
+  <div class="head">
+    <div class="eyebrow"><b>§6</b><span class="dash"></span>Concurrencia y paralelismo · implementación</div>
+    <h1 class="title">MapReduce sobre particiones disjuntas del corpus</h1>
+    <p class="lede"><code class="inline">src/concurrente.py</code> importa el <em>pipeline</em> completo de
+    <code class="inline">optimizado.py</code> y reemplaza <strong>solamente</strong> <code class="inline">construir_indice()</code>.
+    Así la comparación aísla el efecto del paralelismo: todo lo demás es literalmente el mismo código.</p>
+  </div>
+  <div class="body">
+    <svg class="chart" viewBox="0 0 700 212" role="img" aria-label="Diagrama: el corpus se parte en 16 lotes equitativos que 4 procesos indexan en paralelo; los índices parciales se fusionan en orden de finalización en un índice global">
+      <defs>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,1 L7,4 L0,7 z" fill="var(--rule-2)"></path>
+        </marker>
+      </defs>
+      <g stroke="var(--rule-2)" stroke-width="1" fill="none" marker-end="url(#ar)">
+        <path d="M104,105 L122,105"></path>
+        <path d="M256,105 L270,105 L270,32  L280,32"></path>
+        <path d="M256,105 L270,105 L270,79  L280,79"></path>
+        <path d="M256,105 L270,105 L270,126 L280,126"></path>
+        <path d="M256,105 L270,105 L270,173 L280,173"></path>
+        <path d="M424,32  L436,32  L436,105 L444,105"></path>
+        <path d="M424,79  L436,79  L436,105 L444,105"></path>
+        <path d="M424,126 L436,126 L436,105 L444,105"></path>
+        <path d="M424,173 L436,173 L436,105 L444,105"></path>
+        <path d="M576,105 L590,105"></path>
+      </g>
+      <g>
+        <rect x="0" y="78" width="104" height="54" rx="3" fill="var(--surface-2)" stroke="var(--rule-2)"></rect>
+        <text class="val-txt" x="52" y="101" text-anchor="middle">Corpus</text>
+        <text class="note-txt" x="52" y="117" text-anchor="middle">50.000 docs</text>
+
+        <rect x="128" y="78" width="128" height="54" rx="3" fill="var(--surface-2)" stroke="var(--rule-2)"></rect>
+        <text class="val-txt" x="192" y="99" text-anchor="middle">16 lotes</text>
+        <text class="note-txt" x="192" y="115" text-anchor="middle">3.125 docs c/u</text>
+        <text class="note-txt" x="192" y="128" text-anchor="middle">equitativos</text>
+
+        <rect x="284" y="14"  width="140" height="36" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"></rect>
+        <rect x="284" y="61"  width="140" height="36" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"></rect>
+        <rect x="284" y="108" width="140" height="36" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"></rect>
+        <rect x="284" y="155" width="140" height="36" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"></rect>
+        <text class="val-txt on" x="354" y="31"  text-anchor="middle">Worker 1</text>
+        <text class="val-txt on" x="354" y="78"  text-anchor="middle">Worker 2</text>
+        <text class="val-txt on" x="354" y="125" text-anchor="middle">Worker 3</text>
+        <text class="val-txt on" x="354" y="172" text-anchor="middle">Worker 4</text>
+        <text class="note-txt" x="354" y="44"  text-anchor="middle">&rarr; parcial</text>
+        <text class="note-txt" x="354" y="91"  text-anchor="middle">&rarr; parcial</text>
+        <text class="note-txt" x="354" y="138" text-anchor="middle">&rarr; parcial</text>
+        <text class="note-txt" x="354" y="185" text-anchor="middle">&rarr; parcial</text>
+
+        <rect x="444" y="78" width="132" height="54" rx="3" fill="var(--surface-2)" stroke="var(--rule-2)"></rect>
+        <text class="val-txt" x="510" y="99" text-anchor="middle">_fusionar()</text>
+        <text class="note-txt" x="510" y="115" text-anchor="middle">as_completed()</text>
+        <text class="note-txt" x="510" y="128" text-anchor="middle">sin locks</text>
+
+        <rect x="590" y="78" width="110" height="54" rx="3" fill="var(--surface-2)" stroke="var(--rule-2)"></rect>
+        <text class="val-txt" x="645" y="101" text-anchor="middle">Índice</text>
+        <text class="note-txt" x="645" y="117" text-anchor="middle">1 dict global</text>
+
+        <text class="note-txt" x="354" y="208" text-anchor="middle">Fase Map — O(N / P), sin estado mutable compartido</text>
+      </g>
+    </svg>
+    <div class="foot-note">Los lotes son <b>disjuntos</b>: ning&uacute;n documento cae en dos workers, así que no hay estado compartido, no hacen falta <em>locks</em> y no puede haber condiciones de carrera. El índice resultante es <b>idéntico bit a bit</b> al secuencial, verificado con <code class="inline">--comparar</code>.</div>
+  </div>
+  <template class="nt"><ul>
+    <li><b>Lotes y no documentos:</b> pasar datos entre procesos cuesta serializar. Un lote de 3.125 documentos cuesta 487 ms de trabajo &uacute;til, tres &oacute;rdenes de magnitud por encima del costo de despacharlo.</li>
+    <li><b>M&aacute;s lotes que workers (P&middot;4):</b> con 16 tareas para 4 procesos el pool reequilibra; con exactamente P lotes, el worker m&aacute;s lento fija el tiempo total.</li>
+    <li><b>Determinismo:</b> el <code>doc_id</code> se asigna en el proceso padre sobre la lista ya ordenada, as&iacute; que <code>as_completed()</code> puede fusionar en cualquier orden sin cambiar el resultado.</li>
+    <li><b>Umbral de 512 documentos</b> para no levantar el pool si el trabajo es chico, y guarda <code>if __name__ == "__main__":</code> porque en macOS y Windows cada hijo reimporta el m&oacute;dulo.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 13 · RESULTADOS DEL PARALELISMO ========== -->
+<section class="slide" data-sec="Concurrencia y paralelismo" data-n="6" data-title="Speedup y trade-offs">
+  <div class="head">
+    <div class="eyebrow"><b>§6</b><span class="dash"></span>Concurrencia y paralelismo · resultados</div>
+    <h1 class="title">1,84× sobre 2 núcleos físicos — y por qué no más</h1>
+    <p class="lede">Mediana de 6 corridas por configuración, <strong>alternando las versiones dentro de cada ronda</strong>
+    y descartando 2 rondas de calentamiento. Varianza menor al 3 %.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="plabel">Tiempo de construcción del índice · 50.000 documentos</div>
+        <svg class="chart" viewBox="0 0 700 212" role="img" aria-label="Indexación: secuencial 8.607 ms, dos workers 5.189 ms, cuatro workers 4.689 ms">
+          <g class="grid-line">
+            <line x1="140" y1="22" x2="140" y2="184"></line>
+            <line x1="251" y1="22" x2="251" y2="184"></line>
+            <line x1="362" y1="22" x2="362" y2="184"></line>
+            <line x1="473" y1="22" x2="473" y2="184"></line>
+            <line x1="584" y1="22" x2="584" y2="184"></line>
+          </g>
+          <rect x="140" y="30"  width="478.2" height="36" rx="2" fill="var(--s2)"><title>Secuencial — 8.607 ms</title></rect>
+          <rect x="140" y="82"  width="288.3" height="36" rx="2" fill="var(--s2)"><title>2 workers — 5.189 ms</title></rect>
+          <rect x="140" y="134" width="260.5" height="36" rx="2" fill="var(--s3)"><title>4 workers — 4.689 ms</title></rect>
+          <text class="cat-txt" x="132" y="46"  text-anchor="end">Secuencial</text>
+          <text class="note-txt" x="132" y="61" text-anchor="end">optimizado.py</text>
+          <text class="cat-txt" x="132" y="98"  text-anchor="end">--workers 2</text>
+          <text class="note-txt" x="132" y="113" text-anchor="end">1,66× · 83 % efic.</text>
+          <text class="cat-txt on" x="132" y="150" text-anchor="end">--workers 4</text>
+          <text class="note-txt" x="132" y="165" text-anchor="end">1,84× · 92 % efic.</text>
+          <text class="val-txt" x="626" y="53"  >8.607 ms</text>
+          <text class="val-txt" x="436" y="105" >5.189 ms</text>
+          <text class="val-txt on" x="408" y="157">4.689 ms</text>
+          <line class="ax-line" x1="140" y1="184" x2="640" y2="184"></line>
+          <g class="tick-txt" text-anchor="middle">
+            <text x="140" y="200">0</text>
+            <text x="251" y="200">2.000</text>
+            <text x="362" y="200">4.000</text>
+            <text x="473" y="200">6.000</text>
+            <text x="584" y="200">8.000</text>
+            <text x="640" y="200" text-anchor="end" fill="var(--ink-3)">ms</text>
+          </g>
+        </svg>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">El trade-off del paralelismo</div>
+          <div class="readouts">
+            <div class="readout"><div class="val">1,8<span class="u">× memoria</span></div><div class="cap">177,7 → 323,6 MB</div></div>
+            <div class="readout"><div class="val">92<span class="u">% del trabajo</span></div><div class="cap">16 lotes = 7.792 ms<br>de 8.478 ms</div></div>
+          </div>
+          <p style="font-size:14.5px">El sobrecosto de memoria no es el índice: son los <strong>parciales en vuelo</strong>
+          mientras el padre fusiona, más el espacio propio de cada intérprete. Escala con P, no con el corpus.</p>
+        </div>
+        <div class="panel plain stack">
+          <div class="plabel">Lo que <em>no</em> rindió</div>
+          <p style="font-size:15.5px">Pasar de <strong>P = 2 a P = 4 aporta sólo un 11 %</strong> (1,66× → 1,84×):
+          <code class="inline">os.cpu_count()</code> devuelve 4, pero son <strong>2 núcleos físicos con Hyper-Threading</strong>,
+          que no agrega unidades de ejecución reales para una carga CPU-bound.</p>
+        </div>
+      </div>
+    </div>
+    <div class="foot-note"><b>El <em>page cache</em> cambia el resultado por un factor de 3.</b> Medidas en bloques, las mismas versiones daban <b>5,63×</b> — imposible sobre 2 núcleos: el bloque secuencial corría en frío y el paralelo ya caliente. La ganancia en frío es real, pero es solapamiento de E/S, <b>no speedup de CPU</b>.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Contar la hipótesis descartada: sospechamos del <em>garbage collector</em> (el proceso secuencial acumula ~2 millones de entradas). Medido con <code>gc.disable()</code>: <b>0,4 % de diferencia</b>. El GC no participa.</li>
+    <li>Ese 5,63× es la mejor anécdota del trabajo: el número imposible fue el único de los cuatro errores de medición que se delató solo.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 14 · PERFILADO: INSTRUMENTAL ========== -->
+<section class="slide" data-sec="Perfilado" data-n="7" data-title="Instrumental y protocolo" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§7</b><span class="dash"></span>Perfilado</div>
+    <h1 class="title">Las métricas no se estiman: se miden con instrumental formal</h1>
+    <p class="lede">Ocho herramientas, cada una respondiendo una pregunta distinta.
+    Todas orquestadas por <code class="inline">src/perfilado.py</code>, que deja los archivos crudos
+    (<code class="inline">.prof</code>, <code class="inline">.json</code>, <code class="inline">.txt</code>) en <code class="inline">profiles/</code>.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="plabel">Instrumental de medición</div>
+        <div class="tbl-wrap">
+          <table class="tight">
+            <thead><tr><th>Dimensión</th><th class="mono">Herramienta</th><th>Uso</th></tr></thead>
+            <tbody>
+              <tr><td>CPU determinista</td><td class="mono">cProfile + pstats</td><td class="sub">Costo acumulado por función</td></tr>
+              <tr><td>CPU visual</td><td class="mono">snakeviz</td><td class="sub">Grafo de llamadas jerárquico</td></tr>
+              <tr><td>CPU línea a línea</td><td class="mono">line_profiler</td><td class="sub">Costo por línea del <em>hotspot</em></td></tr>
+              <tr><td>Tiempo de pared</td><td class="mono">perf_counter / timeit</td><td class="sub">Latencia; mediana de N corridas</td></tr>
+              <tr><td>Memoria asignada</td><td class="mono">tracemalloc</td><td class="sub">Pico y atribución por línea</td></tr>
+              <tr><td>Memoria residente</td><td class="mono">memory_profiler</td><td class="sub">RSS en el tiempo, con hijos</td></tr>
+              <tr><td>CPU + memoria</td><td class="mono">Scalene</td><td class="sub">Separa tiempo Python del nativo</td></tr>
+              <tr><td>Muestreo externo</td><td class="mono">py-spy</td><td class="sub"><em>Flamegraph</em> de un proceso vivo</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">Protocolo de medición</div>
+        <ul class="list acc">
+          <li><strong>10 corridas por versión</strong>, se reporta la <strong>mediana</strong>.</li>
+          <li><strong>Régimen estacionario:</strong> una corrida de calentamiento resultó insuficiente — hicieron falta <strong>3</strong> (13.570 → 14.040 → 10.795 ms, y recién la cuarta ~2.450 ms).</li>
+          <li><strong>Corridas alternadas</strong> dentro de cada ronda, nunca en bloques.</li>
+          <li><strong>Un proceso limpio por versión:</strong> compartiendo proceso, la primera en indexar fijaba el pico de RSS de todas.</li>
+          <li><strong>El perfilador nunca cronometra:</strong> <code class="inline">cProfile</code> infla 9× y <code class="inline">tracemalloc</code> infla la consulta <strong>3,3×</strong>. La atribución de memoria corre en una pasada aparte.</li>
+          <li><strong>Métricas separadas:</strong> costo único de indexación vs. costo recurrente de consulta.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Recalcar: <code>src/perfilado.py</code> no reemplaza a las herramientas, las <b>invoca</b> y recolecta sus salidas; los <code>.prof</code> quedan para inspección manual con snakeviz.</li>
+    <li>py-spy quedó documentado en <code>profiles/pyspy.sh</code> porque en macOS requiere <code>sudo</code>.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 15 · PICO DE MEMORIA POR VERSIÓN ========== -->
+<section class="slide" data-sec="Perfilado" data-n="7" data-title="Pico de memoria por versión">
+  <div class="head">
+    <div class="eyebrow"><b>&sect;7</b><span class="dash"></span>Perfilado · memoria</div>
+    <h1 class="title">Pico de memoria residente por versión</h1>
+    <p class="lede">El índice no es gratis: se paga en RAM. Pico de RSS del proceso, medido en una corrida limpia por versión.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <svg class="chart" viewBox="0 0 700 290" role="img" aria-label="Pico de memoria: inicial 38,2 MB; estructura 192,3 MB; algoritmo 184,1 MB; concurrencia 329,1 MB; final 327,5 MB">
+        <g class="grid-line">
+          <line x1="185" y1="18" x2="185" y2="252"></line>
+          <line x1="314" y1="18" x2="314" y2="252"></line>
+          <line x1="443" y1="18" x2="443" y2="252"></line>
+          <line x1="573" y1="18" x2="573" y2="252"></line>
+        </g>
+        <rect x="185" y="26"  width="49.3"  height="34" rx="2" fill="var(--s2)"><title>Implementación inicial — 38,2 MB</title></rect>
+        <rect x="185" y="72"  width="248.4" height="34" rx="2" fill="var(--s2)"><title>Estructura optimizada — 192,3 MB</title></rect>
+        <rect x="185" y="118" width="237.8" height="34" rx="2" fill="var(--s2)"><title>Algoritmo optimizado — 184,1 MB</title></rect>
+        <rect x="185" y="164" width="425.1" height="34" rx="2" fill="var(--s2)"><title>Concurrencia — 329,1 MB</title></rect>
+        <rect x="185" y="210" width="423.0" height="34" rx="2" fill="var(--s3)"><title>Versión final — 327,5 MB</title></rect>
+        <g class="cat-txt" text-anchor="end">
+          <text x="177" y="42">Implementación inicial</text>
+          <text x="177" y="88">Estructura optimizada</text>
+          <text x="177" y="134">Algoritmo optimizado</text>
+          <text x="177" y="180">Concurrencia</text>
+          <text class="cat-txt on" x="177" y="226">Versión final</text>
+        </g>
+        <g class="note-txt" text-anchor="end">
+          <text x="177" y="56">referencia</text>
+          <text x="177" y="102">5,0× la inicial</text>
+          <text x="177" y="148">4,8× la inicial</text>
+          <text x="177" y="194">8,6× la inicial</text>
+          <text x="177" y="240">8,6× la inicial</text>
+        </g>
+        <g class="val-txt">
+          <text x="242" y="48">38,2 MB</text>
+          <text x="441" y="94">192,3 MB</text>
+          <text x="431" y="140">184,1 MB</text>
+          <text x="618" y="186">329,1 MB</text>
+          <text class="val-txt on" x="616" y="232">327,5 MB</text>
+        </g>
+        <line class="ax-line" x1="185" y1="252" x2="660" y2="252"></line>
+        <g class="tick-txt" text-anchor="middle">
+          <text x="185" y="270">0</text>
+          <text x="314" y="270">100</text>
+          <text x="443" y="270">200</text>
+          <text x="573" y="270">300</text>
+          <text x="660" y="270" text-anchor="end" fill="var(--ink-3)">MB</text>
+        </g>
+      </svg>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Qué explica cada salto</div>
+          <ul class="list">
+            <li><strong>38 &rarr; 192 MB</strong> al construir el índice. De esos 184 MB, <code class="inline">tracemalloc</code> atribuye <strong>132,2 MB al índice invertido en sí</strong>; el resto es el intérprete y la lista de 50.000 rutas.</li>
+            <li><strong>192 &rarr; 329 MB</strong> al paralelizar. No es un índice más grande: son los <strong>índices parciales en vuelo</strong> mientras el padre fusiona. Escala con la cantidad de procesos, <strong>no con el corpus</strong>.</li>
+            <li>El ranking <strong>no participa</strong> de este pico: su memoria es O(k), del orden de los kilobytes.</li>
+          </ul>
+        </div>
+        <div class="foot-note">La línea base es la más barata en memoria —mantiene un documento por vez— y por eso mismo es la más cara en tiempo: vuelve a leer el corpus entero en cada consulta. <b>Se compra tiempo con memoria.</b></div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Medido con <code>resource.getrusage(RUSAGE_SELF).ru_maxrss</code>: es el pico del <b>propio proceso</b>, sin contar los hijos. Por eso la concurrente marca 329 MB ac&aacute; y m&aacute;s en el gr&aacute;fico siguiente, que s&iacute; los cuenta.</li>
+    <li>El intercambio completo: 9,7&times; de memoria (18,3 &rarr; 177,7 MB en la medici&oacute;n con <code>/usr/bin/time -l</code>) a cambio de 274&times; en la consulta. Para un buscador —&iacute;ndice construido una vez, consultado indefinidamente— conviene por varios &oacute;rdenes de magnitud.</li>
+    <li>El punto de equilibrio est&aacute; en ~4 consultas (~2 con indexaci&oacute;n paralela): antes de eso gana la l&iacute;nea base.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 16 · MEMORIA EN EL TIEMPO ========== -->
+<section class="slide" data-sec="Perfilado" data-n="7" data-title="Memoria durante la corrida">
+  <div class="head">
+    <div class="eyebrow"><b>&sect;7</b><span class="dash"></span>Perfilado · memoria</div>
+    <h1 class="title">Memoria residente durante la corrida completa</h1>
+    <p class="lede">RSS muestreado cada 50 ms con <code class="inline">memory_profiler</code>, <strong>incluyendo los procesos hijos</strong>.</p>
+  </div>
+  <div class="body">
+    <div class="stack">
+      <svg class="chart" viewBox="0 0 1100 290" role="img" aria-label="Evolución del RSS en el tiempo para las cinco versiones">
+        <g class="grid-line">
+          <line x1="70" y1="240" x2="1060" y2="240"></line>
+          <line x1="70" y1="196.2" x2="1060" y2="196.2"></line>
+          <line x1="70" y1="152.5" x2="1060" y2="152.5"></line>
+          <line x1="70" y1="108.8" x2="1060" y2="108.8"></line>
+          <line x1="70" y1="65.0" x2="1060" y2="65.0"></line>
+        </g>
+        <g fill="none" stroke-width="2" stroke-linejoin="round">
+          <polyline points="70.0,228.2 73.9,210.7 77.9,209.6 81.8,209.6 85.7,209.6 89.7,209.6 93.6,209.6 97.6,209.6 101.5,209.6 105.4,209.6 109.4,209.6 113.3,209.6 117.2,209.5 121.2,209.5 125.1,209.5 129.0,209.4 133.0,209.4 136.9,209.4 140.9,209.4 144.8,209.4 148.7,209.4 152.7,209.4 156.6,209.4 160.5,209.4 164.5,209.4 168.4,209.4 172.3,209.4 176.3,209.4 180.2,209.4 184.2,209.4 188.1,209.4 192.0,209.4 196.0,209.4 199.9,209.4 203.8,209.4 207.8,209.4 211.7,209.4 215.6,209.4 219.6,209.4 223.5,209.4 227.5,209.4 231.4,209.3 235.3,209.3 239.3,209.3 243.2,209.3 247.1,209.3 251.1,209.3 255.0,209.3 258.9,209.3 262.9,209.3 266.8,209.3 270.8,209.3 274.7,209.3 278.6,209.3 282.6,209.3 286.5,209.3 290.4,209.3 294.4,209.3 298.3,209.3 302.2,209.3 306.2,209.3 310.1,209.3 314.1,209.2 318.0,209.2 321.9,209.2 325.9,209.2 329.8,209.2 333.7,209.2 337.7,209.2 341.6,209.2 345.5,209.2 349.5,209.2 353.4,209.2 357.4,209.2 361.3,209.2 365.2,209.2 369.2,209.2 373.1,209.2 377.0,209.2 381.0,209.2 384.9,209.2 388.8,209.2 392.8,209.2 396.7,209.2 400.7,209.2 404.6,209.2 408.5,209.2 412.5,209.2 416.4,209.2 420.3,209.2 424.3,209.2 428.2,209.2 432.1,209.2 436.1,209.2 440.0,209.2 444.0,209.2 447.9,209.2 451.8,209.2 455.8,209.2 459.7,209.2 463.6,209.2 467.6,209.2 471.5,209.2 475.4,209.2 479.4,209.2 483.3,209.2 487.3,209.2 491.2,209.2 495.1,209.2 499.1,209.2 503.0,209.2 506.9,209.2 510.9,209.2 514.8,209.2 518.7,209.2 522.7,209.2 526.6,209.2 530.6,209.2 534.5,209.2 538.4,209.2 542.4,209.2 546.3,209.2 550.2,209.2 554.2,209.2 558.1,209.2 562.0,209.2 566.0,209.2 569.9,209.2 573.9,209.2 577.8,209.2 581.7,209.2 585.7,209.2 589.6,209.2 593.5,209.2 597.5,209.2 601.4,209.2 605.3,209.2 609.3,206.9 613.2,204.7 615.2,203.7 617.2,209.1" stroke="var(--s1)"></polyline>
+          <polyline points="70.0,228.2 73.9,205.4 77.9,200.7 81.8,198.7 85.7,195.1 89.7,192.1 93.6,191.9 97.6,191.8 101.5,191.2 105.4,191.2 109.4,190.7 113.3,190.6 117.2,190.6 121.2,190.6 125.1,190.6 129.0,189.2 133.0,189.2 136.9,189.2 140.9,189.2 144.8,189.2 148.7,189.2 152.7,189.2 156.6,189.2 160.5,189.1 164.5,186.3 168.4,186.3 172.3,186.3 176.3,186.3 180.2,186.3 184.2,186.3 188.1,186.3 192.0,186.3 196.0,186.3 199.9,186.3 203.8,186.3 207.8,186.3 211.7,186.3 215.6,186.3 219.6,186.1 223.5,185.7 227.5,180.5 231.4,180.5 235.3,180.5 239.3,180.5 243.2,180.5 247.1,180.5 251.1,180.5 255.0,180.5 258.9,180.5 262.9,180.5 266.8,180.5 270.8,180.5 274.7,180.5 278.6,180.5 282.6,180.5 286.5,180.5 290.4,180.5 294.4,180.4 298.3,180.4 302.2,180.4 306.2,180.4 310.1,180.4 314.1,180.4 318.0,180.4 321.9,180.4 325.9,180.4 329.8,180.4 333.7,180.4 337.7,180.4 341.6,180.4 345.5,180.4 349.5,180.4 353.4,180.4 357.4,180.4 361.3,180.0 365.2,180.0 369.2,173.1 373.1,166.8 377.0,166.8 381.0,166.8 384.9,166.8 388.8,166.8 392.8,166.8 396.7,166.8 400.7,166.8 404.6,166.7 408.5,166.7 412.5,166.7 416.4,166.7 420.3,166.7 424.3,166.7 428.2,166.7 432.1,166.7 436.1,166.7 440.0,166.7 444.0,166.7 447.9,166.7 451.8,166.7 455.8,166.7 459.7,166.7 463.6,166.7 467.6,166.7 471.5,166.7 475.4,166.7 479.4,166.7 483.3,166.7 487.3,166.7 491.2,166.7 495.1,166.7 499.1,166.6 503.0,166.6 506.9,166.6 510.9,166.6 514.8,166.6 518.7,166.6 522.7,166.6 526.6,166.6 530.6,166.6 534.5,166.6 538.4,166.6 542.4,166.6 546.3,166.6 550.2,166.6 554.2,166.6 558.1,166.6 562.0,166.6 566.0,166.6 569.9,166.6 573.9,166.6 577.8,166.6 581.7,166.6 585.7,166.6 589.6,166.6 593.5,166.5 597.5,166.5 601.4,166.5 605.3,166.5 609.3,166.5 613.2,166.5 617.2,166.5 621.1,166.5 625.0,165.7 629.0,165.7 632.9,165.7 636.8,165.6 640.8,165.6 644.7,165.6 648.6,143.0 652.6,140.6 656.5,140.6 660.5,140.6 664.4,140.6 668.3,140.6 672.3,140.6 676.2,140.6 680.1,140.6 684.1,140.6 688.0,140.6 691.9,140.6 695.9,140.6 699.8,140.6 703.8,140.5 707.7,136.1 711.6,182.4" stroke="var(--s2)"></polyline>
+          <polyline points="70.0,228.2 77.9,205.9 85.7,199.6 93.6,191.9 101.5,191.7 109.4,191.0 117.2,190.9 125.1,190.5 133.0,190.5 140.9,190.5 148.7,189.1 156.6,189.1 164.5,189.1 172.3,189.1 180.2,189.1 188.1,189.1 196.0,189.1 203.8,189.0 211.7,186.2 219.6,186.2 227.5,186.2 235.3,186.2 243.2,186.2 251.1,186.2 258.9,186.2 266.8,186.2 274.7,186.2 282.6,186.2 290.4,186.2 298.3,186.2 306.2,186.2 314.1,180.4 321.9,180.4 329.8,180.4 337.7,180.4 345.5,180.4 353.4,180.4 361.3,180.4 369.2,180.4 377.0,180.4 384.9,180.4 392.8,180.4 400.7,180.4 408.5,180.4 416.4,180.4 424.3,180.4 432.1,180.4 440.0,180.4 447.9,180.4 455.8,180.4 463.6,180.3 471.5,180.3 479.4,180.3 487.3,180.3 495.1,180.3 503.0,180.3 510.9,180.3 518.7,180.3 526.6,180.3 534.5,179.9 542.4,179.9 550.2,166.7 558.1,166.7 566.0,166.7 573.9,166.7 581.7,166.7 589.6,166.7 597.5,166.7 605.3,166.7 613.2,166.7 621.1,166.7 629.0,166.7 636.8,166.6 644.7,166.6 652.6,166.6 660.5,166.6 668.3,166.6 676.2,166.6 684.1,166.6 691.9,166.6 699.8,166.6 707.7,166.6 715.6,166.6 723.4,166.6 731.3,166.6 739.2,166.6 747.1,166.6 754.9,166.6 762.8,166.6 770.7,166.6 778.5,166.6 786.4,166.6 794.3,166.5 802.2,166.5 810.0,166.5 817.9,166.5 825.8,166.5 833.7,166.5 841.5,166.5 849.4,166.5 857.3,166.5 865.1,166.5 873.0,166.5 880.9,166.5 888.8,166.5 896.6,166.5 904.5,166.4 912.4,166.4 920.3,166.4 928.1,166.4 936.0,165.6 943.9,165.6 951.7,165.6 959.6,165.6 967.5,152.1 975.4,140.6 983.2,140.6 991.1,140.6 999.0,140.5 1006.9,140.5 1014.7,140.5 1022.6,140.5 1030.5,140.5 1038.3,140.5 1046.2,140.5 1054.1,140.5 1056.1,140.2 1058.0,185.3" stroke="var(--s3)"></polyline>
+          <polyline points="70.0,228.1 72.0,210.9 73.9,205.4 75.9,202.2 77.9,200.5 79.8,200.5 81.8,198.2 83.8,196.4 85.7,194.6 87.7,192.4 89.7,191.9 91.7,190.6 93.6,174.0 95.6,162.4 97.6,155.9 99.5,150.6 101.5,150.5 103.5,150.5 105.4,150.3 107.4,150.3 109.4,147.9 111.3,147.9 113.3,147.9 115.3,147.9 117.2,147.9 119.2,146.9 121.2,145.9 123.1,145.9 125.1,145.9 127.1,145.9 129.0,145.9 131.0,145.9 133.0,145.9 135.0,145.9 136.9,145.9 138.9,145.9 140.9,144.4 142.8,140.5 144.8,142.5 146.8,134.9 148.7,127.4 150.7,124.0 152.7,124.0 154.6,123.9 156.6,123.0 158.6,121.5 160.5,121.4 162.5,121.4 164.5,121.4 166.4,121.4 168.4,120.6 170.4,119.8 172.3,119.8 174.3,119.8 176.3,119.8 178.3,119.8 180.2,119.8 182.2,119.8 184.2,119.8 186.1,119.8 188.1,119.8 190.1,118.8 192.0,118.2 194.0,115.8 196.0,114.3 197.9,111.3 199.9,97.4 201.9,93.3 203.8,93.3 205.8,93.3 207.8,92.7 209.7,91.5 211.7,90.9 213.7,90.9 215.6,90.9 217.6,90.9 219.6,90.4 221.6,89.3 223.5,89.1 225.5,89.1 227.5,89.1 229.4,89.1 231.4,89.1 233.4,89.1 235.3,89.1 237.3,89.1 239.3,88.1 241.2,85.2 243.2,84.1 245.2,82.6 247.1,79.4 249.1,78.1 251.1,78.1 253.0,78.1 255.0,77.5 257.0,76.2 258.9,75.6 260.9,75.6 262.9,75.6 264.9,75.6 266.8,74.8 268.8,73.9 270.8,73.9 272.7,73.9 274.7,73.9 276.7,73.9 278.6,73.9 280.6,73.9 282.6,73.9 284.5,73.9 286.5,73.9 288.5,73.2 290.4,70.9 292.4,69.7 294.4,67.6 296.3,46.6 298.3,36.9 300.3,112.2 302.2,121.4 304.2,121.4 306.2,174.5 308.2,188.5" stroke="var(--s4)"></polyline>
+          <polyline points="70.0,228.1 72.0,210.8 73.9,205.3 75.9,202.1 77.9,200.5 79.8,200.4 81.8,198.2 83.8,196.4 85.7,194.5 87.7,192.3 89.7,191.9 91.7,190.2 93.6,171.3 95.6,158.8 97.6,153.6 99.5,150.9 101.5,150.6 103.5,150.4 105.4,150.3 107.4,150.3 109.4,148.0 111.3,148.0 113.3,148.0 115.3,148.0 117.2,148.0 119.2,145.7 121.2,145.7 123.1,145.6 125.1,145.6 127.1,145.6 129.0,145.6 131.0,145.6 133.0,145.6 135.0,145.6 136.9,143.2 138.9,140.2 140.9,136.9 142.8,130.5 144.8,123.3 146.8,123.3 148.7,120.8 150.7,120.8 152.7,120.8 154.6,120.5 156.6,119.4 158.6,119.2 160.5,119.2 162.5,119.2 164.5,119.2 166.4,119.2 168.4,119.2 170.4,115.1 172.3,115.3 174.3,109.7 176.3,92.8 178.3,92.7 180.2,92.0 182.2,90.2 184.2,90.2 186.1,89.9 188.1,88.5 190.1,88.5 192.0,88.5 194.0,88.5 196.0,88.5 197.9,88.5 199.9,87.5 201.9,84.6 203.8,83.1 205.8,79.8 207.8,77.2 209.7,76.3 211.7,75.1 213.7,74.5 215.6,74.0 217.6,73.2 219.6,72.7 221.6,72.7 223.5,72.7 225.5,72.7 227.5,72.7 229.4,70.8 231.4,66.7 233.4,59.7 235.3,44.9 237.3,36.8 239.3,121.3 241.2,139.0 243.2,188.4" stroke="var(--s5)"></polyline>
+        </g>
+        <g class="tick-txt" text-anchor="end">
+          <text x="62" y="244">0</text>
+          <text x="62" y="200">100</text>
+          <text x="62" y="156">200</text>
+          <text x="62" y="112">300</text>
+          <text x="62" y="69">400</text>
+        </g>
+        <line class="ax-line" x1="70" y1="240" x2="1060" y2="240"></line>
+        <g class="tick-txt" text-anchor="middle">
+          <text x="70" y="258">0</text>
+          <text x="267" y="258">5</text>
+          <text x="464" y="258">10</text>
+          <text x="660" y="258">15</text>
+          <text x="857" y="258">20</text>
+          <text x="1054" y="258">25</text>
+        </g>
+        <text class="note-txt" x="565" y="278" text-anchor="middle">segundos desde el arranque del proceso</text>
+        <text class="note-txt" x="70" y="22">MB residentes</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--s1)"></i>Inicial · pico 83 MB · 13,9 s</span>
+        <span><i style="background:var(--s2)"></i>Estructura · 237 MB · 16,4 s</span>
+        <span><i style="background:var(--s3)"></i>Algoritmo · 228 MB · 25,2 s</span>
+        <span><i style="background:var(--s4)"></i>Concurrencia · 464 MB · 6,1 s</span>
+        <span><i style="background:var(--s5)"></i>Final · 464 MB · 4,5 s</span>
+      </div>
+    </div>
+    <div class="foot-note">Las cinco arrancan en <b>27 MB</b>. La línea base sube poco —nunca tiene más de un documento en memoria— pero se queda 14 segundos leyendo. Las dos indexadas trepan mientras construyen el índice. Las dos paralelas <b>duplican el pico</b> porque acá sí se cuentan los cuatro procesos hijos, y a cambio <b>terminan en un cuarto del tiempo</b>. Estructura y algoritmo construyen el mismo índice, así que sus curvas <b>se superponen</b> hasta que la segunda sigue con las repeticiones de consulta.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Los picos de este gr&aacute;fico son m&aacute;s altos que los del anterior por dos razones: ac&aacute; se cuentan los <b>procesos hijos</b> (<code>include_children=True</code>) y el propio medidor vive dentro del proceso medido.</li>
+    <li>Cada versi&oacute;n se muestrea <b>en su propio proceso</b>. Cuando se med&iacute;a todo en uno, cada versi&oacute;n heredaba la memoria de la anterior y las bases sub&iacute;an de 27 a 107 MB: fue uno de los cuatro defectos de medici&oacute;n que encontr&oacute; el arn&eacute;s.</li>
+    <li>La curva del algoritmo es la m&aacute;s larga (25 s) porque esa corrida hace las 10 repeticiones de consulta adem&aacute;s de indexar.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 17 · COMPARACIÓN: LAS CINCO VERSIONES ========== -->
+<section class="slide" data-sec="Comparación de resultados" data-n="8" data-title="Antes y después" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§8</b><span class="dash"></span>Comparación de resultados</div>
+    <h1 class="title">Antes y después: las cinco versiones</h1>
+    <p class="lede">Misma máquina, mismo corpus, misma consulta — y el mismo resultado. Sólo cambia el costo.</p>
+  </div>
+  <div class="body">
+    <div class="stack">
+      <svg class="chart" viewBox="0 0 1100 176" role="img" aria-label="Tiempo por consulta: inicial 2.345 ms, estructura 100,98 ms, algoritmo 8,27 ms, concurrencia 7,95 ms, final 0,0021 ms">
+        <g class="grid-line">
+          <line x1="250"  y1="10" x2="250"  y2="146"></line>
+          <line x1="357"  y1="10" x2="357"  y2="146"></line>
+          <line x1="464"  y1="10" x2="464"  y2="146"></line>
+          <line x1="571"  y1="10" x2="571"  y2="146"></line>
+          <line x1="679"  y1="10" x2="679"  y2="146"></line>
+          <line x1="786"  y1="10" x2="786"  y2="146"></line>
+          <line x1="893"  y1="10" x2="893"  y2="146"></line>
+          <line x1="1000" y1="10" x2="1000" y2="146"></line>
+        </g>
+        <g class="leader">
+          <line x1="250" y1="24"  x2="932" y2="24"></line>
+          <line x1="250" y1="50"  x2="786" y2="50"></line>
+          <line x1="250" y1="76"  x2="670" y2="76"></line>
+          <line x1="250" y1="102" x2="668" y2="102"></line>
+          <line x1="250" y1="128" x2="284" y2="128"></line>
+        </g>
+        <circle cx="932.5" cy="24"  r="6.5" fill="var(--s2)"><title>Implementación inicial — 2.345 ms</title></circle>
+        <circle cx="786.2" cy="50"  r="6.5" fill="var(--s2)"><title>Estructura optimizada — 100,98 ms</title></circle>
+        <circle cx="669.7" cy="76"  r="6.5" fill="var(--s2)"><title>Algoritmo optimizado — 8,27 ms</title></circle>
+        <circle cx="667.9" cy="102" r="6.5" fill="var(--s2)"><title>Concurrencia — 7,95 ms</title></circle>
+        <circle cx="284.5" cy="128" r="7.5" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"><title>Versión final con caché caliente — 0,0021 ms</title></circle>
+        <g class="cat-txt" text-anchor="end">
+          <text x="242" y="28">Implementación inicial</text>
+          <text x="242" y="54">Estructura optimizada</text>
+          <text x="242" y="80">Algoritmo optimizado</text>
+          <text x="242" y="106">Concurrencia / paralelismo</text>
+          <text class="cat-txt on" x="242" y="132">Versión final</text>
+        </g>
+        <g class="val-txt">
+          <text x="946" y="28">2.345 ms</text>
+          <text x="800" y="54">100,98 ms</text>
+          <text x="684" y="80">8,27 ms</text>
+          <text x="682" y="106">7,95 ms</text>
+          <text class="val-txt on" x="299" y="132">0,0021 ms</text>
+        </g>
+        <line class="ax-line" x1="250" y1="146" x2="1000" y2="146"></line>
+        <g class="tick-txt" text-anchor="middle">
+          <text x="250"  y="163">0,001</text>
+          <text x="357"  y="163">0,01</text>
+          <text x="464"  y="163">0,1</text>
+          <text x="571"  y="163">1</text>
+          <text x="679"  y="163">10</text>
+          <text x="786"  y="163">100</text>
+          <text x="893"  y="163">1.000</text>
+          <text x="1000" y="163">10.000</text>
+          <text x="200" y="163" text-anchor="end" fill="var(--ink-3)">escala logarítmica (ms)</text>
+        </g>
+      </svg>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tight">
+        <thead><tr><th>Versión</th><th class="num">Consulta</th><th class="num">Indexación</th><th class="num">RSS</th><th>Qué aporta</th></tr></thead>
+        <tbody>
+          <tr><td>Implementación inicial</td><td class="num">2.345 ms</td><td class="num">—</td><td class="num">38,2 MB</td><td class="sub">Escaneo secuencial O(n·m)</td></tr>
+          <tr><td>Estructura optimizada</td><td class="num">100,98 ms</td><td class="num">8.744 ms</td><td class="num">192,3 MB</td><td class="sub">Índice invertido + <code class="inline">set</code>, ranking con <code class="inline">sorted()</code></td></tr>
+          <tr><td>Algoritmo optimizado</td><td class="num">8,27 ms</td><td class="num">8.596 ms</td><td class="num">184,1 MB</td><td class="sub">Heap <em>top-k</em> O(r·log k) + caché LRU</td></tr>
+          <tr><td>Concurrencia / paralelismo</td><td class="num">7,95 ms</td><td class="num">4.841 ms</td><td class="num">329,1 MB</td><td class="sub">Indexación MapReduce sobre procesos</td></tr>
+          <tr class="hl"><td>Versión final</td><td class="num">0,0021 ms</td><td class="num">4.697 ms</td><td class="num">327,5 MB</td><td class="sub">Indexación paralela + caché caliente</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="foot-note">Las cinco devuelven <b>47.797 coincidencias</b>: ese número es el testigo de equivalencia. Cada versión se midió en un <b>proceso limpio</b>, mediana de 3 rondas alternadas tras descartar una de calentamiento.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Leer la escala: es logarítmica, así que la distancia entre "inicial" y "final" son <b>seis órdenes de magnitud</b>, no seis unidades.</li>
+    <li>La fila "Estructura optimizada" no es un archivo: es la etapa intermedia, medida ejercitando <code>_rankear_sorted()</code> sobre el mismo índice, para que la diferencia contra la fila siguiente aísle el efecto del heap.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 18 · ESCALABILIDAD ========== -->
+<section class="slide" data-sec="Comparación de resultados" data-n="8" data-title="Escalabilidad 5k → 50k">
+  <div class="head">
+    <div class="eyebrow"><b>§8</b><span class="dash"></span>Comparación de resultados · escalabilidad</div>
+    <h1 class="title">Con 10× de datos, la ventaja no se mantiene: se amplifica</h1>
+    <p class="lede">Misma campaña de medición sobre <strong>5.000</strong> y <strong>50.000</strong> documentos.</p>
+  </div>
+  <div class="body">
+    <div class="cols-5-7">
+      <svg class="chart" viewBox="0 0 500 332" role="img" aria-label="Evolución del tiempo de consulta de 5.000 a 50.000 documentos en escala logarítmica, por versión">
+        <line class="grid-line" x1="150" y1="52" x2="150" y2="270"></line>
+        <line class="grid-line" x1="330" y1="52" x2="330" y2="270"></line>
+        <g fill="none" stroke-width="2">
+          <path d="M150,98.8 L330,69.9"   stroke="var(--s1)"></path>
+          <path d="M150,151.0 L330,112.7" stroke="var(--s2)"></path>
+          <path d="M150,169.8 L330,146.8" stroke="var(--s3)"></path>
+          <path d="M150,252.1 L330,259.2" stroke="var(--s5)"></path>
+        </g>
+        <g stroke="var(--surface)" stroke-width="2">
+          <circle cx="150" cy="98.8"  r="4.5" fill="var(--s1)"></circle><circle cx="330" cy="69.9"  r="4.5" fill="var(--s1)"></circle>
+          <circle cx="150" cy="151.0" r="4.5" fill="var(--s2)"></circle><circle cx="330" cy="112.7" r="4.5" fill="var(--s2)"></circle>
+          <circle cx="150" cy="169.8" r="4.5" fill="var(--s3)"></circle><circle cx="330" cy="146.8" r="4.5" fill="var(--s3)"></circle>
+          <circle cx="150" cy="252.1" r="4.5" fill="var(--s5)"></circle><circle cx="330" cy="259.2" r="4.5" fill="var(--s5)"></circle>
+        </g>
+        <g class="val-txt" text-anchor="end">
+          <text x="140" y="103">280,22</text>
+          <text x="140" y="155">6,12</text>
+          <text x="140" y="174">1,55</text>
+          <text x="140" y="256">0,0037</text>
+        </g>
+        <g class="cat-txt">
+          <text x="342" y="66"  fill="var(--s1)">Inicial</text>
+          <text x="342" y="109" fill="var(--s2)">Estructura · sorted()</text>
+          <text x="342" y="143" fill="var(--s3)">Algoritmo · heap</text>
+          <text x="342" y="255" fill="var(--s5)">Final · caché</text>
+        </g>
+        <g class="val-txt">
+          <text x="342" y="81">2.321,54 ms</text>
+          <text x="342" y="124">100,97 ms</text>
+          <text x="342" y="158">8,34 ms</text>
+          <text x="342" y="270">0,0022 ms</text>
+        </g>
+        <line class="ax-line" x1="110" y1="270" x2="470" y2="270"></line>
+        <g class="tick-txt" text-anchor="middle">
+          <text x="150" y="292">5.000 docs</text>
+          <text x="330" y="292">50.000 docs</text>
+        </g>
+        <text class="note-txt" x="8" y="34">tiempo por consulta · escala logarítmica (ms)</text>
+      </svg>
+      <div class="stack">
+        <div class="tbl-wrap">
+          <table class="tight">
+            <thead><tr><th>Consulta por versión</th><th class="num">5.000</th><th class="num">50.000</th><th class="num">Crecimiento</th></tr></thead>
+            <tbody>
+              <tr><td>Inicial</td><td class="num">280,22 ms</td><td class="num">2.321,54 ms</td><td class="num">×8,3</td></tr>
+              <tr><td>Estructura · <code class="inline">sorted()</code></td><td class="num">6,12 ms</td><td class="num">100,98 ms</td><td class="num">×16,5</td></tr>
+              <tr class="hl"><td>Algoritmo · heap</td><td class="num">1,55 ms</td><td class="num">8,34 ms</td><td class="num">×5,4</td></tr>
+              <tr><td>Final · caché</td><td class="num">0,0037 ms</td><td class="num">0,0022 ms</td><td class="num">plana</td></tr>
+              <tr><td>Ventaja sobre la base</td><td class="num">181×</td><td class="num">278×</td><td class="num">se amplifica</td></tr>
+              <tr><td><em>Speedup</em> del paralelismo</td><td class="num">1,54×</td><td class="num">1,82×</td><td class="num">se amplifica</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="foot-note">El dato más interesante es la separación entre <code class="inline">sorted()</code> y el heap: ante 10× de datos, la versión con <code class="inline">sorted()</code> <b>se degrada tres veces más rápido</b>. La ventaja del heap no es constante — <b>crece con el volumen</b>, que es exactamente lo que promete O(r·log k) frente a O(r·log r). El paralelismo también mejora con el tamaño, por la razón opuesta: el costo fijo de levantar los procesos recién se amortiza cuando hay trabajo suficiente.</div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>La línea de la caché es <b>plana</b> — incluso baja levemente: el costo de un acierto no depende del volumen del corpus.</li>
+    <li>Si preguntan por qué la inicial crece ×8,3 y no ×10: el corpus de 5.000 tiene menos coincidencias (4.762) y el efecto del page cache no es idéntico en las dos escalas.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 19 · ESCALABILIDAD POR HARDWARE ========== -->
+<section class="slide" data-sec="Comparación de resultados" data-n="8" data-title="Otra máquina, mismo problema">
+  <div class="head">
+    <div class="eyebrow"><b>&sect;8</b><span class="dash"></span>Comparación de resultados · hardware</div>
+    <h1 class="title">Un procesador seis veces más grande no arregla un algoritmo malo</h1>
+    <p class="lede">Mismo código, mismo tamaño de corpus, otra máquina: un <strong>Ryzen 9 9900X de 12 núcleos (2024)</strong>
+    contra el <strong>i5-7267U de 2 núcleos (2017)</strong>.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <svg class="chart" viewBox="0 0 700 218" role="img" aria-label="Comparación entre equipos: la búsqueda sin índice tarda igual en los dos; la indexación sí mejora">
+          <g class="grid-line">
+            <line x1="190" y1="16" x2="190" y2="190"></line>
+            <line x1="286" y1="16" x2="286" y2="190"></line>
+            <line x1="381" y1="16" x2="381" y2="190"></line>
+            <line x1="477" y1="16" x2="477" y2="190"></line>
+            <line x1="572" y1="16" x2="572" y2="190"></line>
+          </g>
+          <rect x="190" y="26"  width="112.0" height="22" rx="2" fill="var(--s2)"><title>Equipo A — búsqueda sin índice 2.345 ms</title></rect>
+          <rect x="190" y="50"  width="112.8" height="22" rx="2" fill="var(--s3)"><title>Equipo B — búsqueda sin índice 2.362 ms</title></rect>
+          <rect x="190" y="84"  width="415.8" height="22" rx="2" fill="var(--s2)"><title>Equipo A — indexación secuencial 8.702 ms</title></rect>
+          <rect x="190" y="108" width="247.9" height="22" rx="2" fill="var(--s3)"><title>Equipo B — indexación secuencial 5.188 ms</title></rect>
+          <rect x="190" y="142" width="223.6" height="22" rx="2" fill="var(--s2)"><title>Equipo A — indexación paralela P=4: 4.679 ms</title></rect>
+          <rect x="190" y="166" width="89.4"  height="22" rx="2" fill="var(--s3)"><title>Equipo B — indexación paralela P=4: 1.872 ms</title></rect>
+          <g class="cat-txt" text-anchor="end">
+            <text x="182" y="42">Búsqueda</text>
+            <text x="182" y="58">sin índice</text>
+            <text x="182" y="100">Indexación</text>
+            <text x="182" y="116">secuencial</text>
+            <text x="182" y="158">Indexación</text>
+            <text x="182" y="174">paralela · P = 4</text>
+          </g>
+          <g class="val-txt">
+            <text x="310" y="42">2.345 ms</text>
+            <text x="311" y="66">2.362 ms</text>
+            <text x="614" y="100">8.702 ms</text>
+            <text x="446" y="124">5.188 ms</text>
+            <text x="422" y="158">4.679 ms</text>
+            <text x="288" y="182">1.872 ms</text>
+          </g>
+          <text class="val-txt on" x="620" y="24" text-anchor="end">empate técnico — el equipo nuevo es 0,7 % más lento</text>
+          <line class="ax-line" x1="190" y1="190" x2="620" y2="190"></line>
+          <g class="tick-txt" text-anchor="middle">
+            <text x="190" y="206">0</text>
+            <text x="286" y="206">2.000</text>
+            <text x="381" y="206">4.000</text>
+            <text x="477" y="206">6.000</text>
+            <text x="572" y="206">8.000</text>
+            <text x="620" y="206" text-anchor="end" fill="var(--ink-3)">ms</text>
+          </g>
+        </svg>
+        <div class="legend">
+          <span><i style="background:var(--s2)"></i>Equipo A · i5-7267U · 2 núcleos · macOS</span>
+          <span><i style="background:var(--s3)"></i>Equipo B · Ryzen 9 9900X · 12 núcleos · Windows</span>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="tbl-wrap">
+          <table class="tight">
+            <thead><tr><th>Procesos</th><th class="num">Equipo A</th><th class="num">Equipo B</th></tr></thead>
+            <tbody>
+              <tr><td>Secuencial</td><td class="num">8.702 ms</td><td class="num">5.188 ms</td></tr>
+              <tr><td>P = 2</td><td class="num">1,66×</td><td class="num">1,77×</td></tr>
+              <tr><td>P = 4</td><td class="num">1,86×</td><td class="num">2,80×</td></tr>
+              <tr><td>P = 12</td><td class="num">—</td><td class="num">4,54×</td></tr>
+              <tr class="hl"><td>P = 24</td><td class="num">—</td><td class="num">4,86×</td></tr>
+              <tr><td>Consulta indexada</td><td class="num">8,27 ms</td><td class="num">3,39 ms</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <div class="plabel acc">Lo que dice el empate</div>
+          <p style="font-size:15px">Seis veces más núcleos, siete años de arquitectura y un disco NVMe no compran
+          <strong>nada</strong> sobre una búsqueda secuencial: <strong>2.345 contra 2.362 ms</strong>.
+          La optimización <strong>tenía que ser algorítmica</strong>.</p>
+        </div>
+      </div>
+    </div>
+    <div class="foot-note"><b>Los hilos lógicos tampoco rinden en la máquina grande:</b> de P = 12 a P = 24 el equipo B gana apenas un <b>7 %</b> — el mismo orden que el 11 % que gana el equipo A al pasar de 2 a 4.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Es la mejor confirmaci&oacute;n del diagn&oacute;stico inicial: si el 88 % del costo es E/S por archivo, ning&uacute;n procesador lo arregla. Coincide con lo que ya mostraba <code>cProfile</code>.</li>
+    <li><b>Techo de Amdahl distinto:</b> despejando de los speedups medidos, el equipo A arrastra ~40 % de costo no paralelizable contra ~15 % del B. La explicaci&oacute;n m&aacute;s probable es la E/S —un NVMe absorbe 24 lectores concurrentes, un SSD de 2017 no—, pero es una <b>inferencia del modelo</b>, no una medici&oacute;n directa.</li>
+    <li><b>Arranque en fr&iacute;o en Windows:</b> la primera vuelta del equipo B midi&oacute; <b>168.799 ms</b> en la l&iacute;nea base, 71&times; su propio r&eacute;gimen estacionario. Probablemente el antivirus escaneando 50.000 archivos reci&eacute;n creados. Es la mejor justificaci&oacute;n del protocolo de descartar corridas de calentamiento.</li>
+    <li><b>Salvedad:</b> los corpus no son el mismo — <code>random</code> sin semilla fija, 47.753 coincidencias en B contra 47.797 en A. Sirve para comparar tiempos, no documento a documento. La verificaci&oacute;n <code>&Iacute;ndices id&eacute;nticos: True</code> dio positiva en las 12 corridas de B.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 20 · DEMOSTRACIÓN ========== -->
+<section class="slide" data-sec="Demostración del código" data-n="9" data-title="Demostración en vivo" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§9</b><span class="dash"></span>Demostración del código</div>
+    <h1 class="title">Las tres versiones, la misma consulta, el mismo resultado</h1>
+    <p class="lede">Sin dependencias externas: las tres usan sólo la biblioteca estándar.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+<pre class="term"><span class="p">$</span> python3 src/baseline.py --query <span class="y">"algoritmo"</span>
+<span class="w">Tiempo de ejecucion: 2485.312 ms</span>
+<span class="w">Documentos encontrados:</span> <span class="g">47797</span></pre>
+<pre class="term"><span class="p">$</span> python3 src/optimizado.py --query <span class="y">"algoritmo"</span> --top-k 5
+<span class="w">Tiempo de construcción del índice: 8537.13 ms</span>
+<span class="w">Tiempo de búsqueda:</span> <span class="g">9.5199 ms</span>
+<span class="w">Documentos encontrados:</span> <span class="g">47797</span> <span class="p">(se muestran los 5 mejores)</span>
+<span class="p">1.</span> doc_013616.txt <span class="p">(score=</span><span class="y">0.8561</span><span class="p">)</span></pre>
+<pre class="term"><span class="p">$</span> python3 src/concurrente.py --query <span class="y">"algoritmo"</span> --top-k 5 --workers 4
+<span class="w">Tiempo de construcción del índice:</span> <span class="g">4689.41 ms</span>
+<span class="w">Tiempo de búsqueda: 9.1 ms</span>
+<span class="w">Documentos encontrados:</span> <span class="g">47797</span>
+<span class="p">1.</span> doc_013616.txt <span class="p">(score=</span><span class="y">0.8561</span><span class="p">)</span></pre>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Qué mirar durante la demo</div>
+          <ul class="list acc">
+            <li>El <strong>mismo top-5 con los mismos scores</strong> en las dos versiones indexadas, y las <strong>47.797</strong> coincidencias en las tres.</li>
+            <li>Dónde se fue el tiempo: la línea base lo gasta <strong>en cada consulta</strong>; las otras dos lo gastan <strong>una vez</strong> al indexar.</li>
+            <li><code class="inline">--workers 4</code> corta la indexación casi a la mitad sin tocar el resultado.</li>
+          </ul>
+        </div>
+        <div class="panel plain stack">
+          <div class="plabel">Otros comandos de la demo</div>
+<pre class="code"><span class="c"># índice paralelo vs. secuencial en una corrida</span>
+python3 src/concurrente.py --workers 4 --comparar
+<span class="c"># término inexistente: 0,003 ms</span>
+python3 src/optimizado.py --query <span class="s">"xyzinexistente"</span></pre>
+        </div>
+        <div class="foot-note">En <b>régimen frío</b> la línea base sube a 10–27 s y la indexación secuencial a ~33 s: es el fenómeno del <em>page cache</em> ya documentado.</div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li><b>Orden sugerido:</b> correr primero la concurrente (deja el corpus caliente), después la optimizada, y la línea base al final para que el contraste se vea en régimen comparable.</li>
+    <li>Mostrar en el código: el bucle de <code>busqueda_secuencial()</code>, el <code>&amp;=</code> de <code>buscar()</code>, el generador de <code>rankear()</code> y el <code>ProcessPoolExecutor</code> de <code>construir_indice()</code>.</li>
+    <li>El término inexistente se resuelve en <b>0,003 ms</b>: es el contraste más fuerte contra los 2.485 ms de la línea base.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 21 · CONCLUSIONES ========== -->
+<section class="slide" data-sec="Conclusiones" data-n="10" data-title="Conclusiones" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§10</b><span class="dash"></span>Conclusiones</div>
+    <h1 class="title">Qué rindió, qué no, y qué haríamos distinto</h1>
+  </div>
+  <div class="body">
+    <div class="cols-3">
+      <div class="panel stack">
+        <div class="plabel acc">Mayor impacto</div>
+        <div class="readouts"><div class="readout"><div class="val hl">23<span class="u">×</span></div><div class="cap">sólo por el índice invertido<br>2.345 → 100,98 ms</div></div></div>
+        <ul class="list">
+          <li><strong>El índice invertido</strong>, porque atacó lo que el perfil señalaba: el <strong>88 % del costo era E/S</strong>. Ninguna mejora del algoritmo de coincidencia habría igualado eso.</li>
+          <li>Después, el <strong>heap</strong>: 12,2× adicional sin tocar la estructura.</li>
+          <li>Y la <strong>caché</strong>, que no acelera la consulta sino que la elimina: ≈4.600×.</li>
+        </ul>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">No produjo la mejora esperada</div>
+        <div class="readouts"><div class="readout"><div class="val">+11<span class="u">% al duplicar P</span></div><div class="cap">de 1,66× a 1,84×</div></div></div>
+        <ul class="list">
+          <li><strong>Pasar de 2 a 4 procesos:</strong> <code class="inline">os.cpu_count()</code> miente — son 2 núcleos físicos con <em>Hyper-Threading</em>.</li>
+          <li><strong>La primera versión O(k) del ranking</strong> fue <strong>3,5× más lenta</strong> que la O(r) que reemplazaba: 48.000 objetos generador.</li>
+          <li><strong>El GC no era el culpable:</strong> medido con <code class="inline">gc.disable()</code>, 0,4 % de diferencia.</li>
+          <li><strong>Cambiar de máquina:</strong> un Ryzen 9 de 12 núcleos no mejora la búsqueda sin índice ni un 1 %.</li>
+          <li><strong>TF-IDF</strong> no cambió el orden sobre un corpus sintético de IDF casi uniforme.</li>
+        </ul>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">En una nueva versión</div>
+        <ul class="list">
+          <li><strong>Persistir el índice en disco</strong> y cargarlo mapeado: hoy se reconstruye en cada arranque.</li>
+          <li><strong>Reducir iteraciones interpretadas</strong> en <code class="inline">tokenizar</code> — filtrar <em>stopwords</em> en la propia regex o bajar el bucle a C: ahí está el 47 % del costo.</li>
+          <li><strong>Modo interactivo / por lotes</strong> para que la caché sea observable desde la terminal.</li>
+          <li><strong>Invalidación selectiva y TTL</strong> para corpus dinámico.</li>
+          <li><strong>Test de equivalencia automatizado</strong> con la semántica de coincidencia unificada.</li>
+          <li><strong>Corpus de lenguaje natural</strong>: 39 términos son pocos para que el IDF y el <em>stemmer</em> muestren lo que valen.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>La conclusión metodológica, si hay una sola cosa para llevarse: <b>medir primero, optimizar después</b>. Cada una de las cuatro optimizaciones salió de un perfil, no de una intuición.</li>
+    <li>Y la segunda: auditar también los resultados que confirman lo que esperábamos.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 22 · CIERRE ========== -->
+<section class="slide cover" data-sec="Cierre" data-title="Cierre">
+  <div class="inner">
+    <div><div class="eyebrow"><b>§10</b><span class="dash"></span>Conclusiones · cierre</div></div>
+    <div style="align-self:center">
+      <h1 class="title" style="font-size:60px;max-width:18ch">El resultado nunca cambió.<br>Lo que cambió fue el costo.</h1>
+      <p class="sub">47.797 coincidencias en las cinco versiones — de <b>2.485 ms</b> a <b>0,002 ms</b>,
+      con 9,7× de memoria y un arranque de 4,7 s que se amortiza en <b>dos consultas</b>.</p>
+      <div class="readouts" style="margin-top:28px">
+        <div class="readout"><div class="val hl">274<span class="u">× consulta indexada</span></div><div class="cap">contra la línea base</div></div>
+        <div class="readout"><div class="val hl">1,84<span class="u">× indexación</span></div><div class="cap">sobre 2 núcleos físicos</div></div>
+        <div class="readout"><div class="val hl">8<span class="u">herramientas</span></div><div class="cap">de perfilado formal</div></div>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="sec">Gracias · preguntas</span>
+      <span class="spacer"></span>
+      <span>github.com/JoniMora/pef-26</span>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Dejar la última diapositiva abierta durante las preguntas: los tres números de arriba cubren el 80 % de lo que suelen preguntar.</li>
+  </ul></template>
+</section>
+
+  </div></div>
+</div>
+
+<div class="hint" id="hint">
+  <kbd>→</kbd> avanzar · <kbd>o</kbd> índice · <kbd>n</kbd> notas · <kbd>t</kbd> tema · <kbd>f</kbd> pantalla completa
+</div>
+
+<div class="hud">
+  <button id="btn-prev" title="Anterior (←)" aria-label="Diapositiva anterior">‹</button>
+  <button id="btn-next" title="Siguiente (→)" aria-label="Diapositiva siguiente">›</button>
+  <button id="btn-ov"   title="Índice (o)">índice</button>
+  <button id="btn-notes" title="Notas del orador (n)">notas</button>
+  <button id="btn-theme" title="Tema claro / oscuro (t)">tema</button>
+</div>
+
+<div class="notes" id="notes" hidden>
+  <div class="plabel acc" id="notes-title">Notas del orador</div>
+  <div id="notes-body"></div>
+</div>
+
+<div class="overview" id="overview" hidden>
+  <h2>Índice — Buscador Eficiente de Información</h2>
+  <div class="ov-grid" id="ov-grid"></div>
+</div>
+
+<style>
+/* añadidos: tablas densas y títulos con identificadores */
+table.tight th, table.tight td { padding: 5px 8px; font-size: 13px; }
+table.tight td.num, table.tight th.num { font-size: 12.5px; }
+h1.title code.inline { font-size: .82em; }
+svg.chart polyline { fill: none; }
+td strong, td b { font-variation-settings: "wght" 680; }
+td .efecto { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+</style>
+
+<script>
+(function () {
+  "use strict";
+
+  var slides  = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var stage   = document.getElementById("stage");
+  var wrap    = document.querySelector(".stage-wrap");
+  var progress= document.getElementById("progress");
+  var notes   = document.getElementById("notes");
+  var notesBody = document.getElementById("notes-body");
+  var overview  = document.getElementById("overview");
+  var ovGrid    = document.getElementById("ov-grid");
+  var hint      = document.getElementById("hint");
+  var total     = slides.length;
+  var current   = 0;
+  var notesOpen = false;
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  /* ---------- pie e índice lateral de cada diapositiva ---------- */
+  slides.forEach(function (slide, i) {
+    if (slide.classList.contains("cover")) { return; }
+
+    var foot = document.createElement("div");
+    foot.className = "foot";
+
+    var sec = document.createElement("span");
+    sec.className = "sec";
+    sec.textContent = (slide.dataset.n ? "§" + slide.dataset.n + " · " : "") + (slide.dataset.sec || "");
+
+    var spacer = document.createElement("span");
+    spacer.className = "spacer";
+
+    var rail = document.createElement("div");
+    rail.className = "rail";
+
+    slides.forEach(function (other, j) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("aria-label", "Ir a la diapositiva " + (j + 1) + ": " + (other.dataset.title || ""));
+      b.title = pad(j + 1) + " · " + (other.dataset.title || "");
+      if (other.dataset.mark) { b.className = "mark"; }
+      b.addEventListener("click", function () { goTo(j); });
+      rail.appendChild(b);
+    });
+
+    var count = document.createElement("span");
+    count.className = "count";
+    count.textContent = pad(i + 1) + " / " + pad(total);
+
+    foot.appendChild(sec);
+    foot.appendChild(spacer);
+    foot.appendChild(rail);
+    foot.appendChild(count);
+    slide.appendChild(foot);
+  });
+
+  /* ---------- índice general ---------- */
+  slides.forEach(function (slide, i) {
+    var card = document.createElement("button");
+    card.type = "button";
+    card.className = "ov-card";
+    var n = document.createElement("span");
+    n.className = "n";
+    n.textContent = pad(i + 1) + (slide.dataset.n ? "  ·  §" + slide.dataset.n : "");
+    var t = document.createElement("span");
+    t.className = "t";
+    t.textContent = slide.dataset.title || "";
+    var s = document.createElement("span");
+    s.className = "n";
+    s.textContent = slide.dataset.sec || "";
+    card.appendChild(n);
+    card.appendChild(t);
+    card.appendChild(s);
+    card.addEventListener("click", function () { toggleOverview(false); goTo(i); });
+    ovGrid.appendChild(card);
+  });
+  var ovCards = Array.prototype.slice.call(ovGrid.children);
+
+  /* ---------- navegación ---------- */
+  function goTo(i) {
+    if (i < 0) { i = 0; }
+    if (i > total - 1) { i = total - 1; }
+    slides[current].classList.remove("is-active");
+    current = i;
+    slides[current].classList.add("is-active");
+
+    slides[current].querySelectorAll(".rail button").forEach(function (b, j) {
+      b.classList.toggle("on", j === current);
+    });
+    ovCards.forEach(function (c, j) { c.classList.toggle("on", j === current); });
+
+    progress.style.width = (total > 1 ? (current / (total - 1)) * 100 : 100) + "%";
+    renderNotes();
+
+    if (history.replaceState) {
+      history.replaceState(null, "", "#" + (current + 1));
+    }
+  }
+
+  function next() { goTo(current + 1); }
+  function prev() { goTo(current - 1); }
+
+  /* ---------- notas del orador ---------- */
+  function renderNotes() {
+    var tpl = slides[current].querySelector("template.nt");
+    notesBody.innerHTML = tpl ? tpl.innerHTML : "<ul><li>—</li></ul>";
+  }
+
+  function toggleNotes(force) {
+    notesOpen = (typeof force === "boolean") ? force : !notesOpen;
+    notes.hidden = !notesOpen;
+    fit();
+  }
+
+  /* ---------- índice general ---------- */
+  function toggleOverview(force) {
+    var open = (typeof force === "boolean") ? force : overview.hidden;
+    overview.hidden = !open;
+  }
+
+  /* ---------- tema ---------- */
+  function toggleTheme() {
+    var root = document.documentElement;
+    var now = root.getAttribute("data-theme");
+    var isDark = now
+      ? now === "dark"
+      : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = isDark ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("pef-tema", next); } catch (e) {}
+  }
+
+  try {
+    var saved = localStorage.getItem("pef-tema");
+    if (saved === "dark" || saved === "light") {
+      document.documentElement.setAttribute("data-theme", saved);
+    }
+  } catch (e) {}
+
+  /* ---------- escalado del escenario ---------- */
+  function fit() {
+    var margin = 40;
+    var reserved = notesOpen ? Math.min(notes.offsetHeight + 20, window.innerHeight * 0.4) : 0;
+    var availW = window.innerWidth - margin;
+    var availH = window.innerHeight - margin - reserved;
+    var scale = Math.min(availW / 1280, availH / 720);
+    stage.style.transform = "scale(" + scale + ")";
+    wrap.style.paddingBottom = reserved + "px";
+  }
+
+  window.addEventListener("resize", fit);
+  fit();
+
+  /* ---------- teclado ---------- */
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) { return; }
+    var k = e.key;
+
+    if (k === "Escape") {
+      if (!overview.hidden) { toggleOverview(false); e.preventDefault(); }
+      else if (notesOpen)   { toggleNotes(false);    e.preventDefault(); }
+      return;
+    }
+    if (k === "ArrowRight" || k === "PageDown" || k === " " || k === "Spacebar") { next(); e.preventDefault(); return; }
+    if (k === "ArrowLeft"  || k === "PageUp"  || k === "Backspace")             { prev(); e.preventDefault(); return; }
+    if (k === "Home") { goTo(0); e.preventDefault(); return; }
+    if (k === "End")  { goTo(total - 1); e.preventDefault(); return; }
+
+    var lower = k.toLowerCase ? k.toLowerCase() : k;
+    if (lower === "o") { toggleOverview(); e.preventDefault(); return; }
+    if (lower === "n") { toggleNotes();    e.preventDefault(); return; }
+    if (lower === "t") { toggleTheme();    e.preventDefault(); return; }
+    if (lower === "f") {
+      e.preventDefault();
+      if (document.fullscreenElement) { document.exitFullscreen(); }
+      else if (document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen(); }
+      return;
+    }
+  });
+
+  document.getElementById("btn-next").addEventListener("click", next);
+  document.getElementById("btn-prev").addEventListener("click", prev);
+  document.getElementById("btn-ov").addEventListener("click", function () { toggleOverview(); });
+  document.getElementById("btn-notes").addEventListener("click", function () { toggleNotes(); });
+  document.getElementById("btn-theme").addEventListener("click", toggleTheme);
+
+  /* ---------- gestos ---------- */
+  var x0 = null;
+  document.addEventListener("touchstart", function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener("touchend", function (e) {
+    if (x0 === null) { return; }
+    var dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 60) { dx < 0 ? next() : prev(); }
+    x0 = null;
+  }, { passive: true });
+
+  /* ---------- arranque ---------- */
+  var fromHash = parseInt((location.hash || "").replace("#", ""), 10);
+  goTo(isNaN(fromHash) ? 0 : fromHash - 1);
+
+  window.setTimeout(function () { hint.classList.add("gone"); }, 7000);
+}());
+</script>
+</body>
+</html>

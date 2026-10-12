@@ -19,6 +19,7 @@ import os
 import random
 import time
 
+
 # Directorio raíz del repositorio (padre de src/), calculado a partir de la
 # ubicación del propio archivo. Así el corpus siempre se genera/busca en
 # <repo>/data/corpus sin importar desde qué directorio se invoque el script.
@@ -50,17 +51,17 @@ def generar_corpus_prueba(num_docs, directorio=DIRECTORIO_CORPUS_DEFAULT):
         nombre_archivo = "doc_" + str(i).zfill(6) + ".txt"
         ruta_completa = os.path.join(directorio, nombre_archivo)
 
-        cantidad_palabras = random.randint(50, 300)
+        # random solo genera texto ficticio de prueba, sin uso criptográfico.
+        cantidad_palabras = random.randint(50, 300)  # nosec B311
         palabras_documento = []
         for _ in range(cantidad_palabras):
-            palabra = random.choice(VOCABULARIO)
+            palabra = random.choice(VOCABULARIO)  # nosec B311
             palabras_documento.append(palabra)
 
         contenido = " ".join(palabras_documento)
 
-        archivo = open(ruta_completa, "w", encoding="utf-8")
-        archivo.write(contenido)
-        archivo.close()
+        with open(ruta_completa, "w", encoding="utf-8") as archivo:
+            archivo.write(contenido)
 
         if (i + 1) % 1000 == 0:
             print("Generados " + str(i + 1) + " / " + str(num_docs) + " documentos")
@@ -86,9 +87,8 @@ def busqueda_secuencial(directorio, query):
 
         ruta_completa = os.path.join(directorio, nombre_archivo)
 
-        archivo = open(ruta_completa, "r", encoding="utf-8")
-        contenido = archivo.read()
-        archivo.close()
+        with open(ruta_completa, "r", encoding="utf-8") as archivo:
+            contenido = archivo.read()
 
         contenido_minuscula = contenido.lower()
 
