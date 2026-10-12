@@ -1,4 +1,4 @@
-optimizado module
+Módulo optimizado
 =================
 
 .. automodule:: optimizado

@@ -1,4 +1,4 @@
-baseline module
+Módulo baseline
 ===============
 
 .. automodule:: baseline

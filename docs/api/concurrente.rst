@@ -1,4 +1,4 @@
-concurrente module
+Módulo concurrente
 ==================
 
 .. automodule:: concurrente

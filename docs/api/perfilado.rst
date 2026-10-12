@@ -1,4 +1,4 @@
-perfilado module
+Módulo perfilado
 ================
 
 .. automodule:: perfilado
