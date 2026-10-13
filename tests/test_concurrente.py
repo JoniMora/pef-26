@@ -47,5 +47,17 @@ def test_con_un_proceso_indexa_en_el_padre(tmp_path):
     assert indice == {"algoritmo": {0: 1}, "dato": {0: 1}}
 
 
+def test_admite_archivos_vacios(tmp_path):
+    (tmp_path / "a.txt").write_bytes(b"")  # 0 bytes
+    (tmp_path / "b.txt").write_text("algoritmo datos", encoding="utf-8")
+
+    # Con menos de UMBRAL_PARALELO archivos indexa el padre con
+    # _procesar_lote(), la misma función que corren los workers.
+    indice, archivos = construir_indice(tmp_path, workers=2)
+
+    assert len(archivos) == 2
+    assert indice == {"algoritmo": {1: 1}, "dato": {1: 1}}
+
+
 def test_corpus_vacio(tmp_path):
     assert construir_indice(tmp_path) == ({}, [])

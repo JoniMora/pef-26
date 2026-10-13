@@ -53,7 +53,7 @@ Implementado en [`src/baseline.py`](src/baseline.py) (`busqueda_secuencial`). Si
 
 > **Alcance actual.** La línea base resuelve **presencia por subcadena**, no relevancia: no tokeniza ni puntúa, y por lo tanto **no produce un ranking *top-k***. Las etapas de Normalización y Ranking descritas en el objetivo se incorporan en la versión optimizada. Esto tiene una consecuencia directa sobre el test de equivalencia: `.find()` sobre el texto crudo hace que `"algo"` matchee dentro de `"algoritmo"`, mientras que un índice invertido sobre tokens no lo haría. Para que la comparación sea válida, **ambas versiones deben acordar la misma semántica de coincidencia**; se adopta la de tokens.
 >
-> **Estado de la equivalencia.** Sobre la consulta de referencia `"algoritmo"` ambas versiones coinciden exactamente: **47.797 documentos** en las dos. El corpus sintético hace que las dos semánticas converjan, porque su vocabulario de 40 palabras no contiene ningún término que sea subcadena de otro. La divergencia `"algo"` / `"algoritmo"` sigue siendo real y aparecerá en cuanto el corpus incluya prefijos compartidos: la unificación formal de la semántica y el test automatizado siguen pendientes.
+> **Estado de la equivalencia.** Sobre la consulta de referencia `"algoritmo"` ambas versiones coinciden exactamente: **47.797 documentos** en las dos. El corpus sintético hace que las dos semánticas converjan, porque su vocabulario de 40 palabras no contiene ningún término que sea subcadena de otro. La divergencia `"algo"` / `"algoritmo"` sigue siendo real y aparecerá en cuanto el corpus incluya prefijos compartidos: la unificación formal de la semántica sigue pendiente. El test automatizado ya existe: [`tests/test_equivalencia.py`](tests/test_equivalencia.py) verifica que las dos versiones devuelvan los mismos documentos (ver [Validación de equivalencia](#validación-de-equivalencia)).
 
 **Análisis de complejidad:**
 
@@ -665,7 +665,7 @@ def buscar(indice, terminos):
 
 ### Documentación técnica con Sphinx
 
-[`docs/`](docs/) genera, a partir de los docstrings y con `sphinx.ext.autodoc`, una portada que presenta los cuatro módulos y una página HTML por cada uno. La documentación se genera sin advertencias. El comando está en [Documentación](#documentación).
+[`docs/`](docs/) genera, a partir de los docstrings y con `sphinx.ext.autodoc`, una portada que presenta los módulos y una página HTML por cada uno. La documentación se genera sin advertencias. El comando está en [Documentación](#documentación).
 
 ### Análisis estático con SonarCloud
 
@@ -680,7 +680,7 @@ SonarCloud analiza cada pull request desde el CI, junto con la cobertura que gen
 | Cobertura | 99,7 % |
 | Código duplicado | 1,1 % (42 líneas) |
 
-> Son las cifras del análisis del pull request de esta etapa. En un pull request, SonarCloud solo reporta problemas en las líneas que el PR modificó: el análisis completo de `master`, que se actualiza con cada merge, puede marcar *code smells* en código que no cambió. Una medición local con las reglas de complejidad de Ruff anticipa dos candidatas, `generar_reporte()` y `main()` de `perfilado.py`.
+> Son las cifras del análisis del pull request de esta etapa. El primer análisis completo de `master`, después del merge, confirmó 0 *code smells* en todo el código. Las 42 líneas duplicadas eran un bloque repetido en los `main()` de `optimizado.py` y `concurrente.py`, que se eliminó en la [etapa 2](#testing-y-refactorización).
 
 El análisis marcó cinco vulnerabilidades, que se revisaron y se aceptaron:
 
@@ -697,6 +697,41 @@ El análisis marcó cinco vulnerabilidades, que se revisaron y se aceptaron:
 | Lint (Ruff) | `ruff check` y `ruff format --check`. |
 | Seguridad (Bandit) | Análisis de seguridad del código. |
 | Tests, cobertura y Performance Gate | Corre los tests con una cobertura mínima del 80 %, envía el análisis a SonarCloud y, aparte y sin cobertura, los 2 tests de rendimiento. Solo corre si los dos jobs anteriores pasan. |
+
+---
+
+## Testing y Refactorización
+
+Segunda etapa del segundo parcial: ampliar la red de tests y refactorizar a partir de lo que marcó el análisis estático.
+
+### Tests automatizados
+
+La suite usa **pytest** y corre en el CI con una cobertura mínima del 80 % (hoy 99,7 %). Genera su propio corpus sintético de 2.000 documentos con semilla fija, así que no necesita `data/corpus`.
+
+| Archivo | Tests | Qué verifica |
+| :--- | ---: | :--- |
+| [`test_procesamiento_texto.py`](tests/test_procesamiento_texto.py) | 28 | Normalización, tokenización y el *stemmer*: los 16 pares singular/plural documentados en [Normalización](#normalización-stemming-por-reglas-del-español) y 10 casos borde (invariables, alternancia z/c, `-mente`). |
+| [`test_optimizado.py`](tests/test_optimizado.py) | 12 | Consulta canónica, índice (incluidos archivos ilegibles y **archivos vacíos de 0 bytes**), caché LRU, intersección de *postings* y ranking. |
+| [`test_concurrente.py`](tests/test_concurrente.py) | 7 | Particionado en lotes, fusión de índices parciales, igualdad entre el índice paralelo y el secuencial, y archivos vacíos. |
+| [`test_equivalencia.py`](tests/test_equivalencia.py) | 3 | La línea base y la versión optimizada devuelven **los mismos documentos** para tres consultas cuyo término no cambia con el *stemming*. |
+| [`test_cli.py`](tests/test_cli.py) | 10 | Las líneas de comandos de los tres buscadores. |
+| [`test_rendimiento.py`](tests/test_rendimiento.py) | 2 | *Performance Gate*: la consulta optimizada responde en menos de 0,5 s y le gana a la línea base. |
+
+### Refactorización
+
+| Hallazgo | Detectado por | Cambio |
+| :--- | :--- | :--- |
+| Bloque de 21 líneas duplicado en `main()` de `optimizado.py` y `concurrente.py`: crear el buscador, cronometrar la consulta e imprimir el resultado | SonarCloud | Pasa a `resolver_consulta()` en `optimizado.py`, que llaman los dos `main()`. |
+| Complejidad ciclomática de 23 en `generar_reporte()` y de 15 en `main()` de `perfilado.py` | Ruff (C901) | `generar_reporte()` arma el HTML con una función privada por sección, y `main()` delega en una función por etapa. Bajan a 1 y 2. |
+| El procesamiento de texto convivía con el índice y la búsqueda en `optimizado.py` | Revisión de cohesión | `normalize()`, `stem()`, `tokenizar()` y sus constantes pasan a [`src/core/procesamiento_texto.py`](src/core/procesamiento_texto.py), que importan `optimizado.py` y `concurrente.py`. |
+
+`baseline.py` no usa el módulo de procesamiento de texto, y es a propósito: es la búsqueda ingenua contra la que se mide la mejora. Si tokenizara, cambiarían sus resultados (`"datos"` pasaría de 47.788 a 49.702 coincidencias, ver [Validación de equivalencia](#validación-de-equivalencia)) y dejarían de valer las mediciones.
+
+Con este cambio, el código duplicado que mide SonarCloud pasa de 42 líneas (1,1 %) a 0.
+
+Para que la complejidad no vuelva a crecer, Ruff aplica ahora la regla **C901 con un máximo de 10 por función**. La función más compleja del proyecto es `medir_version()`, con 10, justo en el límite. Tampoco quedan funciones muertas ni imports sin usar: Ruff controla los imports en el CI (F401), y las 82 funciones y clases de `src/` tienen al menos una referencia.
+
+**Verificación.** El motor está cubierto por los tests, que pasan sin cambios. `perfilado.py` es el arnés de medición y no tiene tests, así que su refactorización se verificó comparando salidas contra la versión anterior: el reporte HTML sale idéntico byte a byte en 7 variantes de resultados, los 10 gráficos también, y una corrida completa de `--todo` produce la misma salida y el mismo `perfilado.json`, salvo los tiempos medidos. La salida por consola de `optimizado.py` y `concurrente.py` también es idéntica.
 
 ---
 
@@ -959,7 +994,7 @@ mprof plot
 >
 > | Test | Qué verifica |
 > | :--- | :--- |
-> | `test_equivalencia.py` | La línea base y la versión optimizada encuentran la misma cantidad de documentos para `"algoritmo"`. |
+> | `test_equivalencia.py` | La línea base y la versión optimizada devuelven los mismos documentos —no solo la misma cantidad— para `"algoritmo"`, `"indice"` y `"python"`. |
 > | `test_concurrente.py::test_indice_paralelo_igual_al_secuencial` | El índice paralelo es idéntico al secuencial: términos, `doc_id` y frecuencias. |
 
 Sobre el corpus completo se verifica a mano, comparando el total de coincidencias que informa cada versión:
@@ -1013,6 +1048,7 @@ pytest -m rendimiento --no-cov -v     # Performance Gate
 sphinx-build -b html docs docs/_build/html
 open docs/_build/html/index.html      # Linux: xdg-open
 
-# Solo si se agrega un módulo nuevo a src/: regenera las páginas de docs/api/
+# Solo si se agrega un módulo nuevo a src/: crea su página en docs/api/
+# (no pisa las existentes) y después hay que sumarla a docs/api/modules.rst
 sphinx-apidoc -o docs/api src
 ```

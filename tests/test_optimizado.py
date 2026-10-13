@@ -1,6 +1,8 @@
 """
-Tests unitarios de las piezas del buscador optimizado: normalización,
-caché de consultas, intersección de postings y ranking top-k.
+Tests unitarios de las piezas del buscador optimizado: consulta canónica,
+índice, caché de consultas, intersección de postings y ranking top-k.
+
+El procesamiento de texto se prueba aparte, en test_procesamiento_texto.py.
 """
 
 import pytest
@@ -11,43 +13,13 @@ from optimizado import (
     buscar,
     construir_indice,
     normalizar_consulta,
-    normalize,
     rankear,
-    stem,
-    tokenizar,
 )
 
 
 # ============================================================
-# NORMALIZACIÓN
+# CONSULTA CANÓNICA
 # ============================================================
-
-
-def test_normalize_quita_mayusculas_y_signos():
-    assert normalize("¡Algoritmo!") == "algoritmo"
-
-
-@pytest.mark.parametrize(
-    ("palabra", "esperado"),
-    [
-        ("datos", "dato"),  # plural sobre vocal
-        ("redes", "red"),  # -es tras consonante final válida
-        ("vectores", "vector"),
-        ("variables", "variable"),  # no debe recortar a "variab"
-        ("luces", "luz"),  # alternancia z/c
-        ("corpus", "corpus"),  # invariables
-        ("analisis", "analisis"),
-        ("rapidamente", "rapida"),  # sufijo -mente
-        ("tests", "tests"),  # -s tras consonante: se deja igual
-        ("mes", "mes"),  # demasiado corta
-    ],
-)
-def test_stem(palabra, esperado):
-    assert stem(palabra) == esperado
-
-
-def test_tokenizar_descarta_stopwords_y_tokens_vacios():
-    assert tokenizar("El algoritmo y los datos ___") == ["algoritmo", "dato"]
 
 
 def test_normalizar_consulta_es_canonica():
@@ -70,6 +42,19 @@ def test_construir_indice_ignora_archivos_ilegibles(tmp_path):
 
     assert len(archivos) == 2
     assert indice == {"algoritmo": {0: 1}, "dato": {0: 1}}
+
+
+def test_construir_indice_admite_archivos_vacios(tmp_path):
+    (tmp_path / "a.txt").write_bytes(b"")  # 0 bytes
+    (tmp_path / "b.txt").write_text("algoritmo datos", encoding="utf-8")
+
+    indice, archivos = construir_indice(tmp_path)
+
+    # El archivo vacío conserva su doc_id (0) pero no aporta términos,
+    # y la búsqueda sobre ese índice funciona normalmente.
+    assert len(archivos) == 2
+    assert indice == {"algoritmo": {1: 1}, "dato": {1: 1}}
+    assert Buscador(indice, archivos).buscar("algoritmo")[0] == 1
 
 
 # ============================================================

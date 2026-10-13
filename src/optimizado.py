@@ -11,7 +11,8 @@ Estructuras y técnicas usadas en este script:
 - ``dict``: índice invertido, término -> {doc_id: frecuencia}.
 - ``set``: intersección de postings en ``O(min(|A|, |B|))``.
 - ``heapq.nlargest``: ranking top-k en O(r * log k) en vez de O(r * log r).
-- ``lru_cache``: memoización de :func:`normalize` y :func:`stem`.
+- ``lru_cache``: memoización de la normalización y el stemming (ver
+  :mod:`core.procesamiento_texto`).
 - ``OrderedDict``: caché LRU de consultas (:class:`QueryCache`).
 
 Comandos para correr el script (desde cualquier directorio; el corpus
@@ -24,11 +25,11 @@ siempre se genera y se lee en ``<repo>/data/corpus``)::
 import argparse
 import heapq
 import math
-import re
 import time
 from collections import Counter, OrderedDict
-from functools import lru_cache
 from pathlib import Path
+
+from core.procesamiento_texto import tokenizar
 
 
 # ============================================================
@@ -37,139 +38,6 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_CORPUS = BASE_DIR / "data" / "corpus"
-
-VOCALES = frozenset("aeiouáéíóúü")
-CONSONANTES_FINALES = frozenset("dlnrz")
-
-STOPWORDS = {
-    "el",
-    "la",
-    "los",
-    "las",
-    "un",
-    "una",
-    "unos",
-    "unas",
-    "de",
-    "del",
-    "al",
-    "y",
-    "o",
-    "en",
-    "por",
-    "para",
-    "con",
-    "sin",
-    "que",
-    "es",
-    "se",
-    "su",
-    "sus",
-    "a",
-}
-
-
-# ============================================================
-# NORMALIZACIÓN
-# ============================================================
-
-
-@lru_cache(maxsize=10000)
-def normalize(token):
-    """
-    Normaliza un token: lo pasa a minúsculas y le quita los signos.
-
-    Conserva letras (incluidas las acentuadas y la ñ) y dígitos.
-
-    :param token: Palabra tal como aparece en el texto.
-    :type token: str
-    :return: El token normalizado; puede quedar vacío si solo tenía signos.
-    :rtype: str
-    """
-    token = token.lower()
-    token = re.sub(r"[^a-záéíóúüñ0-9]", "", token)
-
-    return token
-
-
-@lru_cache(maxsize=10000)
-def stem(token):
-    """
-    Normaliza plurales del español a su forma singular.
-
-    Regla general: el plural se forma con -s tras vocal y con -es
-    tras consonante. Se invierte esa regla en lugar de recortar
-    sufijos a ciegas, que era lo que separaba "datos" de "dato".
-    También quita el sufijo -mente de los adverbios largos.
-
-    :param token: Token ya normalizado con :func:`normalize`.
-    :type token: str
-    :return: El token en singular, o sin cambios si no es un plural reconocido.
-    :rtype: str
-    """
-    if len(token) > 8 and token.endswith("mente"):
-        token = token[:-5]
-
-    if len(token) <= 3 or not token.endswith("s"):
-        return token
-
-    # Invariables: corpus, analisis, crisis, virus.
-    if token.endswith(("is", "us")):
-        return token
-
-    # Alternancia z/c: luz -> luces, vez -> veces.
-    if len(token) <= 5 and token.endswith("ces"):
-        return token[:-3] + "z"
-
-    # -es solo si el singular termina en consonante final válida
-    # precedida de vocal: redes -> red, vectores -> vector.
-    # El chequeo de la vocal evita romper "variables" -> "variab".
-    if (
-        len(token) >= 5
-        and token.endswith("es")
-        and token[-3] in CONSONANTES_FINALES
-        and token[-4] in VOCALES
-    ):
-        return token[:-2]
-
-    # Plural sobre vocal: datos -> dato, clases -> clase.
-    if token[-2] in VOCALES:
-        return token[:-1]
-
-    return token
-
-
-def tokenizar(texto):
-    """
-    Convierte un texto en la lista de tokens que se indexan.
-
-    Separa las palabras, las normaliza (:func:`normalize`), descarta las
-    stopwords y lleva cada token a singular (:func:`stem`).
-
-    :param texto: Texto de un documento o de una consulta.
-    :type texto: str
-    :return: Tokens en el orden en que aparecen, con repeticiones.
-    :rtype: list[str]
-    """
-    palabras = re.findall(r"\b[\wáéíóúüñÁÉÍÓÚÜÑ]+\b", texto.lower())
-
-    tokens = []
-
-    for palabra in palabras:
-        token = normalize(palabra)
-
-        if not token:
-            continue
-
-        if token in STOPWORDS:
-            continue
-
-        token = stem(token)
-
-        if token:
-            tokens.append(token)
-
-    return tokens
 
 
 # ============================================================
@@ -540,6 +408,57 @@ def mostrar_resultados(resultados, archivos):
 
 
 # ============================================================
+# LÍNEA DE COMANDOS
+# ============================================================
+
+
+def resolver_consulta(indice, archivos, consulta, top_k, cache_size):
+    """
+    Resuelve una consulta desde la línea de comandos e imprime el resultado.
+
+    Mide el tiempo de búsqueda, informa cuántos documentos coinciden y
+    muestra el ranking. La comparten las líneas de comandos de
+    :mod:`optimizado` y :mod:`concurrente`, que solo difieren en cómo
+    construyen el índice.
+
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param archivos: Rutas del corpus; la posición de cada una es su doc_id.
+    :type archivos: list[pathlib.Path]
+    :param consulta: Texto de la consulta.
+    :type consulta: str
+    :param top_k: Cantidad máxima de documentos a mostrar.
+    :type top_k: int
+    :param cache_size: Cantidad máxima de consultas que guarda la caché.
+    :type cache_size: int
+    :return: El buscador usado, para consultar después el estado de su caché.
+    :rtype: Buscador
+    """
+    buscador = Buscador(indice, archivos, cache_size)
+
+    inicio_busqueda = time.perf_counter()
+
+    total, resultados = buscador.buscar(consulta, top_k)
+
+    tiempo_busqueda = (time.perf_counter() - inicio_busqueda) * 1000
+
+    print()
+    print(f"Tiempo de búsqueda: {tiempo_busqueda:.4f} ms")
+
+    if total > len(resultados):
+        print(
+            f"Documentos encontrados: {total} "
+            f"(se muestran los {len(resultados)} mejores)"
+        )
+    else:
+        print(f"Documentos encontrados: {total}")
+
+    mostrar_resultados(resultados, archivos)
+
+    return buscador
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -599,26 +518,9 @@ def main():
     if not args.query:
         return
 
-    buscador = Buscador(indice, archivos, args.cache_size)
-
-    inicio_busqueda = time.perf_counter()
-
-    total, resultados = buscador.buscar(args.query, args.top_k)
-
-    tiempo_busqueda = (time.perf_counter() - inicio_busqueda) * 1000
-
-    print()
-    print(f"Tiempo de búsqueda: {tiempo_busqueda:.4f} ms")
-
-    if total > len(resultados):
-        print(
-            f"Documentos encontrados: {total} "
-            f"(se muestran los {len(resultados)} mejores)"
-        )
-    else:
-        print(f"Documentos encontrados: {total}")
-
-    mostrar_resultados(resultados, archivos)
+    buscador = resolver_consulta(
+        indice, archivos, args.query, args.top_k, args.cache_size
+    )
 
     print()
     print("Información de caché:")

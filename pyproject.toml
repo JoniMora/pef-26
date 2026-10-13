@@ -20,10 +20,14 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "N", "D"]
+select = ["E", "W", "F", "N", "D", "C901"]
 # Reglas que chocan con `ruff format` (el formateador ya decide la
 # indentación y las comillas de los docstrings).
 ignore = ["W191", "E111", "E114", "E117", "D206", "D300"]
+
+[tool.ruff.lint.mccabe]
+# Complejidad ciclomática máxima por función.
+max-complexity = 10
 
 [tool.ruff.lint.pydocstyle]
 # pep257 desactiva por sí sola las reglas de docstrings que se
