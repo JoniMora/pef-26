@@ -778,7 +778,7 @@ data/indice_corpus/
 └── ...                un archivo por lote (16 con 4 procesos)
 ```
 
-El manifiesto se escribe al final y de forma atómica. Al cargar, se descarta el índice guardado si es de otro corpus o de otro formato, si el corpus cambió o si algún lote está dañado, y en ese caso se reconstruye. Por defecto se guarda en un directorio hermano del corpus (`data/indice_corpus`, que git ignora), configurable con `BUSCADOR_INDICE`. No puede ir adentro del corpus, porque escribir ahí cambiaría su fecha.
+El manifiesto se escribe al final y de forma atómica, y guarda los lotes por número, no por nombre de archivo: SonarCloud detectó (regla S2083) que, con nombres, un manifiesto alterado podía hacer leer archivos de fuera del índice, y un test lo reproduce. Al cargar, se descarta el índice guardado si es de otro corpus o de otro formato, si el corpus cambió o si algún lote está dañado, y en ese caso se reconstruye. Por defecto se guarda en un directorio hermano del corpus (`data/indice_corpus`, que git ignora), configurable con `BUSCADOR_INDICE`. No puede ir adentro del corpus, porque escribir ahí cambiaría su fecha.
 
 El formato se eligió midiendo los 16 lotes del corpus completo:
 
@@ -804,12 +804,12 @@ Con un servidor uvicorn real, la primera consulta tardó 7,0 s (construcción en
 
 ### Tests de esta etapa
 
-La suite pasa de 60 a 100 tests, más los 2 de rendimiento, con una cobertura de 99,6 %:
+La suite pasa de 60 a 101 tests, más los 2 de rendimiento, con una cobertura de 99,6 %:
 
 | Archivo | Tests | Qué verifica |
 | :--- | ---: | :--- |
 | [`test_lectura.py`](tests/test_lectura.py) | 21 | Leer por bloques de 1 a 10.000 bytes da los mismos términos que leer el archivo entero, incluidas palabras más largas que el bloque, caracteres partidos entre bloques y archivos vacíos. El índice secuencial y el concurrente salen iguales con bloques de 5 bytes. |
-| [`test_indice_en_disco.py`](tests/test_indice_en_disco.py) | 9 | Guardar y cargar da el mismo índice, el pool escribe un archivo por lote, y un índice de otro corpus, de un corpus modificado o con un lote dañado se descarta. |
+| [`test_indice_en_disco.py`](tests/test_indice_en_disco.py) | 10 | Guardar y cargar da el mismo índice, el pool escribe un archivo por lote, un índice de otro corpus, de un corpus modificado o con un lote dañado se descarta, y un manifiesto alterado no hace leer archivos de fuera del índice. |
 | [`test_api.py`](tests/test_api.py) | 9 | Las respuestas y los errores de los endpoints, la reutilización del índice, la reconstrucción cuando cambia el corpus, la carga desde disco al reiniciar y el esquema de Swagger. |
 | [`test_optimizado.py`](tests/test_optimizado.py) | +1 | La caché de consultas con 8 hilos concurrentes. |
 
