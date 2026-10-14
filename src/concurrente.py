@@ -139,13 +139,16 @@ def _procesar_lote(lote_archivos):
 # ============================================================
 
 
-def _fusionar(indice, parcial):
+def fusionar(indice, parcial):
     """
     Vuelca un índice parcial sobre el índice global.
 
     Los lotes son disjuntos, así que ningún doc_id se repite entre
     parciales: la fusión no necesita sumar frecuencias y el dict de
     postings del primer parcial se adopta tal cual, sin copiarlo.
+
+    También la usa :mod:`indice_en_disco` para reunir los lotes que
+    carga desde el disco.
 
     :param indice: Índice global; se modifica en el lugar.
     :type indice: dict[str, dict[int, int]]
@@ -161,7 +164,12 @@ def _fusionar(indice, parcial):
             destino.update(postings)
 
 
-def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCESO):
+def construir_indice(
+    corpus_dir,
+    workers=None,
+    lotes_por_proceso=LOTES_POR_PROCESO,
+    al_completar_lote=None,
+):
     """
     Construye el índice invertido en paralelo, con un pool de procesos.
 
@@ -177,6 +185,11 @@ def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCE
     :param lotes_por_proceso: Lotes por proceso. Con más de uno, el pool
         reequilibra la carga cuando un lote resulta más pesado que otro.
     :type lotes_por_proceso: int
+    :param al_completar_lote: Si se indica, se llama con ``(numero, parcial)``
+        apenas termina cada lote y antes de fusionarlo. Es lo que usa
+        :mod:`indice_en_disco` para guardar cada lote en disco mientras los
+        demás se siguen procesando.
+    :type al_completar_lote: collections.abc.Callable | None
     :return: Tupla ``(indice, archivos)``: el índice invertido y la lista
         ordenada de rutas, cuya posición es el doc_id.
     :rtype: tuple[dict[str, dict[int, int]], list[pathlib.Path]]
@@ -194,19 +207,34 @@ def construir_indice(corpus_dir, workers=None, lotes_por_proceso=LOTES_POR_PROCE
     tareas = [(doc_id, str(archivo)) for doc_id, archivo in enumerate(archivos)]
 
     if procesos == 1 or len(archivos) < UMBRAL_PARALELO:
-        return _procesar_lote(tareas), archivos
+        parcial = _procesar_lote(tareas)
+
+        if al_completar_lote:
+            al_completar_lote(0, parcial)
+
+        return parcial, archivos
 
     lotes = _lotes_equitativos(tareas, procesos * lotes_por_proceso)
 
     indice = {}
 
     with ProcessPoolExecutor(max_workers=procesos) as pool:
-        futuros = [pool.submit(_procesar_lote, lote) for lote in lotes]
+        futuros = {
+            pool.submit(_procesar_lote, lote): numero
+            for numero, lote in enumerate(lotes)
+        }
 
         # as_completed fusiona en orden de finalización: el padre
         # reduce mientras los workers siguen mapeando.
         for futuro in as_completed(futuros):
-            _fusionar(indice, futuro.result())
+            parcial = futuro.result()
+
+            # Primero se avisa y después se fusiona: la fusión adopta y
+            # modifica los dicts del parcial.
+            if al_completar_lote:
+                al_completar_lote(futuros[futuro], parcial)
+
+            fusionar(indice, parcial)
 
     return indice, archivos
 

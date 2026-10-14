@@ -343,7 +343,7 @@ Se elige `concurrent.futures.ProcessPoolExecutor` sobre `multiprocessing.Pool` p
 ```
                           ┌─ Worker 1 ─> parcial ─┐
    Corpus  ──> P · 4 lotes ├─ Worker 2 ─> parcial ─┤ as_completed ──> Índice global
-   (n docs)    equitativos └─ Worker P ─> parcial ─┘   (_fusionar)
+   (n docs)    equitativos └─ Worker P ─> parcial ─┘   (fusionar)
 
    50.000 docs  ──>  16 lotes de 3.125  ──>  4 procesos  ──>  1 dict
 ```
@@ -352,7 +352,7 @@ Se elige `concurrent.futures.ProcessPoolExecutor` sobre `multiprocessing.Pool` p
 | :--- | :--- | :--- | :--- |
 | **Particionado** | `_lotes_equitativos()` | División de la lista de documentos en `P · 4` lotes contiguos de tamaño equitativo. | O(n) |
 | **Map** (paralelo) | `_procesar_lote()` | Cada worker lee sus archivos, tokeniza y construye un índice invertido parcial. | O(N / P) |
-| **Reduce** | `_fusionar()` | Volcado de cada parcial sobre el índice global, en orden de finalización. | O(V · P · 4), `V` = vocabulario |
+| **Reduce** | `fusionar()` | Volcado de cada parcial sobre el índice global, en orden de finalización. | O(V · P · 4), `V` = vocabulario |
 
 La fase *Map* no comparte estado mutable entre procesos: cada worker opera sobre un subconjunto disjunto de archivos y devuelve una estructura independiente. Al no existir escritura concurrente, **no se requieren locks**, eliminando la contención y las condiciones de carrera por construcción.
 
@@ -363,7 +363,7 @@ El determinismo no depende del orden de llegada: los `doc_id` se asignan en el p
 - **Granularidad por lotes, no por documento.** La comunicación entre procesos exige serialización con `pickle`; despachar un archivo por tarea haría que el costo de IPC dominara sobre el trabajo útil. Se agrupan los documentos en `P · 4` lotes equitativos (`LOTES_POR_PROCESO = 4`). La medición justifica la escala: un lote de 1/16 del corpus cuesta **487 ms** de trabajo útil, tres órdenes de magnitud por encima del costo de despachar la tarea.
 - **Más lotes que workers.** Con `K = 4` hay 16 tareas para 4 procesos, así el pool **reequilibra** cuando un lote resulta más pesado que otro. Con exactamente `P` lotes, el worker más lento fija el tiempo total.
 - **`doc_id` asignado en el padre.** El worker recibe pares `(doc_id, ruta)` ya numerados sobre la lista ordenada. Es lo que permite fusionar por `as_completed()` —en orden de finalización, no de despacho— sin perder determinismo.
-- **Fusión sin sumar frecuencias.** Como los lotes son disjuntos, ningún `doc_id` se repite entre parciales: `_fusionar()` hace `dict.update()` y adopta por referencia el primer diccionario de *postings* de cada término, sin copiarlo.
+- **Fusión sin sumar frecuencias.** Como los lotes son disjuntos, ningún `doc_id` se repite entre parciales: `fusionar()` hace `dict.update()` y adopta por referencia el primer diccionario de *postings* de cada término, sin copiarlo.
 - **Payload de retorno compacto.** Los workers devuelven las *postings* con `doc_id` enteros y no cadenas de texto; las rutas viajan de ida como `str` y no como `Path`, que se serializa más caro.
 - **Umbral de paralelismo.** Por debajo de `UMBRAL_PARALELO = 512` documentos —o con `P = 1`— se ejecuta el *Map* en el propio proceso: levantar el pool y serializar los parciales costaría más que el trabajo ahorrado.
 - **`spawn` como método de arranque.** En macOS el método por defecto es `spawn`: cada proceso hijo reimporta el módulo principal, por lo que todo el código de arranque queda protegido bajo `if __name__ == "__main__":`. Sin esta guarda, el programa entra en recursión infinita de procesos.

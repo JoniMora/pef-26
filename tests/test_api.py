@@ -43,17 +43,17 @@ def test_buscar_rechaza_consulta_vacia(corpus_api):
 
 
 def _contar_construcciones(monkeypatch):
-    """Envuelve construir_indice para contar cuántas veces se ejecuta."""
-    import api
+    """Envuelve la construcción del índice para contar cuántas veces ocurre."""
+    import indice_en_disco
 
     llamadas = []
-    original = api.construir_indice
+    original = indice_en_disco.construir_y_guardar
 
     def contada(*args, **kwargs):
         llamadas.append(1)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(api, "construir_indice", contada)
+    monkeypatch.setattr(indice_en_disco, "construir_y_guardar", contada)
     return llamadas
 
 
@@ -100,3 +100,24 @@ def test_corpus_inexistente_responde_503(tmp_path):
 
     assert client.get("/buscar", params={"q": "algoritmo"}).status_code == 503
     assert client.post("/reindexar").status_code == 503
+
+
+def test_al_reiniciar_carga_el_indice_guardado(corpus_api, monkeypatch):
+    TestClient(create_app(corpus_api)).get("/buscar", params={"q": "algoritmo"})
+
+    # Una aplicación nueva simula reiniciar el servidor: no tiene el índice
+    # en memoria, pero lo encuentra en disco y no lo reconstruye.
+    construcciones = _contar_construcciones(monkeypatch)
+    client = TestClient(create_app(corpus_api))
+
+    assert client.get("/buscar", params={"q": "algoritmo"}).json()["total"] == 1
+    assert construcciones == []
+
+
+def test_el_directorio_del_indice_es_configurable(corpus_api, tmp_path_factory):
+    destino = tmp_path_factory.mktemp("indice")
+    client = TestClient(create_app(corpus_api, indice_dir=destino))
+
+    client.get("/buscar", params={"q": "algoritmo"})
+
+    assert (destino / "manifiesto.json").exists()

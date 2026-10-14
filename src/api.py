@@ -1,9 +1,10 @@
 """
 API HTTP del buscador eficiente.
 
-El índice se construye de forma diferida en la primera consulta y se
-reutiliza para las siguientes. De esta manera el corpus no se vuelve a
-leer por cada petición HTTP.
+El índice se prepara en la primera consulta y se reutiliza para las
+siguientes. Si hay un índice guardado en disco que todavía corresponde al
+corpus, se carga en lugar de construirse (ver :mod:`indice_en_disco`);
+si no, se construye en paralelo y se guarda para el próximo arranque.
 
 Para saber si el corpus cambió, cada consulta mira solo la fecha de
 modificación del directorio, que cambia cuando se agregan, borran o
@@ -14,8 +15,9 @@ Para iniciar el servidor desde la raíz del repositorio::
 
     uvicorn api:app --app-dir src --reload
 
-También se puede indicar otro corpus con la variable de entorno
-``BUSCADOR_CORPUS``.
+Variables de entorno opcionales: ``BUSCADOR_CORPUS`` (otro corpus) y
+``BUSCADOR_INDICE`` (dónde guardar el índice; por defecto, un directorio
+hermano del corpus).
 """
 
 import os
@@ -25,7 +27,8 @@ from threading import Lock
 
 from fastapi import FastAPI, HTTPException, Query
 
-from optimizado import DEFAULT_CORPUS, Buscador, construir_indice
+import indice_en_disco
+from optimizado import DEFAULT_CORPUS, Buscador
 
 
 class ServicioDeBusqueda:
@@ -36,14 +39,20 @@ class ServicioDeBusqueda:
     a la vez: la segunda espera y reutiliza el de la primera.
     """
 
-    def __init__(self, directorio):
+    def __init__(self, directorio, directorio_indice=None):
         """
         Crea el servicio sin indexar: el índice se arma en la primera consulta.
 
         :param directorio: Directorio del corpus.
         :type directorio: str | pathlib.Path
+        :param directorio_indice: Dónde se guarda el índice; por defecto,
+            :func:`indice_en_disco.directorio_indice_para`.
+        :type directorio_indice: str | pathlib.Path | None
         """
         self.directorio = Path(directorio)
+        self.directorio_indice = Path(
+            directorio_indice or indice_en_disco.directorio_indice_para(directorio)
+        )
         self._buscador = None
         self._version = None
         self._bloqueo = Lock()
@@ -91,14 +100,17 @@ class ServicioDeBusqueda:
         :raises fastapi.HTTPException: 503 si el directorio no existe.
         """
         with self._bloqueo:
-            return self._indexar(self.version_corpus())
+            return self._indexar(self.version_corpus(), forzar=True)
 
-    def _indexar(self, version):
+    def _indexar(self, version, forzar=False):
         """
-        Construye el índice y lo deja en uso. Se llama con el bloqueo tomado.
+        Carga o construye el índice y lo deja en uso. Requiere el bloqueo.
 
         :param version: Fecha de modificación del directorio al indexar.
         :type version: int | None
+        :param forzar: Si es verdadero, reconstruye aunque haya un índice
+            guardado válido.
+        :type forzar: bool
         :return: El buscador sobre el índice nuevo.
         :rtype: optimizado.Buscador
         :raises fastapi.HTTPException: 503 si el directorio no existe.
@@ -109,25 +121,31 @@ class ServicioDeBusqueda:
                 detail=f"No existe el directorio del corpus: {self.directorio}",
             )
 
-        indice, archivos = construir_indice(self.directorio)
+        indice, archivos, _ = indice_en_disco.obtener_indice(
+            self.directorio, self.directorio_indice, forzar=forzar
+        )
         self._buscador = Buscador(indice, archivos)
         self._version = version
 
         return self._buscador
 
 
-def create_app(corpus_dir=None):
+def create_app(corpus_dir=None, indice_dir=None):
     """
     Crea la aplicación HTTP para un directorio de corpus.
 
     :param corpus_dir: Directorio con archivos ``.txt``. Si no se indica,
         usa ``BUSCADOR_CORPUS`` o el corpus predeterminado del proyecto.
     :type corpus_dir: str | pathlib.Path | None
+    :param indice_dir: Dónde guardar el índice. Si no se indica, usa
+        ``BUSCADOR_INDICE`` o un directorio hermano del corpus.
+    :type indice_dir: str | pathlib.Path | None
     :return: Aplicación FastAPI configurada.
     :rtype: fastapi.FastAPI
     """
     servicio = ServicioDeBusqueda(
-        corpus_dir or os.environ.get("BUSCADOR_CORPUS") or DEFAULT_CORPUS
+        corpus_dir or os.environ.get("BUSCADOR_CORPUS") or DEFAULT_CORPUS,
+        indice_dir or os.environ.get("BUSCADOR_INDICE"),
     )
 
     app = FastAPI(
