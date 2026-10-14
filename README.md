@@ -17,41 +17,6 @@ El sistema se compone de cuatro etapas:
 | **Indexación / Búsqueda** | Resolución de los términos de la consulta contra la estructura de datos de acceso. |
 | **Ranking** | Puntuación TF-IDF de los documentos candidatos y selección del *top-k*. |
 
-## API HTTP
-
-El motor puede exponerse como una API FastAPI. El índice se construye de
-forma diferida en la primera consulta y se mantiene en memoria para que las
-peticiones siguientes no vuelvan a leer el corpus completo:
-
-```bash
-pip install -r requirements.txt
-uvicorn api:app --app-dir src --reload
-```
-
-La consulta se realiza mediante `GET /buscar`:
-
-```text
-http://127.0.0.1:8000/buscar?q=algoritmo&top_k=10
-```
-
-La respuesta contiene la cantidad total de coincidencias y el ranking
-solicitado:
-
-```json
-{
-  "consulta": "algoritmo",
-  "total": 2,
-  "resultados": [
-    {"documento": "doc_000001.txt", "score": 1.23}
-  ]
-}
-```
-
-Para usar otro directorio, definir `BUSCADOR_CORPUS` antes de iniciar el
-servidor. La indexación concurrente continúa disponible mediante
-`src/concurrente.py`; allí los documentos se distribuyen en lotes y cada
-worker procesa sus archivos con un buffer de lectura de 1 MiB.
-
 El requisito central de la asignatura no es la funcionalidad —ambas versiones deben devolver **resultados idénticos**, lo que verifica el test de equivalencia de [`tests/`](tests/)—, sino la **evidencia cuantificada de la mejora**. Cada optimización debe estar justificada por su complejidad algorítmica y validada con mediciones reproducibles de tiempo y memoria obtenidas mediante herramientas de perfilado formales.
 
 El proyecto se versiona en cuatro incrementos medibles y comparables entre sí:
@@ -770,6 +735,95 @@ Para que la complejidad no vuelva a crecer, Ruff aplica ahora la regla **C901 co
 
 ---
 
+## API, Entrada/Salida y Framework
+
+Tercera etapa del segundo parcial: exponer el motor como un servicio web y mejorar cómo se leen y se guardan los datos.
+
+### API web con FastAPI
+
+[`src/api.py`](src/api.py) envuelve el buscador en una API. La documentación interactiva (Swagger) queda en `/docs`, con el esquema de cada respuesta.
+
+| Endpoint | Qué hace | Respuesta |
+| :--- | :--- | :--- |
+| `GET /buscar?q=algoritmo&top_k=10` | Busca los documentos que contienen todos los términos y devuelve los mejores. `top_k` va de 1 a 100. | `{"consulta", "total", "resultados": [{"documento", "score"}]}` |
+| `POST /reindexar` | Reconstruye el índice aunque el corpus no haya cambiado. | `{"documentos", "terminos", "segundos"}` |
+
+Una consulta vacía o un `top_k` fuera de rango devuelven **422**, y un corpus inexistente, **503**.
+
+- **El índice se prepara una vez y se reutiliza.** La clase `ServicioDeBusqueda` lo carga o lo construye en la primera consulta. Un `Lock` evita que dos consultas simultáneas lo construyan a la vez.
+- **Saber si el corpus cambió cuesta una sola consulta al disco.** La primera versión revisaba nombre, fecha y tamaño de cada archivo en cada pedido: 100.000 `stat()` con el corpus completo, que costaban 1,6 s por consulta. Ahora mira solo la fecha de modificación del directorio, que cambia cuando se agregan, borran o renombran archivos. Si cambia el contenido de un archivo existente, la fecha no se entera: para eso está `POST /reindexar`.
+- **La caché de consultas es segura entre hilos.** FastAPI atiende consultas en paralelo, y un test con 8 hilos mostró que sin un bloqueo un hilo podía desalojar una consulta mientras otro la estaba leyendo (`KeyError`, que en la API es un error 500). `QueryCache` ahora usa un `Lock`.
+
+### Lectura por bloques
+
+La línea base sigue leyendo cada archivo entero con `read()`, a propósito: es la versión ingenua contra la que se compara. La versión optimizada y la concurrente leen ahora con [`src/core/lectura.py`](src/core/lectura.py), de a **bloques de 64 KiB**, y cuentan los términos a medida que leen. Así la memoria queda acotada por el bloque y no por el tamaño del archivo.
+
+Un bloque puede cortar dos cosas, y las dos se resuelven:
+
+- **Un carácter de varios bytes** (`á`, `ñ`): el decodificador incremental de UTF-8 lo completa con el bloque siguiente.
+- **Una palabra:** cada bloque se procesa hasta su último espacio, y lo que queda se antepone al bloque siguiente.
+
+Con un archivo de 21 MB, el pico de memoria baja de **279 MB a 1,1 MB**, con el mismo conteo de términos y un tiempo similar (5,5 s y 5,0 s). Sobre el corpus completo, el índice que resulta es idéntico al de antes: 39 términos y 1.865.501 *postings*.
+
+> La primera versión de este punto pasaba `buffering=1 MiB` a `open()`, pero seguía leyendo cada archivo entero con `read()`. Un buffer cambia cómo se hacen las lecturas al sistema operativo, no cuánto texto se carga en memoria.
+
+### Índice en disco por lotes
+
+Construir el índice de 50.000 documentos lleva varios segundos. [`src/indice_en_disco.py`](src/indice_en_disco.py) lo guarda en disco para no repetirlo cada vez que arranca la API, y aprovecha el MapReduce de la entrega anterior: **cada lote se escribe en su propio archivo apenas termina**, mientras los demás se siguen procesando.
+
+```
+data/indice_corpus/
+├── manifiesto.json    corpus, firma (fecha del directorio y cantidad de documentos) y lotes
+├── lote_000.json      término -> [doc_ids, frecuencias]
+└── ...                un archivo por lote (16 con 4 procesos)
+```
+
+El manifiesto se escribe al final y de forma atómica. Al cargar, se descarta el índice guardado si es de otro corpus o de otro formato, si el corpus cambió o si algún lote está dañado, y en ese caso se reconstruye. Por defecto se guarda en un directorio hermano del corpus (`data/indice_corpus`, que git ignora), configurable con `BUSCADOR_INDICE`. No puede ir adentro del corpus, porque escribir ahí cambiaría su fecha.
+
+El formato se eligió midiendo los 16 lotes del corpus completo:
+
+| Formato | Escribir | Cargar y fusionar | Tamaño |
+| :--- | ---: | ---: | ---: |
+| **JSON** (elegido) | 0,32 s | 0,69 s | 14,6 MB |
+| pickle | 0,13 s | 0,49 s | 9,3 MB |
+| SQLite | 2,24 s | 2,02 s | 38,5 MB |
+
+JSON carga 0,2 s más lento que pickle, pero leerlo no puede ejecutar código (cargar un pickle sí puede) y se puede inspeccionar a mano.
+
+### Resultados de la API
+
+Sobre los 50.000 documentos, con el disco en caché:
+
+| Situación | Antes | Ahora |
+| :--- | ---: | ---: |
+| Primera consulta, sin índice guardado | 21,2 s | 6,4 s (construye en paralelo y guarda) |
+| Primera consulta, con índice guardado | — | **0,93 s** (lo carga) |
+| Consultas siguientes | 1,6 s | **2 a 13 ms** |
+
+Con un servidor uvicorn real, la primera consulta tardó 7,0 s (construcción en paralelo y guardado) y, después de reiniciar el servidor, 0,92 s.
+
+### Tests de esta etapa
+
+La suite pasa de 60 a 100 tests, más los 2 de rendimiento, con una cobertura de 99,6 %:
+
+| Archivo | Tests | Qué verifica |
+| :--- | ---: | :--- |
+| [`test_lectura.py`](tests/test_lectura.py) | 21 | Leer por bloques de 1 a 10.000 bytes da los mismos términos que leer el archivo entero, incluidas palabras más largas que el bloque, caracteres partidos entre bloques y archivos vacíos. El índice secuencial y el concurrente salen iguales con bloques de 5 bytes. |
+| [`test_indice_en_disco.py`](tests/test_indice_en_disco.py) | 9 | Guardar y cargar da el mismo índice, el pool escribe un archivo por lote, y un índice de otro corpus, de un corpus modificado o con un lote dañado se descarta. |
+| [`test_api.py`](tests/test_api.py) | 9 | Las respuestas y los errores de los endpoints, la reutilización del índice, la reconstrucción cuando cambia el corpus, la carga desde disco al reiniciar y el esquema de Swagger. |
+| [`test_optimizado.py`](tests/test_optimizado.py) | +1 | La caché de consultas con 8 hilos concurrentes. |
+
+### Dependencias
+
+| Archivo | Para qué |
+| :--- | :--- |
+| `requirements.txt` | Correr la API (FastAPI y uvicorn). El motor de búsqueda solo usa la biblioteca estándar. |
+| `requirements-dev.txt` | El CI: incluye `requirements.txt`, las herramientas de calidad y `httpx` para los tests de la API. |
+| `requirements-perfilado.txt` | Las herramientas de medición, que no corren en el CI. |
+| `requirements-informes.txt` | Generar el informe en PDF de New Relic (`scripts/generar_informe_newrelic.py`). |
+
+---
+
 ## Instrucciones de Ejecución
 
 ### Requisitos previos
@@ -910,6 +964,21 @@ Speedup: 1.86x
 > `Índices idénticos: True` compara los dos diccionarios completos, no un resumen: términos, `doc_id` y frecuencias. Es la verificación de equivalencia del incremento 4.
 >
 > El `--comparar` construye el índice **dos veces** en el mismo proceso, así que su tiempo total es la suma de ambas rutas. Para cronometrar, usar las corridas por separado.
+
+### API web
+
+```bash
+pip install -r requirements.txt
+uvicorn api:app --app-dir src          # documentación interactiva en http://127.0.0.1:8000/docs
+
+curl "http://127.0.0.1:8000/buscar?q=algoritmo&top_k=5"
+curl -X POST http://127.0.0.1:8000/reindexar
+
+# Otro corpus, u otro directorio para el índice guardado
+BUSCADOR_CORPUS=/ruta/al/corpus BUSCADOR_INDICE=/ruta/al/indice uvicorn api:app --app-dir src
+```
+
+> La primera construcción del índice usa procesos con el método de arranque `spawn`, que vuelve a importar el script principal en cada proceso. Uvicorn ya lo tiene en cuenta, pero un script propio que use la API directamente (por ejemplo, con `TestClient`) tiene que tener la guarda `if __name__ == "__main__":`.
 
 ### Comparativa automatizada
 
