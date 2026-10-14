@@ -31,6 +31,7 @@ from pathlib import Path
 
 from core.procesamiento_texto import tokenizar
 from optimizado import (
+    BUFFER_SIZE,
     DEFAULT_CORPUS,
     construir_indice as construir_indice_secuencial,
     resolver_consulta,
@@ -120,7 +121,12 @@ def _procesar_lote(lote_archivos):
 
     for doc_id, ruta in lote_archivos:
         try:
-            with open(ruta, encoding="utf-8", errors="ignore") as archivo:
+            with open(
+                ruta,
+                encoding="utf-8",
+                errors="ignore",
+                buffering=BUFFER_SIZE,
+            ) as archivo:
                 texto = archivo.read()
         except OSError:
             continue

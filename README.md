@@ -17,6 +17,41 @@ El sistema se compone de cuatro etapas:
 | **Indexación / Búsqueda** | Resolución de los términos de la consulta contra la estructura de datos de acceso. |
 | **Ranking** | Puntuación TF-IDF de los documentos candidatos y selección del *top-k*. |
 
+## API HTTP
+
+El motor puede exponerse como una API FastAPI. El índice se construye de
+forma diferida en la primera consulta y se mantiene en memoria para que las
+peticiones siguientes no vuelvan a leer el corpus completo:
+
+```bash
+pip install fastapi uvicorn
+uvicorn api:app --app-dir src --reload
+```
+
+La consulta se realiza mediante `GET /buscar`:
+
+```text
+http://127.0.0.1:8000/buscar?q=algoritmo&top_k=10
+```
+
+La respuesta contiene la cantidad total de coincidencias y el ranking
+solicitado:
+
+```json
+{
+  "consulta": "algoritmo",
+  "total": 2,
+  "resultados": [
+    {"documento": "doc_000001.txt", "score": 1.23}
+  ]
+}
+```
+
+Para usar otro directorio, definir `BUSCADOR_CORPUS` antes de iniciar el
+servidor. La indexación concurrente continúa disponible mediante
+`src/concurrente.py`; allí los documentos se distribuyen en lotes y cada
+worker procesa sus archivos con un buffer de lectura de 1 MiB.
+
 El requisito central de la asignatura no es la funcionalidad —ambas versiones deben devolver **resultados idénticos**, lo que verifica el test de equivalencia de [`tests/`](tests/)—, sino la **evidencia cuantificada de la mejora**. Cada optimización debe estar justificada por su complejidad algorítmica y validada con mediciones reproducibles de tiempo y memoria obtenidas mediante herramientas de perfilado formales.
 
 El proyecto se versiona en cuatro incrementos medibles y comparables entre sí:
