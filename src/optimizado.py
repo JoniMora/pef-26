@@ -26,9 +26,10 @@ import argparse
 import heapq
 import math
 import time
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from pathlib import Path
 
+from core.lectura import contar_terminos
 from core.procesamiento_texto import tokenizar
 
 
@@ -38,7 +39,6 @@ from core.procesamiento_texto import tokenizar
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_CORPUS = BASE_DIR / "data" / "corpus"
-BUFFER_SIZE = 1024 * 1024
 
 
 # ============================================================
@@ -69,21 +69,11 @@ def construir_indice(corpus_dir):
     archivos = sorted(corpus_dir.glob("*.txt"))
 
     for doc_id, archivo in enumerate(archivos):
+        # Se lee por bloques: la memoria no depende del tamaño del archivo.
         try:
-            with archivo.open(
-                "r",
-                encoding="utf-8",
-                errors="ignore",
-                buffering=BUFFER_SIZE,
-            ) as entrada:
-                texto = entrada.read()
+            frecuencias = contar_terminos(archivo)
         except OSError:
             continue
-
-        tokens = tokenizar(texto)
-
-        # Contamos cuántas veces aparece cada término
-        frecuencias = Counter(tokens)
 
         for termino, frecuencia in frecuencias.items():
             if termino not in indice:
