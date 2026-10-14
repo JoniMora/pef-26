@@ -37,6 +37,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_CORPUS = BASE_DIR / "data" / "corpus"
+BUFFER_SIZE = 1024 * 1024
 
 VOCALES = frozenset("aeiouáéíóúü")
 CONSONANTES_FINALES = frozenset("dlnrz")
@@ -201,7 +202,13 @@ def construir_indice(corpus_dir):
 
     for doc_id, archivo in enumerate(archivos):
         try:
-            texto = archivo.read_text(encoding="utf-8", errors="ignore")
+            with archivo.open(
+                "r",
+                encoding="utf-8",
+                errors="ignore",
+                buffering=BUFFER_SIZE,
+            ) as entrada:
+                texto = entrada.read()
         except OSError:
             continue
 

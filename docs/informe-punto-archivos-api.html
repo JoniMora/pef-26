@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Informe - Archivos grandes, procesamiento paralelo y API</title>
+  <style>
+    @page { size: A4; margin: 22mm 18mm; }
+    body { font-family: Arial, sans-serif; color: #202124; line-height: 1.45; font-size: 11pt; }
+    h1 { color: #15395b; font-size: 25pt; margin-bottom: 6px; }
+    h2 { color: #1e5a88; border-bottom: 1px solid #b8c9d8; padding-bottom: 4px; margin-top: 25px; }
+    h3 { color: #284f70; margin-top: 18px; }
+    .subtitle { color: #5f6368; font-size: 13pt; }
+    .box { background: #eef5fa; border-left: 4px solid #2d75a8; padding: 12px 15px; margin: 14px 0; }
+    .warning { background: #fff7e6; border-left-color: #d88900; }
+    code, pre { font-family: Consolas, monospace; }
+    code { background: #f1f3f4; padding: 1px 4px; border-radius: 3px; }
+    pre { background: #202b36; color: #f2f5f7; padding: 12px; border-radius: 5px; white-space: pre-wrap; font-size: 9pt; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+    th, td { border: 1px solid #b9c2c9; padding: 7px; vertical-align: top; }
+    th { background: #dceaf4; text-align: left; }
+    .small { font-size: 9pt; color: #5f6368; }
+    .pagebreak { page-break-before: always; }
+    li { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <h1>Informe del punto implementado</h1>
+  <p class="subtitle">Escritura y lectura de archivos grandes, batching, buffer,
+  procesamiento paralelo, legibilidad, mantenibilidad, PEP 8 y API web</p>
+
+  <div class="box">
+    <strong>Proyecto:</strong> Buscador Eficiente de Información<br>
+    <strong>Repositorio:</strong> pef-26<br>
+    <strong>Fecha:</strong> 12 de octubre de 2026
+  </div>
+
+  <h2>1. Objetivo del trabajo</h2>
+  <p>El objetivo fue extender el buscador para que demostrara los conceptos
+  trabajados en clase: manejo de archivos, uso eficiente de recursos,
+  organización del código y exposición del motor mediante un framework web.</p>
+  <p>El sistema recibe una consulta, busca los términos dentro de un corpus de
+  archivos de texto y devuelve los documentos más relevantes. La solución
+  conserva el buscador existente y agrega mejoras relacionadas con la lectura,
+  el procesamiento y la conexión mediante HTTP.</p>
+
+  <h2>2. Estructura general del proyecto</h2>
+  <table>
+    <tr><th>Archivo</th><th>Responsabilidad</th></tr>
+    <tr><td><code>src/baseline.py</code></td><td>Versión secuencial de referencia. Lee cada archivo y busca por fuerza bruta.</td></tr>
+    <tr><td><code>src/optimizado.py</code></td><td>Normalización, índice invertido, búsqueda, ranking TF-IDF y caché.</td></tr>
+    <tr><td><code>src/concurrente.py</code></td><td>Construcción del índice por lotes usando varios procesos.</td></tr>
+    <tr><td><code>src/api.py</code></td><td>API FastAPI con el endpoint <code>GET /buscar</code>.</td></tr>
+    <tr><td><code>tests/test_api.py</code></td><td>Pruebas del endpoint HTTP.</td></tr>
+    <tr><td><code>requirements-dev.txt</code></td><td>Dependencias de desarrollo y de la API.</td></tr>
+  </table>
+
+  <h2>3. Lectura de archivos grandes y buffer</h2>
+  <h3>¿Qué problema había?</h3>
+  <p>El buscador ya leía el contenido completo de cada documento, pero no
+  declaraba un buffer explícito. Al trabajar con muchos archivos o archivos
+  grandes, es importante controlar cómo se realizan las operaciones de entrada
+  y salida.</p>
+  <h3>¿Qué se implementó?</h3>
+  <p>En <code>src/optimizado.py</code> se agregó:</p>
+  <pre>BUFFER_SIZE = 1024 * 1024</pre>
+  <p>El índice secuencial ahora abre cada archivo indicando un buffer de 1 MiB:</p>
+  <pre>with archivo.open(
+    "r",
+    encoding="utf-8",
+    errors="ignore",
+    buffering=BUFFER_SIZE,
+) as entrada:
+    texto = entrada.read()</pre>
+  <p>El buffer es una zona intermedia de memoria que agrupa operaciones de
+  lectura. Esto reduce la cantidad de accesos pequeños al sistema operativo y
+  resulta apropiado para recorrer documentos de texto.</p>
+  <div class="box warning">
+    <strong>Aclaración:</strong> el buffer no significa que todo el corpus se
+    cargue en memoria. Se usa un documento por vez. El índice sí queda en
+    memoria porque es precisamente la estructura que permite responder
+    consultas rápidamente.
+  </div>
+  <p>La misma constante se reutiliza en <code>src/concurrente.py</code>. Así
+  ambas implementaciones usan la misma política de lectura y no se duplica
+  configuración.</p>
+
+  <h2>4. Batching: procesamiento por lotes</h2>
+  <p><strong>Batching</strong> significa agrupar elementos de entrada en lotes
+  antes de procesarlos. En lugar de crear una tarea independiente para cada
+  archivo, el programa construye lotes de documentos.</p>
+  <p>En <code>concurrente.py</code>, <code>_lotes_equitativos()</code> reparte
+  los documentos de manera equilibrada. El resto de una división se distribuye
+  entre los primeros lotes, por lo que ningún lote difiere en más de un
+  elemento.</p>
+  <pre>cantidad_lotes = procesos * LOTES_POR_PROCESO
+lotes = _lotes_equitativos(tareas, cantidad_lotes)</pre>
+  <p>Se utiliza más de un lote por proceso para que el pool pueda equilibrar
+  mejor la carga si algunos documentos son más pesados que otros. Se evita,
+  en cambio, crear una tarea por archivo, porque el costo de comunicación y
+  serialización sería innecesario.</p>
+
+  <h2>5. Procesamiento paralelo</h2>
+  <p>La indexación requiere leer documentos, tokenizarlos, normalizarlos y
+  contar frecuencias. Es una etapa costosa y se implementó con
+  <code>ProcessPoolExecutor</code>.</p>
+  <ol>
+    <li><strong>Particionado:</strong> el proceso principal asigna un
+      <code>doc_id</code> estable a cada ruta y crea los lotes.</li>
+    <li><strong>Map:</strong> cada worker ejecuta
+      <code>_procesar_lote()</code>, lee sus archivos y genera un índice
+      parcial.</li>
+    <li><strong>Reduce:</strong> el proceso principal fusiona los índices
+      parciales mediante <code>_fusionar()</code>.</li>
+  </ol>
+  <p>Los workers no modifican una estructura compartida. Cada uno devuelve su
+  propio diccionario y el proceso principal integra los resultados. Esto evita
+  locks y condiciones de carrera.</p>
+  <table>
+    <tr><th>Situación</th><th>Comportamiento</th></tr>
+    <tr><td>Pocos archivos</td><td>Se procesa en el proceso principal porque crear workers costaría más que el trabajo.</td></tr>
+    <tr><td>Muchos archivos</td><td>Se divide el corpus en lotes y se procesa con varios procesos.</td></tr>
+    <tr><td>Un worker</td><td>Se conserva un camino secuencial útil para pruebas y comparación.</td></tr>
+  </table>
+
+  <h2>6. Índice invertido y ranking</h2>
+  <p>El índice invertido guarda, para cada término, los documentos donde
+  aparece y su frecuencia. Conceptualmente:</p>
+  <pre>"algoritmo" -&gt; {12: 3, 45: 1, 784: 5}</pre>
+  <p>La consulta no necesita recorrer todos los documentos. Primero obtiene
+  los candidatos desde el índice, luego calcula TF-IDF y finalmente devuelve
+  los mejores <code>top_k</code> resultados usando un heap.</p>
+  <ul>
+    <li>La indexación se paga una vez.</li>
+    <li>Las consultas posteriores reutilizan la estructura.</li>
+    <li>La caché LRU evita recalcular consultas repetidas.</li>
+    <li>El ranking es determinista: ante empate se prioriza el documento con
+      menor <code>doc_id</code>.</li>
+  </ul>
+
+  <h2>7. API web con FastAPI</h2>
+  <p>Se creó <code>src/api.py</code> para convertir el buscador en un servicio
+  conectable desde un navegador, otra aplicación o un frontend.</p>
+  <h3>Endpoint</h3>
+  <pre>GET /buscar?q=algoritmo&amp;top_k=10</pre>
+  <ul>
+    <li><code>q</code>: consulta obligatoria, con al menos un carácter.</li>
+    <li><code>top_k</code>: cantidad máxima de resultados, entre 1 y 100.</li>
+  </ul>
+  <p>La respuesta tiene tres partes: la consulta normalizada para mostrar,
+  el total de coincidencias y la lista de resultados con nombre y score.</p>
+  <pre>{
+  "consulta": "algoritmo",
+  "total": 957,
+  "resultados": [
+    {
+      "documento": "doc_000784.txt",
+      "score": 0.6592783129377415
+    }
+  ]
+}</pre>
+
+  <h3>Construcción diferida y reutilización</h3>
+  <p>La aplicación no indexa el corpus al importar el módulo. Construye el
+  índice en la primera consulta, lo guarda en memoria y reutiliza el objeto
+  <code>Buscador</code> en las peticiones siguientes.</p>
+  <p>Esto evita leer y tokenizar los 1000 o 50.000 documentos cada vez que un
+  cliente consulta la API.</p>
+
+  <h3>Actualización automática del índice</h3>
+  <p>Durante las pruebas apareció un caso real: si la API se consultaba cuando
+  el corpus estaba vacío y luego se generaban documentos, el índice anterior
+  seguía vacío. Para resolverlo, <code>api.py</code> calcula una firma del
+  corpus formada por nombre, fecha de modificación y tamaño de cada archivo.
+  Si esa firma cambia, reconstruye el índice.</p>
+  <p>Por eso ahora se pueden agregar o regenerar documentos sin tener que
+  borrar manualmente el estado interno del buscador.</p>
+
+  <h2>8. Legibilidad y mantenibilidad</h2>
+  <ul>
+    <li>Se utilizaron nombres descriptivos como
+      <code>BUFFER_SIZE</code>, <code>firma_corpus</code>,
+      <code>obtener_buscador</code> y <code>procesar_lote</code>.</li>
+    <li>La API está separada de la lógica de indexación: cada módulo tiene una
+      responsabilidad clara.</li>
+    <li>Se reutilizaron funciones y clases existentes en lugar de duplicar el
+      algoritmo de búsqueda.</li>
+    <li>Las funciones públicas y las partes no evidentes tienen docstrings que
+      explican parámetros, retornos y propósito.</li>
+    <li>La configuración del buffer está centralizada en una constante.</li>
+    <li>Los errores se informan mediante códigos HTTP apropiados, por ejemplo
+      <code>503</code> si no existe el corpus y <code>422</code> si la consulta
+      es inválida.</li>
+  </ul>
+
+  <h2>9. PEP 8 y formato</h2>
+  <p>Se ejecutó Ruff sobre los archivos modificados. Ruff verifica errores de
+  estilo, imports, nombres, formato y reglas de documentación configuradas en
+  <code>pyproject.toml</code>.</p>
+  <pre>ruff check src/api.py src/optimizado.py src/concurrente.py tests/test_api.py
+ruff format --check src/api.py src/optimizado.py src/concurrente.py tests/test_api.py</pre>
+  <p>Resultado: todos los checks pasaron correctamente.</p>
+
+  <h2>10. Pruebas y verificación</h2>
+  <p>Se agregaron pruebas para confirmar el comportamiento HTTP:</p>
+  <ul>
+    <li>Una consulta válida devuelve total, documentos y ranking.</li>
+    <li>Una consulta formada solo por espacios devuelve error 422.</li>
+  </ul>
+  <p>La suite completa terminó con:</p>
+  <pre>44 passed, 1 warning</pre>
+  <p>La advertencia proviene de una dependencia externa usada por el cliente de
+  pruebas de Starlette; no corresponde al código del proyecto.</p>
+
+  <h2>11. Ejecución paso a paso</h2>
+  <pre>cd "C:\Users\jorge\Desktop\PEF\parcial2\pef-26"
+python -m pip install -r requirements-dev.txt
+python src\baseline.py --generar --num-docs 1000
+python -m uvicorn api:app --app-dir src --reload</pre>
+  <p>Luego se puede abrir:</p>
+  <pre>http://127.0.0.1:8000/docs
+http://127.0.0.1:8000/buscar?q=algoritmo&amp;top_k=10</pre>
+  <p>La documentación de <code>/docs</code> permite ejecutar el endpoint
+  desde el navegador usando el botón <strong>Try it out</strong>.</p>
+
+  <h2>12. Resultado final</h2>
+  <p>Con un corpus de 1000 documentos se verificó una consulta real de
+  <code>algoritmo</code> que devolvió 957 coincidencias y los 10 documentos
+  con mayor score. Esto confirma que la API utiliza el índice invertido, el
+  ranking TF-IDF y el límite <code>top_k</code> correctamente.</p>
+  <div class="box">
+    <strong>Conclusión:</strong> el punto integra optimización de entrada/salida,
+    batching, procesamiento paralelo, estructuras de datos eficientes,
+    documentación, PEP 8 y una interfaz web reutilizable, manteniendo las
+    pruebas existentes y agregando cobertura específica para la API.
+  </div>
+</body>
+</html>

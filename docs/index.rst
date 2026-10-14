@@ -12,6 +12,7 @@ El proyecto se compone de cuatro módulos:
   consultas.
 - :mod:`concurrente`: construcción del índice en paralelo, como un MapReduce
   sobre procesos.
+- :mod:`api`: endpoint HTTP ``GET /buscar`` sobre el índice reutilizable.
 - :mod:`perfilado`: arnés de medición y perfilado de las cinco versiones.
 
 .. toctree::

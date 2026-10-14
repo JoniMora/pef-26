@@ -801,12 +801,16 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
     """
     en_windows = sys.platform.startswith("win")
 
-    scalene = (
-        BASE_DIR
-        / ".venv"
-        / ("Scripts" if en_windows else "bin")
-        / ("scalene.exe" if en_windows else "scalene")
-    )
+    nombre_ejecutable = "scalene.exe" if en_windows else "scalene"
+    scalene = Path(sys.executable).parent / nombre_ejecutable
+
+    if not scalene.exists():
+        scalene = (
+            BASE_DIR
+            / ".venv"
+            / ("Scripts" if en_windows else "bin")
+            / nombre_ejecutable
+        )
 
     if not scalene.exists():
         return {"omitido": f"scalene no está instalado en {scalene.parent}"}
@@ -857,7 +861,7 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
 
         hallazgos[version] = {
             "archivo": str(destino.relative_to(BASE_DIR)),
-            "ver_con": f".venv/bin/scalene view {destino.relative_to(BASE_DIR)}",
+            "ver_con": f"{scalene} view {destino.relative_to(BASE_DIR)}",
             "resumen": _resumir_scalene(destino),
         }
 
