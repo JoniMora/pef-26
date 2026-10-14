@@ -14,7 +14,11 @@ El proyecto se compone de estos módulos:
   consultas.
 - :mod:`concurrente`: construcción del índice en paralelo, como un MapReduce
   sobre procesos.
-- :mod:`api`: endpoint HTTP ``GET /buscar`` sobre el índice reutilizable.
+- :mod:`core.lectura`: lectura de documentos por bloques de tamaño fijo, sin
+  cargar cada archivo entero en memoria.
+- :mod:`indice_en_disco`: guarda el índice en disco por lotes y lo carga al
+  arrancar.
+- :mod:`api`: API web con FastAPI: ``GET /buscar`` y ``POST /reindexar``.
 - :mod:`perfilado`: arnés de medición y perfilado de las cinco versiones.
 
 .. toctree::

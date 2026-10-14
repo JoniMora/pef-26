@@ -8,5 +8,6 @@ Módulos
    baseline
    core
    concurrente
+   indice_en_disco
    optimizado
    perfilado

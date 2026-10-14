@@ -6,6 +6,14 @@ Paquete core
    :show-inheritance:
    :undoc-members:
 
+Módulo core.lectura
+-------------------
+
+.. automodule:: core.lectura
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 Módulo core.procesamiento\_texto
 --------------------------------
 
