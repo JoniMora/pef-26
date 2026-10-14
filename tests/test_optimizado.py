@@ -5,6 +5,9 @@ Tests unitarios de las piezas del buscador optimizado: consulta canónica,
 El procesamiento de texto se prueba aparte, en test_procesamiento_texto.py.
 """
 
+import sys
+import threading
+
 import pytest
 
 from optimizado import (
@@ -76,6 +79,41 @@ def test_query_cache_lru():
     assert cache.get("a") == 10
 
     assert cache.info() == {"hits": 2, "misses": 1, "size": 2}
+
+
+def test_query_cache_es_segura_entre_hilos():
+    cache = QueryCache(maxsize=8)
+    hilos, operaciones = 8, 5_000
+    errores = []
+
+    def trabajar(numero):
+        try:
+            for i in range(operaciones):
+                clave = (numero * 7 + i) % 16
+                if cache.get(clave) is None:
+                    cache.put(clave, i)
+        except Exception as error:  # se reporta en el assert de abajo
+            errores.append(error)
+
+    # Cambios de hilo muy frecuentes: sin el bloqueo, un hilo desaloja una
+    # clave entre que otro comprueba que existe y la mueve (KeyError).
+    anterior = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        lanzados = [
+            threading.Thread(target=trabajar, args=(numero,)) for numero in range(hilos)
+        ]
+        for hilo in lanzados:
+            hilo.start()
+        for hilo in lanzados:
+            hilo.join()
+    finally:
+        sys.setswitchinterval(anterior)
+
+    info = cache.info()
+    assert errores == []
+    assert info["hits"] + info["misses"] == hilos * operaciones
+    assert info["size"] <= 8
 
 
 # ============================================================
