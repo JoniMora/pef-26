@@ -117,3 +117,14 @@ def test_obtener_indice_construye_y_despues_carga(corpus, destino, monkeypatch):
     assert (desde_disco_1, desde_disco_2, desde_disco_3) == (False, True, False)
     assert len(construcciones) == 2
     assert indice == construir_indice_secuencial(corpus)[0]
+
+
+def test_un_manifiesto_alterado_no_lee_fuera_del_indice(corpus, destino, tmp_path):
+    construir_y_guardar(corpus, destino)
+    # Un archivo JSON válido fuera del directorio del índice.
+    (tmp_path / "afuera.json").write_text('{"algoritmo": [[0], [1]]}')
+    manifiesto = json.loads((destino / "manifiesto.json").read_text())
+    manifiesto["lotes"] = ["../afuera.json"]
+    (destino / "manifiesto.json").write_text(json.dumps(manifiesto))
+
+    assert cargar_indice(corpus, destino) is None

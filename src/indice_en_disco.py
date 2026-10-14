@@ -13,7 +13,7 @@ lista de documentos y una firma del corpus; si el corpus cambió, el
 
 Estructura del directorio::
 
-    manifiesto.json    corpus, firma, documentos y lotes
+    manifiesto.json    corpus, firma, documentos y números de lote
     lote_000.json      término -> [doc_ids, frecuencias]
     lote_001.json
     ...
@@ -32,8 +32,24 @@ import concurrente
 
 # Cambia si cambia la estructura de los archivos: un índice guardado con
 # otro formato se descarta y se reconstruye.
-FORMATO = 1
+FORMATO = 2
 MANIFIESTO = "manifiesto.json"
+
+
+def _archivo_de_lote(numero):
+    """
+    Devuelve el nombre del archivo de un lote.
+
+    El manifiesto guarda solo números de lote, y el nombre se arma acá: así
+    un manifiesto alterado no puede hacer leer archivos fuera del índice.
+
+    :param numero: Número de lote.
+    :type numero: int
+    :return: El nombre del archivo, por ejemplo ``lote_003.json``.
+    :rtype: str
+    :raises ValueError: Si ``numero`` no es un entero.
+    """
+    return f"lote_{int(numero):03}.json"
 
 
 def directorio_indice_para(corpus_dir):
@@ -111,7 +127,7 @@ def construir_y_guardar(corpus_dir, directorio, workers=None):
         :param parcial: Índice parcial del lote.
         :type parcial: dict[str, dict[int, int]]
         """
-        nombre = f"lote_{numero:03}.json"
+        nombre = _archivo_de_lote(numero)
         datos = {
             termino: [list(postings), list(postings.values())]
             for termino, postings in parcial.items()
@@ -119,7 +135,7 @@ def construir_y_guardar(corpus_dir, directorio, workers=None):
         (destino / nombre).write_text(
             json.dumps(datos, separators=(",", ":")), encoding="utf-8"
         )
-        lotes.append(nombre)
+        lotes.append(numero)
 
     indice, archivos = concurrente.construir_indice(
         corpus, workers, al_completar_lote=guardar_lote
@@ -166,8 +182,9 @@ def cargar_indice(corpus_dir, directorio):
             return None
 
         indice = {}
-        for nombre in manifiesto["lotes"]:
-            datos = json.loads((destino / nombre).read_text(encoding="utf-8"))
+        for numero in manifiesto["lotes"]:
+            archivo = destino / _archivo_de_lote(numero)
+            datos = json.loads(archivo.read_text(encoding="utf-8"))
             concurrente.fusionar(
                 indice,
                 {
