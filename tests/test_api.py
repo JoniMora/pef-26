@@ -121,3 +121,28 @@ def test_el_directorio_del_indice_es_configurable(corpus_api, tmp_path_factory):
     client.get("/buscar", params={"q": "algoritmo"})
 
     assert (destino / "manifiesto.json").exists()
+
+
+def test_swagger_documenta_parametros_y_respuestas(corpus_api):
+    esquema = TestClient(create_app(corpus_api)).get("/openapi.json").json()
+    modelos = esquema["components"]["schemas"]
+
+    def modelo_de_respuesta(operacion):
+        contenido = operacion["responses"]["200"]["content"]["application/json"]
+        return contenido["schema"]["$ref"].rsplit("/", 1)[-1]
+
+    buscar = esquema["paths"]["/buscar"]["get"]
+    parametros = {parametro["name"]: parametro for parametro in buscar["parameters"]}
+    assert modelo_de_respuesta(buscar) == "RespuestaBusqueda"
+    assert set(modelos["RespuestaBusqueda"]["properties"]) == {
+        "consulta",
+        "total",
+        "resultados",
+    }
+    assert parametros["q"]["description"]
+    assert parametros["top_k"]["schema"]["maximum"] == 100
+    assert "503" in buscar["responses"]
+
+    reindexar = esquema["paths"]["/reindexar"]["post"]
+    assert modelo_de_respuesta(reindexar) == "RespuestaReindexado"
+    assert "503" in reindexar["responses"]

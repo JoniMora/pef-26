@@ -24,11 +24,44 @@ import os
 import time
 from pathlib import Path
 from threading import Lock
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
 
 import indice_en_disco
 from optimizado import DEFAULT_CORPUS, Buscador
+
+
+class Resultado(BaseModel):
+    """Un documento del ranking."""
+
+    documento: str = Field(description="Nombre del archivo del corpus.")
+    score: float = Field(description="Puntaje TF-IDF; mayor es más relevante.")
+
+
+class RespuestaBusqueda(BaseModel):
+    """Respuesta de ``GET /buscar``."""
+
+    consulta: str = Field(description="La consulta, sin espacios de más.")
+    total: int = Field(
+        description="Documentos que contienen todos los términos de la consulta."
+    )
+    resultados: list[Resultado] = Field(
+        description="Los mejores documentos, de mayor a menor score."
+    )
+
+
+class RespuestaReindexado(BaseModel):
+    """Respuesta de ``POST /reindexar``."""
+
+    documentos: int = Field(description="Documentos indexados.")
+    terminos: int = Field(description="Términos distintos en el índice.")
+    segundos: float = Field(description="Lo que tardó la reconstrucción.")
+
+
+# Respuesta de error documentada en Swagger para los dos endpoints.
+SIN_CORPUS = {503: {"description": "No existe el directorio del corpus."}}
 
 
 class ServicioDeBusqueda:
@@ -154,17 +187,32 @@ def create_app(corpus_dir=None, indice_dir=None):
         version="1.0.0",
     )
 
-    @app.get("/buscar")
-    def buscar(
-        q: str = Query(..., min_length=1, description="Texto a buscar"),
-        top_k: int = Query(
-            10,
-            ge=1,
-            le=100,
-            description="Cantidad máxima de resultados",
+    @app.get(
+        "/buscar",
+        response_model=RespuestaBusqueda,
+        responses=SIN_CORPUS,
+        summary="Buscar documentos",
+        description=(
+            "Devuelve los documentos que contienen todos los términos de la "
+            "consulta, ordenados por relevancia (TF-IDF)."
         ),
-    ):
-        """Devuelve los documentos más relevantes para ``q``."""
+    )
+    def buscar(
+        q: Annotated[str, Query(min_length=1, description="Términos a buscar.")],
+        top_k: Annotated[
+            int, Query(ge=1, le=100, description="Cantidad máxima de resultados.")
+        ] = 10,
+    ) -> RespuestaBusqueda:
+        """
+        Devuelve los documentos más relevantes para ``q``.
+
+        :param q: Términos a buscar.
+        :type q: str
+        :param top_k: Cantidad máxima de resultados, entre 1 y 100.
+        :type top_k: int
+        :return: El total de coincidencias y el ranking.
+        :rtype: RespuestaBusqueda
+        """
         consulta = q.strip()
         if not consulta:
             raise HTTPException(
@@ -175,34 +223,44 @@ def create_app(corpus_dir=None, indice_dir=None):
         buscador = servicio.obtener_buscador()
         total, resultados = buscador.buscar(consulta, top_k)
 
-        return {
-            "consulta": consulta,
-            "total": total,
-            "resultados": [
-                {
-                    "documento": buscador.archivos[doc_id].name,
-                    "score": score,
-                }
+        return RespuestaBusqueda(
+            consulta=consulta,
+            total=total,
+            resultados=[
+                Resultado(documento=buscador.archivos[doc_id].name, score=score)
                 for doc_id, score in resultados
             ],
-        }
+        )
 
-    @app.post("/reindexar")
-    def reindexar():
+    @app.post(
+        "/reindexar",
+        response_model=RespuestaReindexado,
+        responses=SIN_CORPUS,
+        summary="Reconstruir el índice",
+        description=(
+            "Reconstruye y vuelve a guardar el índice aunque el directorio del "
+            "corpus no haya cambiado. Sirve para tomar cambios dentro de "
+            "archivos existentes, que no alteran la fecha del directorio."
+        ),
+    )
+    def reindexar() -> RespuestaReindexado:
         """
         Reconstruye el índice aunque el directorio no haya cambiado.
 
         Es la forma de tomar cambios dentro de archivos existentes, que no
         alteran la fecha de modificación del directorio.
+
+        :return: Cuántos documentos y términos quedaron, y cuánto tardó.
+        :rtype: RespuestaReindexado
         """
         inicio = time.perf_counter()
         buscador = servicio.reindexar()
 
-        return {
-            "documentos": len(buscador.archivos),
-            "terminos": len(buscador.indice),
-            "segundos": round(time.perf_counter() - inicio, 3),
-        }
+        return RespuestaReindexado(
+            documentos=len(buscador.archivos),
+            terminos=len(buscador.indice),
+            segundos=round(time.perf_counter() - inicio, 3),
+        )
 
     return app
 

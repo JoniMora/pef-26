@@ -27,6 +27,8 @@ autodoc_default_options = {
     "members": True,
     "undoc-members": True,
     "show-inheritance": True,
+    # Configuración interna de Pydantic en los modelos de respuesta de la API.
+    "exclude-members": "model_config",
 }
 
 templates_path = ["_templates"]
