@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements*.txt
 
       - run: pip install -r requirements-dev.txt
 
@@ -49,7 +49,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements*.txt
 
       - run: pip install -r requirements-dev.txt
 
@@ -69,7 +69,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements*.txt
 
       - run: pip install -r requirements-dev.txt
 

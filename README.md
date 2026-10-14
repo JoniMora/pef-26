@@ -24,7 +24,7 @@ forma diferida en la primera consulta y se mantiene en memoria para que las
 peticiones siguientes no vuelvan a leer el corpus completo:
 
 ```bash
-pip install fastapi uvicorn
+pip install -r requirements.txt
 uvicorn api:app --app-dir src --reload
 ```
 
@@ -786,7 +786,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 # Instalar las herramientas de perfilado
 # (baseline, optimizado y concurrente NO tienen dependencias:
 #  usan solo la biblioteca estándar. Esto es únicamente para medir.)
-pip install line_profiler memory_profiler scalene py-spy snakeviz matplotlib
+pip install -r requirements-perfilado.txt
 
 # Herramientas de calidad y documentación (las mismas versiones que el CI)
 pip install -r requirements-dev.txt

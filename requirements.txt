@@ -1,0 +1,4 @@
+# Dependencias para ejecutar la API (src/api.py). El motor de búsqueda
+# (baseline, optimizado, concurrente) usa solo la biblioteca estándar.
+fastapi==0.119.0
+uvicorn==0.38.0
