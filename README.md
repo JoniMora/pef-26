@@ -822,8 +822,6 @@ En `docs/` hay material preliminar de la etapa 4, que se va a reescribir en esa 
 - [`docs/informe-new-relic.pdf`](docs/informe-new-relic.pdf) y [`docs/newrelic-capturas/`](docs/newrelic-capturas/): monitoreo de la API con New Relic. El PDF se genera con [`scripts/generar_informe_newrelic.py`](scripts/generar_informe_newrelic.py).
 - [`docs/informe-scalene.html`](docs/informe-scalene.html): perfilado con Scalene.
 
-> [`docs/informe-punto-archivos-api.html`](docs/informe-punto-archivos-api.html) describe una versión anterior de esta etapa (buffer de 1 MiB, firma por archivo, los lotes del MapReduce como *batching*). Queda reemplazado por esta sección.
-
 ### Dependencias
 
 | Archivo | Para qué |
