@@ -340,8 +340,9 @@ def resumen():
             construye el índice nuevo el viejo sigue en memoria.""",
             """<b>New Relic muestra qué es lento, pero no por qué.</b> El 98,9 %
             del tiempo de /reindexar queda dentro de una sola función, sin más
-            detalle. Esa pregunta la responde el perfilado con Scalene, py-spy y
-            SnakeViz (informe de Scalene).""",
+            detalle. Esa pregunta la responde el perfilado con cProfile, SnakeViz y
+            Scalene, en la sección «Perfilado de la versión refactorizada»
+            del README.""",
         ),
     ]
 
@@ -1027,8 +1028,8 @@ def conclusiones():
             copia del índice (unos 230 MB), o reducir el costo de cada búsqueda sin
             caché.""",
             """New Relic no ve dentro de las funciones del buscador. El perfilado
-            del punto 8, en el informe de Scalene, muestra qué líneas consumen ese
-            tiempo.""",
+            del punto 8, en la sección «Perfilado de la versión refactorizada»
+            del README, muestra qué funciones y líneas consumen ese tiempo.""",
         ),
         p("12. Guion breve para la exposición", "Seccion"),
         p(
@@ -1042,7 +1043,7 @@ def conclusiones():
             porque la CPU se queda en un núcleo: el GIL de Python hace que los
             hilos se turnen. Las recargas tardan 16 segundos y llevan el pico de
             RAM de 230 a 590 MB, sin errores. New Relic me dice qué es lento; para saber
-            por qué, uso Scalene, py-spy y SnakeViz.”"""
+            por qué, uso cProfile con SnakeViz y Scalene.”"""
         ),
     ]
 
