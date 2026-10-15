@@ -190,7 +190,7 @@ async def ejecutar_carga(
     if solicitudes is None and duracion is None:
         raise ValueError("hay que indicar solicitudes o duracion")
 
-    azar = random.Random(semilla)
+    azar = random.Random(semilla)  # nosec B311
     plan = None
     if solicitudes is not None:
         plan = iter([elegir_consulta(azar, mezcla) for _ in range(solicitudes)])
