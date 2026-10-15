@@ -926,6 +926,16 @@ La suite pasa de 101 a 122 tests, más los 2 de rendimiento, con una cobertura d
 | [`test_generar_trafico.py`](tests/test_generar_trafico.py) | 9 | Contra la app en el mismo proceso, sin abrir puertos: la cantidad pedida de búsquedas, la mezcla y la semilla reproducibles, las recargas periódicas, los percentiles, y que un servidor caído cuenta como error. |
 | [`test_perfilar_api.py`](tests/test_perfilar_api.py) | 4 | La cantidad y la mezcla de búsquedas, que la semilla repite la secuencia, que la recarga reconstruye el índice y que se guarda un perfil legible por `pstats`. |
 
+### Análisis estático de esta etapa
+
+SonarCloud marcó cuatro vulnerabilidades de la regla S8707: una ruta que llega por la línea de comandos y se usa para leer o escribir un archivo. Se revisaron y se aceptaron con el mismo criterio que las de la [etapa 1](#análisis-estático-con-sonarcloud): son herramientas locales, quien las ejecuta elige sus propias rutas, y no se cruza ningún límite de permisos.
+
+| Dónde | Qué hace con la ruta |
+| :--- | :--- |
+| `servidor.cargar_variables()` | Lee el archivo de `--env-file`, por ejemplo `.env`. |
+| `generar_trafico.main()`, dos usos | Crea el directorio de `--salida` y guarda ahí el resumen en JSON. |
+| `perfilar_api.main()` | Crea el directorio de `--cprofile` y guarda ahí el perfil. |
+
 ### Informes y capturas
 
 - [`docs/informe-new-relic.pdf`](docs/informe-new-relic.pdf) y [`docs/newrelic-capturas/`](docs/newrelic-capturas/): el monitoreo con New Relic. El PDF se genera con [`scripts/generar_informe_newrelic.py`](scripts/generar_informe_newrelic.py).
