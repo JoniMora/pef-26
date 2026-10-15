@@ -70,6 +70,13 @@ mprofile_*.dat
 *.speedscope.json
 
 # ─────────────────────────────────────────────────────────────
+#  New Relic
+#  Se versiona solo la plantilla (newrelic.ini.example), no la copia
+#  local. El log del agente ya lo cubre la regla *.log.
+# ─────────────────────────────────────────────────────────────
+newrelic.ini
+
+# ─────────────────────────────────────────────────────────────
 #  Testing y análisis estático
 # ─────────────────────────────────────────────────────────────
 .pytest_cache/

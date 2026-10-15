@@ -831,6 +831,7 @@ En `docs/` hay material preliminar de la etapa 4, que se va a reescribir en esa 
 | `requirements.txt` | Correr la API (FastAPI y uvicorn). Fija Starlette 1.8.0, que corrige seis vulnerabilidades de la versión que traía FastAPI 0.119. El motor de búsqueda solo usa la biblioteca estándar. |
 | `requirements-dev.txt` | El CI: incluye `requirements.txt`, las herramientas de calidad, `pip-audit` y `httpx2` para los tests de la API. |
 | `requirements-perfilado.txt` | Las herramientas de medición, que no corren en el CI. |
+| `requirements-apm.txt` | El agente de New Relic, para monitorear la API con `src/servidor.py`. Queda fuera del CI. |
 | `requirements-informes.txt` | Generar el informe en PDF de New Relic (`scripts/generar_informe_newrelic.py`). |
 
 ---
@@ -987,6 +988,20 @@ curl -X POST http://127.0.0.1:8000/reindexar
 
 # Otro corpus, u otro directorio para el índice guardado
 BUSCADOR_CORPUS=/ruta/al/corpus BUSCADOR_INDICE=/ruta/al/indice uvicorn api:app --app-dir src
+```
+
+Para monitorear la API con New Relic, el lanzador `src/servidor.py` activa el agente solo si existe la variable `NEW_RELIC_LICENSE_KEY`. La licencia va en un `.env`, que git ignora, y nunca en el código:
+
+```bash
+pip install -r requirements-apm.txt
+echo "NEW_RELIC_LICENSE_KEY=<licencia INGEST - LICENSE>" > .env
+
+python src/servidor.py --env-file .env     # New Relic: activo (app pef-26)
+python src/servidor.py                     # sin licencia: arranca igual, sin monitoreo
+
+# Opcional: configuración del agente a partir de la plantilla (no lleva claves)
+cp newrelic.ini.example newrelic.ini
+NEW_RELIC_CONFIG_FILE=newrelic.ini python src/servidor.py --env-file .env
 ```
 
 > La primera construcción del índice usa procesos con el método de arranque `spawn`, que vuelve a importar el script principal en cada proceso. Uvicorn ya lo tiene en cuenta, pero un script propio que use la API directamente (por ejemplo, con `TestClient`) tiene que tener la guarda `if __name__ == "__main__":`.

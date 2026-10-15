@@ -1,0 +1,23 @@
+# Plantilla de configuración del agente de New Relic. No contiene claves.
+#
+# La licencia NO va en este archivo: el agente la toma de la variable de
+# entorno NEW_RELIC_LICENSE_KEY. Si se escribiera acá, le ganaría a la
+# variable. Para usar la plantilla:
+#
+#     cp newrelic.ini.example newrelic.ini
+#     NEW_RELIC_CONFIG_FILE=newrelic.ini python src/servidor.py --env-file .env
+#
+# Sin este archivo, el agente funciona igual con sus valores por defecto.
+
+[newrelic]
+app_name = pef-26
+
+# Trazas de las consultas lentas y recorrido de cada solicitud.
+transaction_tracer.enabled = true
+distributed_tracing.enabled = true
+
+# Envía a New Relic los logs de la aplicación (incluidos los de uvicorn).
+application_logging.enabled = true
+application_logging.forwarding.enabled = true
+
+log_level = info
