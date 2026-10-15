@@ -7,9 +7,8 @@ trabajo que ``GET /buscar`` y ``POST /reindexar``, con la misma mezcla de
 consultas que :mod:`generar_trafico`, pero sin HTTP ni hilos: así
 cProfile y Scalene ven todo el tiempo de búsqueda. Usa el mismo servicio
 que la API (:class:`api.ServicioDeBusqueda`), que carga el índice guardado
-o lo construye si no existe. Lo que queda afuera (HTTP, la validación de
-FastAPI y la serialización de la respuesta) se ve perfilando la API real
-con py-spy (``scripts/perfilar_pyspy.sh``).
+o lo construye si no existe. Queda afuera lo que agrega el framework:
+HTTP, la validación de FastAPI y la serialización de la respuesta.
 
 Comandos (desde la raíz del repositorio)::
 
