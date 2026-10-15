@@ -1,0 +1,3 @@
+# Generación de informes en PDF (scripts/generar_informe_newrelic.py).
+reportlab==5.0.1
+pillow==12.3.0

@@ -308,7 +308,7 @@ Se elige `concurrent.futures.ProcessPoolExecutor` sobre `multiprocessing.Pool` p
 ```
                           ┌─ Worker 1 ─> parcial ─┐
    Corpus  ──> P · 4 lotes ├─ Worker 2 ─> parcial ─┤ as_completed ──> Índice global
-   (n docs)    equitativos └─ Worker P ─> parcial ─┘   (_fusionar)
+   (n docs)    equitativos └─ Worker P ─> parcial ─┘   (fusionar)
 
    50.000 docs  ──>  16 lotes de 3.125  ──>  4 procesos  ──>  1 dict
 ```
@@ -317,7 +317,7 @@ Se elige `concurrent.futures.ProcessPoolExecutor` sobre `multiprocessing.Pool` p
 | :--- | :--- | :--- | :--- |
 | **Particionado** | `_lotes_equitativos()` | División de la lista de documentos en `P · 4` lotes contiguos de tamaño equitativo. | O(n) |
 | **Map** (paralelo) | `_procesar_lote()` | Cada worker lee sus archivos, tokeniza y construye un índice invertido parcial. | O(N / P) |
-| **Reduce** | `_fusionar()` | Volcado de cada parcial sobre el índice global, en orden de finalización. | O(V · P · 4), `V` = vocabulario |
+| **Reduce** | `fusionar()` | Volcado de cada parcial sobre el índice global, en orden de finalización. | O(V · P · 4), `V` = vocabulario |
 
 La fase *Map* no comparte estado mutable entre procesos: cada worker opera sobre un subconjunto disjunto de archivos y devuelve una estructura independiente. Al no existir escritura concurrente, **no se requieren locks**, eliminando la contención y las condiciones de carrera por construcción.
 
@@ -328,7 +328,7 @@ El determinismo no depende del orden de llegada: los `doc_id` se asignan en el p
 - **Granularidad por lotes, no por documento.** La comunicación entre procesos exige serialización con `pickle`; despachar un archivo por tarea haría que el costo de IPC dominara sobre el trabajo útil. Se agrupan los documentos en `P · 4` lotes equitativos (`LOTES_POR_PROCESO = 4`). La medición justifica la escala: un lote de 1/16 del corpus cuesta **487 ms** de trabajo útil, tres órdenes de magnitud por encima del costo de despachar la tarea.
 - **Más lotes que workers.** Con `K = 4` hay 16 tareas para 4 procesos, así el pool **reequilibra** cuando un lote resulta más pesado que otro. Con exactamente `P` lotes, el worker más lento fija el tiempo total.
 - **`doc_id` asignado en el padre.** El worker recibe pares `(doc_id, ruta)` ya numerados sobre la lista ordenada. Es lo que permite fusionar por `as_completed()` —en orden de finalización, no de despacho— sin perder determinismo.
-- **Fusión sin sumar frecuencias.** Como los lotes son disjuntos, ningún `doc_id` se repite entre parciales: `_fusionar()` hace `dict.update()` y adopta por referencia el primer diccionario de *postings* de cada término, sin copiarlo.
+- **Fusión sin sumar frecuencias.** Como los lotes son disjuntos, ningún `doc_id` se repite entre parciales: `fusionar()` hace `dict.update()` y adopta por referencia el primer diccionario de *postings* de cada término, sin copiarlo.
 - **Payload de retorno compacto.** Los workers devuelven las *postings* con `doc_id` enteros y no cadenas de texto; las rutas viajan de ida como `str` y no como `Path`, que se serializa más caro.
 - **Umbral de paralelismo.** Por debajo de `UMBRAL_PARALELO = 512` documentos —o con `P = 1`— se ejecuta el *Map* en el propio proceso: levantar el pool y serializar los parciales costaría más que el trabajo ahorrado.
 - **`spawn` como método de arranque.** En macOS el método por defecto es `spawn`: cada proceso hijo reimporta el módulo principal, por lo que todo el código de arranque queda protegido bajo `if __name__ == "__main__":`. Sin esta guarda, el programa entra en recursión infinita de procesos.
@@ -706,7 +706,7 @@ Segunda etapa del segundo parcial: ampliar la red de tests y refactorizar a part
 
 ### Tests automatizados
 
-La suite usa **pytest** y corre en el CI con una cobertura mínima del 80 % (hoy 99,7 %). Genera su propio corpus sintético de 2.000 documentos con semilla fija, así que no necesita `data/corpus`.
+La suite usa **pytest** y corre en el CI con una cobertura mínima del 80 % (99,7 % al cerrar esta etapa). Genera su propio corpus sintético de 2.000 documentos con semilla fija, así que no necesita `data/corpus`.
 
 | Archivo | Tests | Qué verifica |
 | :--- | ---: | :--- |
@@ -735,6 +735,106 @@ Para que la complejidad no vuelva a crecer, Ruff aplica ahora la regla **C901 co
 
 ---
 
+## API, Entrada/Salida y Framework
+
+Tercera etapa del segundo parcial: exponer el motor como un servicio web y mejorar cómo se leen y se guardan los datos.
+
+### API web con FastAPI
+
+[`src/api.py`](src/api.py) envuelve el buscador en una API. La documentación interactiva (Swagger) queda en `/docs`, con el esquema de cada respuesta.
+
+| Endpoint | Qué hace | Respuesta |
+| :--- | :--- | :--- |
+| `GET /buscar?q=algoritmo&top_k=10` | Busca los documentos que contienen todos los términos y devuelve los mejores. `top_k` va de 1 a 100. | `{"consulta", "total", "resultados": [{"documento", "score"}]}` |
+| `POST /reindexar` | Reconstruye el índice aunque el corpus no haya cambiado. | `{"documentos", "terminos", "segundos"}` |
+
+Una consulta vacía o un `top_k` fuera de rango devuelven **422**, y un corpus inexistente, **503**.
+
+- **El índice se prepara una vez y se reutiliza.** La clase `ServicioDeBusqueda` lo carga o lo construye en la primera consulta. Un `Lock` evita que dos consultas simultáneas lo construyan a la vez.
+- **Saber si el corpus cambió cuesta una sola consulta al disco.** La primera versión revisaba nombre, fecha y tamaño de cada archivo en cada pedido: 100.000 `stat()` con el corpus completo, que costaban 1,6 s por consulta. Ahora mira solo la fecha de modificación del directorio, que cambia cuando se agregan, borran o renombran archivos. Si cambia el contenido de un archivo existente, la fecha no se entera: para eso está `POST /reindexar`.
+- **La caché de consultas es segura entre hilos.** FastAPI atiende consultas en paralelo, y un test con 8 hilos mostró que sin un bloqueo un hilo podía desalojar una consulta mientras otro la estaba leyendo (`KeyError`, que en la API es un error 500). `QueryCache` ahora usa un `Lock`.
+
+### Lectura por bloques
+
+La línea base sigue leyendo cada archivo entero con `read()`, a propósito: es la versión ingenua contra la que se compara. La versión optimizada y la concurrente leen ahora con [`src/core/lectura.py`](src/core/lectura.py), de a **bloques de 64 KiB**, y cuentan los términos a medida que leen. Así la memoria queda acotada por el bloque y no por el tamaño del archivo.
+
+Un bloque puede cortar dos cosas, y las dos se resuelven:
+
+- **Un carácter de varios bytes** (`á`, `ñ`): el decodificador incremental de UTF-8 lo completa con el bloque siguiente.
+- **Una palabra:** cada bloque se procesa hasta su último espacio, y lo que queda se antepone al bloque siguiente.
+
+Con un archivo de 21 MB, el pico de memoria baja de **279 MB a 1,1 MB**, con el mismo conteo de términos y un tiempo similar (5,5 s y 5,0 s). Sobre el corpus completo, el índice que resulta es idéntico al de antes: 39 términos y 1.865.501 *postings*.
+
+> La primera versión de este punto pasaba `buffering=1 MiB` a `open()`, pero seguía leyendo cada archivo entero con `read()`. Un buffer cambia cómo se hacen las lecturas al sistema operativo, no cuánto texto se carga en memoria.
+
+### Índice en disco por lotes
+
+Construir el índice de 50.000 documentos lleva varios segundos. [`src/indice_en_disco.py`](src/indice_en_disco.py) lo guarda en disco para no repetirlo cada vez que arranca la API, y aprovecha el MapReduce de la entrega anterior: **cada lote se escribe en su propio archivo apenas termina**, mientras los demás se siguen procesando.
+
+```
+data/indice_corpus/
+├── manifiesto.json    corpus, firma (fecha del directorio y cantidad de documentos) y lotes
+├── lote_000.json      término -> [doc_ids, frecuencias]
+└── ...                un archivo por lote (16 con 4 procesos)
+```
+
+El manifiesto se escribe al final y de forma atómica, y guarda los lotes por número, no por nombre de archivo: SonarCloud detectó (regla S2083) que, con nombres, un manifiesto alterado podía hacer leer archivos de fuera del índice, y un test lo reproduce. Al cargar, se descarta el índice guardado si es de otro corpus o de otro formato, si el corpus cambió o si algún lote está dañado, y en ese caso se reconstruye. Por defecto se guarda en un directorio hermano del corpus (`data/indice_corpus`, que git ignora), configurable con `BUSCADOR_INDICE`. No puede ir adentro del corpus, porque escribir ahí cambiaría su fecha.
+
+El índice guardado lo usa la API. `optimizado.py` y `concurrente.py` siguen construyendo el índice en cada corrida, a propósito: se usan para medir cuánto cuesta la indexación.
+
+El formato se eligió midiendo los 16 lotes del corpus completo:
+
+| Formato | Escribir | Cargar y fusionar | Tamaño |
+| :--- | ---: | ---: | ---: |
+| **JSON** (elegido) | 0,32 s | 0,69 s | 14,6 MB |
+| pickle | 0,13 s | 0,49 s | 9,3 MB |
+| SQLite | 2,24 s | 2,02 s | 38,5 MB |
+
+JSON carga 0,2 s más lento que pickle, pero leerlo no puede ejecutar código (cargar un pickle sí puede) y se puede inspeccionar a mano.
+
+### Resultados de la API
+
+Sobre los 50.000 documentos, con el disco en caché:
+
+| Situación | Antes | Ahora |
+| :--- | ---: | ---: |
+| Primera consulta, sin índice guardado | 21,2 s | 6,4 s (construye en paralelo y guarda) |
+| Primera consulta, con índice guardado | — | **0,93 s** (lo carga) |
+| Consultas siguientes | 1,6 s | **2 a 13 ms** |
+
+Con un servidor uvicorn real, la primera consulta tardó 7,0 s (construcción en paralelo y guardado) y, después de reiniciar el servidor, 0,92 s.
+
+### Tests de esta etapa
+
+La suite pasa de 60 a 101 tests, más los 2 de rendimiento, con una cobertura de 99,6 %:
+
+| Archivo | Tests | Qué verifica |
+| :--- | ---: | :--- |
+| [`test_lectura.py`](tests/test_lectura.py) | 21 | Leer por bloques de 1 a 10.000 bytes da los mismos términos que leer el archivo entero, incluidas palabras más largas que el bloque, caracteres partidos entre bloques y archivos vacíos. El índice secuencial y el concurrente salen iguales con bloques de 5 bytes. |
+| [`test_indice_en_disco.py`](tests/test_indice_en_disco.py) | 10 | Guardar y cargar da el mismo índice, el pool escribe un archivo por lote, un índice de otro corpus, de un corpus modificado o con un lote dañado se descarta, y un manifiesto alterado no hace leer archivos de fuera del índice. |
+| [`test_api.py`](tests/test_api.py) | 9 | Las respuestas y los errores de los endpoints, la reutilización del índice, la reconstrucción cuando cambia el corpus, la carga desde disco al reiniciar y el esquema de Swagger. |
+| [`test_optimizado.py`](tests/test_optimizado.py) | +1 | La caché de consultas con 8 hilos concurrentes. |
+
+### Informes y capturas
+
+En `docs/` hay material preliminar de la etapa 4, que se va a reescribir en esa etapa junto con la integración de New Relic:
+
+- [`docs/informe-new-relic.pdf`](docs/informe-new-relic.pdf) y [`docs/newrelic-capturas/`](docs/newrelic-capturas/): monitoreo de la API con New Relic. El PDF se genera con [`scripts/generar_informe_newrelic.py`](scripts/generar_informe_newrelic.py).
+- [`docs/informe-scalene.html`](docs/informe-scalene.html): perfilado con Scalene.
+
+> [`docs/informe-punto-archivos-api.html`](docs/informe-punto-archivos-api.html) describe una versión anterior de esta etapa (buffer de 1 MiB, firma por archivo, los lotes del MapReduce como *batching*). Queda reemplazado por esta sección.
+
+### Dependencias
+
+| Archivo | Para qué |
+| :--- | :--- |
+| `requirements.txt` | Correr la API (FastAPI y uvicorn). El motor de búsqueda solo usa la biblioteca estándar. |
+| `requirements-dev.txt` | El CI: incluye `requirements.txt`, las herramientas de calidad y `httpx` para los tests de la API. |
+| `requirements-perfilado.txt` | Las herramientas de medición, que no corren en el CI. |
+| `requirements-informes.txt` | Generar el informe en PDF de New Relic (`scripts/generar_informe_newrelic.py`). |
+
+---
+
 ## Instrucciones de Ejecución
 
 ### Requisitos previos
@@ -751,7 +851,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 # Instalar las herramientas de perfilado
 # (baseline, optimizado y concurrente NO tienen dependencias:
 #  usan solo la biblioteca estándar. Esto es únicamente para medir.)
-pip install line_profiler memory_profiler scalene py-spy snakeviz matplotlib
+pip install -r requirements-perfilado.txt
 
 # Herramientas de calidad y documentación (las mismas versiones que el CI)
 pip install -r requirements-dev.txt
@@ -875,6 +975,21 @@ Speedup: 1.86x
 > `Índices idénticos: True` compara los dos diccionarios completos, no un resumen: términos, `doc_id` y frecuencias. Es la verificación de equivalencia del incremento 4.
 >
 > El `--comparar` construye el índice **dos veces** en el mismo proceso, así que su tiempo total es la suma de ambas rutas. Para cronometrar, usar las corridas por separado.
+
+### API web
+
+```bash
+pip install -r requirements.txt
+uvicorn api:app --app-dir src          # documentación interactiva en http://127.0.0.1:8000/docs
+
+curl "http://127.0.0.1:8000/buscar?q=algoritmo&top_k=5"
+curl -X POST http://127.0.0.1:8000/reindexar
+
+# Otro corpus, u otro directorio para el índice guardado
+BUSCADOR_CORPUS=/ruta/al/corpus BUSCADOR_INDICE=/ruta/al/indice uvicorn api:app --app-dir src
+```
+
+> La primera construcción del índice usa procesos con el método de arranque `spawn`, que vuelve a importar el script principal en cada proceso. Uvicorn ya lo tiene en cuenta, pero un script propio que use la API directamente (por ejemplo, con `TestClient`) tiene que tener la guarda `if __name__ == "__main__":`.
 
 ### Comparativa automatizada
 

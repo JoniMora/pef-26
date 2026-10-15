@@ -3,7 +3,7 @@ La indexación concurrente (MapReduce) debe producir exactamente el
 mismo índice que la secuencial, con los mismos doc_id.
 """
 
-from concurrente import _fusionar, _lotes_equitativos, construir_indice
+from concurrente import _lotes_equitativos, construir_indice, fusionar
 from optimizado import construir_indice as construir_indice_secuencial
 
 
@@ -23,8 +23,8 @@ def test_lotes_equitativos_casos_borde():
 def test_fusionar_combina_parciales():
     indice = {}
 
-    _fusionar(indice, {"a": {0: 1}})
-    _fusionar(indice, {"a": {1: 2}, "b": {1: 1}})
+    fusionar(indice, {"a": {0: 1}})
+    fusionar(indice, {"a": {1: 2}, "b": {1: 1}})
 
     assert indice == {"a": {0: 1, 1: 2}, "b": {1: 1}}
 

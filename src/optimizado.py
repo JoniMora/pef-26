@@ -26,9 +26,11 @@ import argparse
 import heapq
 import math
 import time
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from pathlib import Path
+from threading import Lock
 
+from core.lectura import contar_terminos
 from core.procesamiento_texto import tokenizar
 
 
@@ -68,15 +70,11 @@ def construir_indice(corpus_dir):
     archivos = sorted(corpus_dir.glob("*.txt"))
 
     for doc_id, archivo in enumerate(archivos):
+        # Se lee por bloques: la memoria no depende del tamaño del archivo.
         try:
-            texto = archivo.read_text(encoding="utf-8", errors="ignore")
+            frecuencias = contar_terminos(archivo)
         except OSError:
             continue
-
-        tokens = tokenizar(texto)
-
-        # Contamos cuántas veces aparece cada término
-        frecuencias = Counter(tokens)
 
         for termino, frecuencia in frecuencias.items():
             if termino not in indice:
@@ -99,6 +97,10 @@ class QueryCache:
     Guarda como máximo ``maxsize`` consultas y, al superar ese límite,
     descarta la usada hace más tiempo. Cuenta aciertos y fallos para
     poder medir su efectividad (ver :meth:`info`).
+
+    Es segura entre hilos: la API atiende consultas en paralelo, y sin el
+    bloqueo un hilo podía desalojar una clave entre que otro comprobaba
+    que existía y la movía al final (``KeyError``).
     """
 
     def __init__(self, maxsize=1024):
@@ -114,6 +116,8 @@ class QueryCache:
         self.hits = 0
         self.misses = 0
 
+        self._bloqueo = Lock()
+
     def get(self, clave):
         """
         Devuelve el resultado guardado para una clave y lo marca como reciente.
@@ -125,16 +129,17 @@ class QueryCache:
         :return: El resultado guardado, o ``None`` si la clave no está.
         :rtype: object | None
         """
-        if clave not in self.cache:
-            self.misses += 1
-            return None
+        with self._bloqueo:
+            if clave not in self.cache:
+                self.misses += 1
+                return None
 
-        self.hits += 1
+            self.hits += 1
 
-        # La consulta pasa a ser la más recientemente utilizada
-        self.cache.move_to_end(clave)
+            # La consulta pasa a ser la más recientemente utilizada
+            self.cache.move_to_end(clave)
 
-        return self.cache[clave]
+            return self.cache[clave]
 
     def put(self, clave, valor):
         """
@@ -145,14 +150,15 @@ class QueryCache:
         :param valor: Resultado que se guarda.
         :type valor: object
         """
-        if clave in self.cache:
-            self.cache.move_to_end(clave)
+        with self._bloqueo:
+            if clave in self.cache:
+                self.cache.move_to_end(clave)
 
-        self.cache[clave] = valor
+            self.cache[clave] = valor
 
-        # Eliminamos la consulta menos utilizada
-        if len(self.cache) > self.maxsize:
-            self.cache.popitem(last=False)
+            # Eliminamos la consulta menos utilizada
+            if len(self.cache) > self.maxsize:
+                self.cache.popitem(last=False)
 
     def info(self):
         """
@@ -162,7 +168,8 @@ class QueryCache:
             ``size`` (consultas guardadas).
         :rtype: dict[str, int]
         """
-        return {"hits": self.hits, "misses": self.misses, "size": len(self.cache)}
+        with self._bloqueo:
+            return {"hits": self.hits, "misses": self.misses, "size": len(self.cache)}
 
 
 # ============================================================
