@@ -706,7 +706,7 @@ Segunda etapa del segundo parcial: ampliar la red de tests y refactorizar a part
 
 ### Tests automatizados
 
-La suite usa **pytest** y corre en el CI con una cobertura mínima del 80 % (hoy 99,7 %). Genera su propio corpus sintético de 2.000 documentos con semilla fija, así que no necesita `data/corpus`.
+La suite usa **pytest** y corre en el CI con una cobertura mínima del 80 % (99,7 % al cerrar esta etapa). Genera su propio corpus sintético de 2.000 documentos con semilla fija, así que no necesita `data/corpus`.
 
 | Archivo | Tests | Qué verifica |
 | :--- | ---: | :--- |
@@ -780,6 +780,8 @@ data/indice_corpus/
 
 El manifiesto se escribe al final y de forma atómica, y guarda los lotes por número, no por nombre de archivo: SonarCloud detectó (regla S2083) que, con nombres, un manifiesto alterado podía hacer leer archivos de fuera del índice, y un test lo reproduce. Al cargar, se descarta el índice guardado si es de otro corpus o de otro formato, si el corpus cambió o si algún lote está dañado, y en ese caso se reconstruye. Por defecto se guarda en un directorio hermano del corpus (`data/indice_corpus`, que git ignora), configurable con `BUSCADOR_INDICE`. No puede ir adentro del corpus, porque escribir ahí cambiaría su fecha.
 
+El índice guardado lo usa la API. `optimizado.py` y `concurrente.py` siguen construyendo el índice en cada corrida, a propósito: se usan para medir cuánto cuesta la indexación.
+
 El formato se eligió midiendo los 16 lotes del corpus completo:
 
 | Formato | Escribir | Cargar y fusionar | Tamaño |
@@ -812,6 +814,15 @@ La suite pasa de 60 a 101 tests, más los 2 de rendimiento, con una cobertura de
 | [`test_indice_en_disco.py`](tests/test_indice_en_disco.py) | 10 | Guardar y cargar da el mismo índice, el pool escribe un archivo por lote, un índice de otro corpus, de un corpus modificado o con un lote dañado se descarta, y un manifiesto alterado no hace leer archivos de fuera del índice. |
 | [`test_api.py`](tests/test_api.py) | 9 | Las respuestas y los errores de los endpoints, la reutilización del índice, la reconstrucción cuando cambia el corpus, la carga desde disco al reiniciar y el esquema de Swagger. |
 | [`test_optimizado.py`](tests/test_optimizado.py) | +1 | La caché de consultas con 8 hilos concurrentes. |
+
+### Informes y capturas
+
+En `docs/` hay material preliminar de la etapa 4, que se va a reescribir en esa etapa junto con la integración de New Relic:
+
+- [`docs/informe-new-relic.pdf`](docs/informe-new-relic.pdf) y [`docs/newrelic-capturas/`](docs/newrelic-capturas/): monitoreo de la API con New Relic. El PDF se genera con [`scripts/generar_informe_newrelic.py`](scripts/generar_informe_newrelic.py).
+- [`docs/informe-scalene.html`](docs/informe-scalene.html): perfilado con Scalene.
+
+> [`docs/informe-punto-archivos-api.html`](docs/informe-punto-archivos-api.html) describe una versión anterior de esta etapa (buffer de 1 MiB, firma por archivo, los lotes del MapReduce como *batching*). Queda reemplazado por esta sección.
 
 ### Dependencias
 
