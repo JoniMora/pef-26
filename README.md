@@ -695,7 +695,7 @@ El análisis marcó cinco vulnerabilidades, que se revisaron y se aceptaron:
 | Job | Qué hace |
 | :--- | :--- |
 | Lint (Ruff) | `ruff check` y `ruff format --check`. |
-| Seguridad (Bandit) | Análisis de seguridad del código. |
+| Seguridad (Bandit y pip-audit) | Análisis de seguridad del código (Bandit) y vulnerabilidades conocidas en las dependencias (pip-audit). |
 | Tests, cobertura y Performance Gate | Corre los tests con una cobertura mínima del 80 %, envía el análisis a SonarCloud y, aparte y sin cobertura, los 2 tests de rendimiento. Solo corre si los dos jobs anteriores pasan. |
 
 ---
@@ -828,8 +828,8 @@ En `docs/` hay material preliminar de la etapa 4, que se va a reescribir en esa 
 
 | Archivo | Para qué |
 | :--- | :--- |
-| `requirements.txt` | Correr la API (FastAPI y uvicorn). El motor de búsqueda solo usa la biblioteca estándar. |
-| `requirements-dev.txt` | El CI: incluye `requirements.txt`, las herramientas de calidad y `httpx` para los tests de la API. |
+| `requirements.txt` | Correr la API (FastAPI y uvicorn). Fija Starlette 1.8.0, que corrige seis vulnerabilidades de la versión que traía FastAPI 0.119. El motor de búsqueda solo usa la biblioteca estándar. |
+| `requirements-dev.txt` | El CI: incluye `requirements.txt`, las herramientas de calidad, `pip-audit` y `httpx2` para los tests de la API. |
 | `requirements-perfilado.txt` | Las herramientas de medición, que no corren en el CI. |
 | `requirements-informes.txt` | Generar el informe en PDF de New Relic (`scripts/generar_informe_newrelic.py`). |
 

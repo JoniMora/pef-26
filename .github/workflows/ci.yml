@@ -40,7 +40,7 @@ jobs:
       - run: ruff format --check .
 
   seguridad:
-    name: Seguridad (Bandit)
+    name: Seguridad (Bandit y pip-audit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -54,6 +54,10 @@ jobs:
       - run: pip install -r requirements-dev.txt
 
       - run: bandit -c pyproject.toml -r .
+
+      # Vulnerabilidades conocidas en las dependencias (incluye las de la
+      # API, que requirements-dev.txt trae con -r requirements.txt).
+      - run: pip-audit -r requirements-dev.txt --progress-spinner off
 
   tests:
     name: Tests, cobertura y Performance Gate
