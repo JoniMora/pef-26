@@ -24,6 +24,8 @@ El proyecto se compone de estos módulos:
 - :mod:`perfilado`: arnés de medición y perfilado de las cinco versiones.
 - :mod:`generar_trafico`: generador de carga para la API, con p50, p95 y p99
   por tipo de consulta.
+- :mod:`perfilar_api`: hace en un solo proceso el trabajo de la API bajo
+  carga, para perfilarlo con cProfile y Scalene.
 
 .. toctree::
    :maxdepth: 2

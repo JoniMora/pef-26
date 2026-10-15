@@ -12,4 +12,5 @@ Módulos
    indice_en_disco
    optimizado
    perfilado
+   perfilar_api
    servidor
