@@ -1004,6 +1004,18 @@ cp newrelic.ini.example newrelic.ini
 NEW_RELIC_CONFIG_FILE=newrelic.ini python src/servidor.py --env-file .env
 ```
 
+Para generar carga contra la API levantada (usa `httpx2`, de `requirements-dev.txt`):
+
+```bash
+# 60 s con 50 usuarios simultáneos: 60 % consultas repetidas, 30 % variadas, 10 % inexistentes
+python src/generar_trafico.py --duracion 60 --concurrencia 50 --mezcla 60,30,10
+
+# Cantidad fija y reproducible, con una recarga del índice cada 30 s
+python src/generar_trafico.py --solicitudes 5000 --semilla 1 --reindexar-cada 30
+```
+
+> Imprime p50, p95, p99 y máximo por tipo de consulta, y guarda el resumen en `profiles/trafico.json`. Entre escenarios conviene reiniciar el servidor: la caché de consultas sobrevive entre corridas.
+
 > La primera construcción del índice usa procesos con el método de arranque `spawn`, que vuelve a importar el script principal en cada proceso. Uvicorn ya lo tiene en cuenta, pero un script propio que use la API directamente (por ejemplo, con `TestClient`) tiene que tener la guarda `if __name__ == "__main__":`.
 
 ### Comparativa automatizada

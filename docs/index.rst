@@ -22,6 +22,8 @@ El proyecto se compone de estos módulos:
 - :mod:`servidor`: levanta la API con uvicorn y, si hay licencia, con el
   agente de New Relic.
 - :mod:`perfilado`: arnés de medición y perfilado de las cinco versiones.
+- :mod:`generar_trafico`: generador de carga para la API, con p50, p95 y p99
+  por tipo de consulta.
 
 .. toctree::
    :maxdepth: 2
