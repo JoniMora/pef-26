@@ -3,6 +3,8 @@ Tests del lanzador de la API (``servidor``): la API arranca con o sin
 New Relic según haya licencia, sin conectarse nunca a New Relic.
 """
 
+import importlib.abc
+import importlib.machinery
 import sys
 import types
 
@@ -50,6 +52,42 @@ def test_respeta_el_nombre_y_el_archivo_de_configuracion(agente_falso):
 
     assert agente_falso == ["newrelic.ini"]
     assert entorno["NEW_RELIC_APP_NAME"] == "otra-app"
+
+
+def test_define_el_nombre_antes_de_importar_el_agente(monkeypatch):
+    # El agente real lee NEW_RELIC_APP_NAME al importarse: si el nombre se
+    # define después, los datos llegan como "Python Application".
+    entorno = {"NEW_RELIC_LICENSE_KEY": "x" * 40}
+    nombre_al_importar = []
+
+    class AgenteQueLeeElNombreAlImportarse(
+        importlib.abc.MetaPathFinder, importlib.abc.Loader
+    ):
+        def find_spec(self, nombre, ruta, destino=None):
+            if nombre not in ("newrelic", "newrelic.agent"):
+                return None
+            return importlib.machinery.ModuleSpec(
+                nombre, self, is_package=nombre == "newrelic"
+            )
+
+        def create_module(self, spec):
+            return None
+
+        def exec_module(self, modulo):
+            nombre_al_importar.append(entorno.get("NEW_RELIC_APP_NAME"))
+            modulo.initialize = lambda archivo=None: None
+
+    for nombre in ("newrelic", "newrelic.agent"):
+        # setitem registra el valor original para restaurarlo al terminar.
+        monkeypatch.setitem(sys.modules, nombre, None)
+        del sys.modules[nombre]
+    monkeypatch.setattr(
+        sys, "meta_path", [AgenteQueLeeElNombreAlImportarse(), *sys.meta_path]
+    )
+
+    servidor.iniciar_monitoreo(entorno)
+
+    assert nombre_al_importar == ["pef-26", "pef-26"]
 
 
 def test_con_licencia_pero_sin_el_agente_instalado_avisa(monkeypatch):

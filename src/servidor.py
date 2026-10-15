@@ -79,6 +79,10 @@ def iniciar_monitoreo(entorno=None):
     if not entorno.get("NEW_RELIC_LICENSE_KEY"):
         return False
 
+    # El agente lee NEW_RELIC_APP_NAME al importarse, no en initialize():
+    # el nombre tiene que estar definido antes del import.
+    entorno.setdefault("NEW_RELIC_APP_NAME", NOMBRE_APP)
+
     try:
         import newrelic.agent
     except ImportError:
@@ -87,7 +91,6 @@ def iniciar_monitoreo(entorno=None):
             "instalado: pip install -r requirements-apm.txt"
         ) from None
 
-    entorno.setdefault("NEW_RELIC_APP_NAME", NOMBRE_APP)
     newrelic.agent.initialize(entorno.get("NEW_RELIC_CONFIG_FILE"))
 
     return True
