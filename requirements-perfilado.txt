@@ -3,6 +3,5 @@
 line_profiler==5.0.2
 memory-profiler==0.61.0
 scalene==2.3.0
-py-spy==0.4.2
 snakeviz==2.2.2
 matplotlib==3.11.2

@@ -28,7 +28,7 @@ El proyecto se versiona en cuatro incrementos medibles y comparables entre sí:
 
 > Los incrementos 2 y 3 conviven en un mismo script: el índice invertido y el ranking con *heap* + caché se miden por separado (tiempo de indexación vs. tiempo de consulta), no por archivo.
 >
-> El perfilado y la medición son transversales a los cuatro y viven en [`src/perfilado.py`](src/perfilado.py), que orquesta las cinco herramientas y produce la tabla comparativa, los gráficos y el reporte HTML.
+> El perfilado y la medición son transversales a los cuatro y viven en [`src/perfilado.py`](src/perfilado.py), que orquesta las herramientas de perfilado y produce la tabla comparativa, los gráficos y el reporte HTML.
 >
 > El incremento 4 vive en un script propio: [`src/concurrente.py`](src/concurrente.py) importa el *pipeline* de normalización, consulta y ranking de `optimizado.py` y **solo** reemplaza `construir_indice()`. Así la comparación aísla el efecto del paralelismo: todo lo demás es literalmente el mismo código.
 
@@ -378,9 +378,8 @@ Las métricas de esta sección **no se estiman ni se derivan teóricamente**: se
 | Memoria (asignaciones) | **`tracemalloc`** | Pico de memoria y atribución por línea de código. |
 | Memoria (residente) | **`memory_profiler`** | Evolución del RSS a lo largo de la corrida, con `include_children`. |
 | CPU + memoria por línea | **`Scalene`** | Separa tiempo de Python del nativo y atribuye memoria por línea. |
-| Muestreo externo | **`py-spy`** | Perfila un proceso **ya en marcha** sin instrumentarlo; genera *flamegraphs*. |
 
-Las cinco están orquestadas por [`src/perfilado.py`](src/perfilado.py), que además produce la tabla comparativa, los gráficos y el reporte HTML. No reemplaza a las herramientas: las invoca, recolecta sus salidas en `profiles/` y deja los archivos crudos (`.prof`, `.json`, `.txt`) para inspección manual.
+cProfile, line_profiler, memory_profiler y Scalene están orquestadas por [`src/perfilado.py`](src/perfilado.py), que además produce la tabla comparativa, los gráficos y el reporte HTML. No reemplaza a las herramientas: las invoca, recolecta sus salidas en `profiles/` y deja los archivos crudos (`.prof`, `.json`, `.txt`) para inspección manual.
 
 ### Protocolo de medición
 
@@ -695,7 +694,7 @@ El análisis marcó cinco vulnerabilidades, que se revisaron y se aceptaron:
 | Job | Qué hace |
 | :--- | :--- |
 | Lint (Ruff) | `ruff check` y `ruff format --check`. |
-| Seguridad (Bandit) | Análisis de seguridad del código. |
+| Seguridad (Bandit y pip-audit) | Análisis de seguridad del código (Bandit) y vulnerabilidades conocidas en las dependencias (pip-audit). |
 | Tests, cobertura y Performance Gate | Corre los tests con una cobertura mínima del 80 %, envía el análisis a SonarCloud y, aparte y sin cobertura, los 2 tests de rendimiento. Solo corre si los dos jobs anteriores pasan. |
 
 ---
@@ -815,23 +814,132 @@ La suite pasa de 60 a 101 tests, más los 2 de rendimiento, con una cobertura de
 | [`test_api.py`](tests/test_api.py) | 9 | Las respuestas y los errores de los endpoints, la reutilización del índice, la reconstrucción cuando cambia el corpus, la carga desde disco al reiniciar y el esquema de Swagger. |
 | [`test_optimizado.py`](tests/test_optimizado.py) | +1 | La caché de consultas con 8 hilos concurrentes. |
 
-### Informes y capturas
-
-En `docs/` hay material preliminar de la etapa 4, que se va a reescribir en esa etapa junto con la integración de New Relic:
-
-- [`docs/informe-new-relic.pdf`](docs/informe-new-relic.pdf) y [`docs/newrelic-capturas/`](docs/newrelic-capturas/): monitoreo de la API con New Relic. El PDF se genera con [`scripts/generar_informe_newrelic.py`](scripts/generar_informe_newrelic.py).
-- [`docs/informe-scalene.html`](docs/informe-scalene.html): perfilado con Scalene.
-
-> [`docs/informe-punto-archivos-api.html`](docs/informe-punto-archivos-api.html) describe una versión anterior de esta etapa (buffer de 1 MiB, firma por archivo, los lotes del MapReduce como *batching*). Queda reemplazado por esta sección.
-
 ### Dependencias
 
 | Archivo | Para qué |
 | :--- | :--- |
-| `requirements.txt` | Correr la API (FastAPI y uvicorn). El motor de búsqueda solo usa la biblioteca estándar. |
-| `requirements-dev.txt` | El CI: incluye `requirements.txt`, las herramientas de calidad y `httpx` para los tests de la API. |
+| `requirements.txt` | Correr la API (FastAPI y uvicorn). Fija Starlette 1.8.0, que corrige seis vulnerabilidades de la versión que traía FastAPI 0.119. El motor de búsqueda solo usa la biblioteca estándar. |
+| `requirements-dev.txt` | El CI: incluye `requirements.txt`, las herramientas de calidad, `pip-audit` y `httpx2` para los tests de la API. |
 | `requirements-perfilado.txt` | Las herramientas de medición, que no corren en el CI. |
+| `requirements-apm.txt` | El agente de New Relic, para monitorear la API con `src/servidor.py`. Queda fuera del CI. |
 | `requirements-informes.txt` | Generar el informe en PDF de New Relic (`scripts/generar_informe_newrelic.py`). |
+
+---
+
+## Profiling Avanzado y APM
+
+Cuarta etapa del segundo parcial: medir la API en tiempo real con New Relic y explicar con los perfiladores lo que el monitoreo muestra. New Relic dice qué endpoint es lento, cuánto y cuándo; cProfile (visto con SnakeViz) y Scalene dicen qué función o línea consume ese tiempo.
+
+### Monitoreo con New Relic
+
+[`src/servidor.py`](src/servidor.py) levanta la API con uvicorn e inicializa el agente de New Relic antes de importar FastAPI, que es lo que el agente necesita para instrumentarla. Solo lo activa si existe `NEW_RELIC_LICENSE_KEY`, que se lee de un `.env` que git ignora; sin licencia, la API arranca igual, sin monitoreo. El código del buscador no se modificó. Los comandos están en [API web](#api-web).
+
+La carga la genera [`src/generar_trafico.py`](src/generar_trafico.py): cada usuario simulado envía una búsqueda, espera la respuesta y envía la siguiente, con 60 % de consultas repetidas (salen de la caché), 30 % variadas y 10 % inexistentes. La campaña tuvo tres escenarios de 4 minutos sobre el índice de 50.000 documentos:
+
+| Escenario | Usuarios simultáneos | Recarga del índice |
+| :--- | ---: | :--- |
+| 1 | 1 | No |
+| 2 | 20 | No |
+| 3 | 20 | Cada 60 s |
+
+Con los datos del agente se armó un dashboard con la latencia de cada búsqueda minuto a minuto, el consumo de RAM y la CPU del proceso:
+
+![Dashboard de New Relic](docs/newrelic-capturas/04-dashboard.png)
+
+- **Sin errores:** 81.979 solicitudes, todas con 200, también durante las recargas del índice.
+- **El servidor usa un solo núcleo.** Con un usuario, la mediana de una búsqueda dentro del servidor es de 1,6 ms; con 20, de 145 ms, pero el rendimiento no crece: se queda entre 107 y 117 búsquedas por segundo. La CPU del proceso no pasa del 25 % de la máquina, que es un núcleo de los cuatro lógicos: los hilos que atienden las búsquedas se turnan el GIL.
+- **Cada recarga del índice tarda unos 16 s** y lleva el pico de RAM de unos 230 MB a unos 590 MB, porque mientras se construye el índice nuevo el viejo sigue en memoria.
+- **New Relic no ve dentro del buscador:** el 98,9 % del tiempo de `/reindexar` queda en una sola función, sin más detalle. Eso lo responde el perfilado del punto siguiente.
+
+El análisis completo (latencias del cliente contra las de New Relic, la Ley de Little, las limitaciones de la medición y las consultas NRQL del dashboard) está en el [informe de New Relic](docs/informe-new-relic.pdf).
+
+### Perfilado de la versión refactorizada
+
+Las herramientas corren sobre el código actual (índice en disco, lectura por bloques y la API), no sobre las cinco versiones de línea de comandos de la entrega anterior.
+
+Perfilar el servidor directamente no alcanza: FastAPI atiende cada búsqueda en un hilo de su pool, y cProfile solo mide el hilo desde el que se activa. Por eso las dos herramientas corren sobre [`src/perfilar_api.py`](src/perfilar_api.py), que hace el mismo trabajo que `GET /buscar` y `POST /reindexar`, con la misma mezcla de consultas, en un solo proceso y sin HTTP:
+
+| Herramienta | Corrida | Qué muestra | Capturas |
+| :--- | :--- | :--- | :--- |
+| cProfile + SnakeViz | 3.000 búsquedas y una recarga del índice | El grafo de llamadas de las búsquedas y de la recarga | [01](docs/perfilado-capturas/01-snakeviz-general.png), [02](docs/perfilado-capturas/02-snakeviz-ranking.png), [03](docs/perfilado-capturas/03-snakeviz-recarga.png), [04](docs/perfilado-capturas/04-snakeviz-tabla.png) |
+| Scalene | 3.000 búsquedas, sin recarga | CPU (Python y nativa) y memoria por línea | [05](docs/perfilado-capturas/05-scalene-resumen.png), [06](docs/perfilado-capturas/06-scalene-ranking.png) |
+
+Los comandos están en [Perfilado de la API](#perfilado-de-la-api).
+
+Los dos perfiladores agregan sobrecarga: sin perfilador, las 3.000 búsquedas tardan entre 19,3 y 20,1 s; con Scalene, 45,4 s, y con cProfile, 49,0 s. Por eso se comparan proporciones, no segundos.
+
+#### Qué cuesta una búsqueda sin caché
+
+De las 3.000 búsquedas, 1.840 son repetidas y salen de la caché. Casi todo el tiempo es de las 808 que llegan al ranking: unos **23 ms cada una**.
+
+**SnakeViz** ([01](docs/perfilado-capturas/01-snakeviz-general.png) y [02](docs/perfilado-capturas/02-snakeviz-ranking.png)): `buscar` ocupa el 79 % del tiempo perfilado (49,0 de 61,9 s), y casi todo está en `rankear` → `heapq.nlargest` → `puntuados` (46,1 s). `puntuados`, el generador que calcula el TF-IDF de cada candidato, se ejecutó **36.932.076 veces**: unos 45.700 candidatos por consulta, el 91 % del corpus. La intersección casi no filtra, porque el corpus sintético tiene 39 términos y cada uno aparece en casi todos los documentos.
+
+**Scalene** ([05](docs/perfilado-capturas/05-scalene-resumen.png) y [06](docs/perfilado-capturas/06-scalene-ranking.png)): `optimizado.py` se lleva el 90 % del tiempo, y `puntuados`, el 67,7 %. Por línea:
+
+| Línea | Código | Tiempo | Dónde |
+| ---: | :--- | ---: | :--- |
+| 302 | `score += postings.get(doc_id, 0) * idf` | 30,9 % | Casi todo nativo (27,5 %): los `dict.get` |
+| 304 | `yield (score, -doc_id)` | 22,2 % | Todo Python |
+| 294 | `yield (postings.get(doc_id, 0) * idf, -doc_id)` (consulta de un término) | 14,7 % | Mitad Python, mitad nativo |
+| 310 | `heapq.nlargest(top_k, puntuados())` | 11,3 % | Nativo |
+
+El pico de memoria es de 274 MB, casi todo el índice cargado (New Relic midió unos 230 MB).
+
+**Relación con New Relic.** Cada búsqueda sin caché ocupa la CPU unos 23 ms en código Python, con el GIL tomado. Un proceso no puede resolver más de unas 45 por segundo, con cualquier cantidad de hilos. Es lo que mostró el dashboard: el rendimiento no crece con los usuarios y la CPU se queda en un núcleo.
+
+#### Qué consume los 16 s de `/reindexar`
+
+Los 16 s son los de New Relic, con 20 usuarios buscando al mismo tiempo. Aislada, la recarga tarda entre **7,2 y 9,3 s**. La diferencia es la competencia por la CPU: los procesos de la recarga y los hilos de las búsquedas comparten 2 núcleos físicos.
+
+**SnakeViz** ([03](docs/perfilado-capturas/03-snakeviz-recarga.png)): de los 11,0 s de `reindexar` con cProfile, 10,1 s quedan en `construir_indice`, y debajo casi no hay nada. El trabajo lo hacen los procesos hijos, que cProfile no ve.
+
+Para repartir ese tiempo, [`scripts/medir_recarga.py`](scripts/medir_recarga.py) mide aparte las dos partes (los números son de una corrida con 3 recargas):
+
+- **Proceso padre**, cronometrado sin perfilador: listar las 50.000 rutas lleva 0,17 s y ordenarlas, 0,48 s; guardar los 16 lotes en JSON, 0,6 s; fusionarlos, entre 0,2 y 0,3 s, y tomar la firma del corpus, 0,2 s. El resto es arrancar los 4 procesos y esperarlos: el primer lote llega entre los 2,9 y los 3,4 s.
+- **Procesos hijos**, con un lote perfilado con cProfile en el proceso padre: un lote de 3.125 documentos tarda 0,74 s, así que los 16 lotes suman unos 12 s de CPU, repartidos entre 4 procesos. El **62 %** es `tokenizar` (separar las palabras con la expresión regular, normalizarlas, filtrar las *stopwords* y aplicar el *stemming*) y el **22 %**, abrir y leer los archivos por bloques.
+
+Ordenar las rutas cuesta 0,48 s porque son objetos `Path`: la tabla de SnakeViz ([04](docs/perfilado-capturas/04-snakeviz-tabla.png)) muestra 668.828 comparaciones `Path.__lt__`. Ordenadas por el nombre del archivo, tardan 0,17 s.
+
+#### Embotellamientos encontrados
+
+| Embotellamiento | Lo mostró | Evidencia | Posible mejora |
+| :--- | :--- | :--- | :--- |
+| Ranking TF-IDF de cada búsqueda sin caché | SnakeViz y Scalene | 36,9 millones de candidatos puntuados en 808 búsquedas; las líneas 302 y 304 suman el 53 % del tiempo | Guardar en el índice el producto `tf × idf` ya calculado, cortar el ranking antes con cotas superiores del *score*, o vectorizar con NumPy. Para el techo de un núcleo, varios procesos de Uvicorn, cada uno con su copia del índice. |
+| Tokenización durante la recarga | cProfile de un lote | 62 % del tiempo de cada lote, unos 7 s de CPU por recarga | `normalize` y `stem` ya se memoizan; lo que queda es el bucle por palabra. Resolver cada palabra con una sola consulta a la caché (normalizar, filtrar y *stemming* juntos). |
+| Ordenar 50.000 rutas como `Path` | SnakeViz (tabla) y cronometraje | 668.828 comparaciones, 0,48 s por recarga | Ordenar por el nombre del archivo, que tarda 0,17 s. |
+| La recarga compite con las búsquedas | New Relic y cronometraje | 7,2 a 9,3 s aislada, 16 s bajo carga | Reindexar con menos procesos mientras la API atiende, o en momentos de poca carga. |
+
+#### Límites de las herramientas
+
+- Ni cProfile ni Scalene ven el trabajo de los procesos hijos que reconstruyen el índice. cProfile muestra al proceso padre esperando, y Scalene no los acompaña, así que con Scalene se perfilan solo las búsquedas, con el índice ya guardado.
+- En Python 3.14, cProfile registra también los hilos internos del pool de procesos, y los mezcla en el árbol de la recarga. Por eso los tiempos de esa rama se cronometraron aparte.
+- Lo que agrega el framework (HTTP, la validación de FastAPI y la serialización de la respuesta) queda fuera de las dos mediciones, porque `perfilar_api.py` no pasa por HTTP.
+- **py-spy se descartó.** Era la herramienta que podía cubrir esos dos huecos: muestrea desde afuera la API real, con el framework y los procesos hijos. Pero en esta máquina (macOS 13 y el Python 3.14 de python.org) no logró engancharse al proceso de la API, ni siquiera con `sudo`. `py-spy dump` falló con `No such process` sobre un proceso que estaba corriendo, y `py-spy record`, con `Operation timed out`. No es un problema de versión, porque py-spy 0.4.2 soporta Python 3.14, ni de la firma, porque el Python de python.org permite que lo inspeccionen (`get-task-allow`). Por eso las capturas son de cProfile y Scalene, y también se sacó la fase de py-spy del arnés de la entrega anterior, que nunca había llegado a correr.
+
+### Tests de esta etapa
+
+La suite pasa de 101 a 122 tests, más los 2 de rendimiento, con una cobertura de 99,6 %:
+
+| Archivo | Tests | Qué verifica |
+| :--- | ---: | :--- |
+| [`test_servidor.py`](tests/test_servidor.py) | 8 | Con un agente falso que nunca se conecta: sin licencia no inicia el agente; con licencia lo inicia con el nombre por defecto o el configurado, y define el nombre antes de importarlo; avisa si falta instalarlo; el `.env` se lee sin pisar el entorno, y `main()` levanta uvicorn. |
+| [`test_generar_trafico.py`](tests/test_generar_trafico.py) | 9 | Contra la app en el mismo proceso, sin abrir puertos: la cantidad pedida de búsquedas, la mezcla y la semilla reproducibles, las recargas periódicas, los percentiles, y que un servidor caído cuenta como error. |
+| [`test_perfilar_api.py`](tests/test_perfilar_api.py) | 4 | La cantidad y la mezcla de búsquedas, que la semilla repite la secuencia, que la recarga reconstruye el índice y que se guarda un perfil legible por `pstats`. |
+
+### Análisis estático de esta etapa
+
+SonarCloud marcó cuatro vulnerabilidades de la regla S8707: una ruta que llega por la línea de comandos y se usa para leer o escribir un archivo. Se revisaron y se aceptaron con el mismo criterio que las de la [etapa 1](#análisis-estático-con-sonarcloud): son herramientas locales, quien las ejecuta elige sus propias rutas, y no se cruza ningún límite de permisos.
+
+| Dónde | Qué hace con la ruta |
+| :--- | :--- |
+| `servidor.cargar_variables()` | Lee el archivo de `--env-file`, por ejemplo `.env`. |
+| `generar_trafico.main()`, dos usos | Crea el directorio de `--salida` y guarda ahí el resumen en JSON. |
+| `perfilar_api.main()` | Crea el directorio de `--cprofile` y guarda ahí el perfil. |
+
+### Informes y capturas
+
+- [`docs/informe-new-relic.pdf`](docs/informe-new-relic.pdf) y [`docs/newrelic-capturas/`](docs/newrelic-capturas/): el monitoreo con New Relic. El PDF se genera con [`scripts/generar_informe_newrelic.py`](scripts/generar_informe_newrelic.py).
+- [`docs/perfilado-capturas/`](docs/perfilado-capturas/): las capturas de SnakeViz y Scalene. El análisis está en [Perfilado de la versión refactorizada](#perfilado-de-la-versión-refactorizada), que reemplaza al informe de Scalene de la entrega anterior.
 
 ---
 
@@ -989,6 +1097,32 @@ curl -X POST http://127.0.0.1:8000/reindexar
 BUSCADOR_CORPUS=/ruta/al/corpus BUSCADOR_INDICE=/ruta/al/indice uvicorn api:app --app-dir src
 ```
 
+Para monitorear la API con New Relic, el lanzador `src/servidor.py` activa el agente solo si existe la variable `NEW_RELIC_LICENSE_KEY`. La licencia va en un `.env`, que git ignora, y nunca en el código:
+
+```bash
+pip install -r requirements-apm.txt
+echo "NEW_RELIC_LICENSE_KEY=<licencia INGEST - LICENSE>" > .env
+
+python src/servidor.py --env-file .env     # New Relic: activo (app pef-26)
+python src/servidor.py                     # sin licencia: arranca igual, sin monitoreo
+
+# Opcional: configuración del agente a partir de la plantilla (no lleva claves)
+cp newrelic.ini.example newrelic.ini
+NEW_RELIC_CONFIG_FILE=newrelic.ini python src/servidor.py --env-file .env
+```
+
+Para generar carga contra la API levantada (usa `httpx2`, de `requirements-dev.txt`):
+
+```bash
+# 60 s con 50 usuarios simultáneos: 60 % consultas repetidas, 30 % variadas, 10 % inexistentes
+python src/generar_trafico.py --duracion 60 --concurrencia 50 --mezcla 60,30,10
+
+# Cantidad fija y reproducible, con una recarga del índice cada 30 s
+python src/generar_trafico.py --solicitudes 5000 --semilla 1 --reindexar-cada 30
+```
+
+> Imprime p50, p95, p99 y máximo por tipo de consulta, y guarda el resumen en `profiles/trafico.json`. Entre escenarios conviene reiniciar el servidor: la caché de consultas sobrevive entre corridas.
+
 > La primera construcción del índice usa procesos con el método de arranque `spawn`, que vuelve a importar el script principal en cada proceso. Uvicorn ya lo tiene en cuenta, pero un script propio que use la API directamente (por ejemplo, con `TestClient`) tiene que tener la guarda `if __name__ == "__main__":`.
 
 ### Comparativa automatizada
@@ -1004,7 +1138,7 @@ python3 src/perfilado.py --comparativa --rondas 3 --repeticiones 10
 python3 src/perfilado.py --todo --tamanos 5000,50000
 ```
 
-> Cada fase vuelca su resultado en `profiles/perfilado.json` apenas termina, así que un corte a mitad de camino no se lleva las fases ya completadas. Las fases se pueden correr por separado (`--comparativa`, `--escalabilidad`, `--cprofile`, `--line`, `--memoria`, `--scalene`, `--pyspy`, `--graficos`, `--reporte`) y cada una se acumula sobre el mismo JSON.
+> Cada fase vuelca su resultado en `profiles/perfilado.json` apenas termina, así que un corte a mitad de camino no se lleva las fases ya completadas. Las fases se pueden correr por separado (`--comparativa`, `--escalabilidad`, `--cprofile`, `--line`, `--memoria`, `--scalene`, `--graficos`, `--reporte`) y cada una se acumula sobre el mismo JSON.
 
 `src/concurrente.py --comparar` sigue siendo el atajo para contrastar solo la indexación paralela contra la secuencial en una corrida. La comparativa también se reproduce a mano tomando la mediana en régimen estacionario:
 
@@ -1053,21 +1187,20 @@ EOF
 
 ### Perfilado
 
-Las cinco herramientas, orquestadas:
+Las cuatro herramientas, orquestadas:
 
 ```bash
-# Corre las cinco sobre las cinco versiones y deja todo en profiles/
-python3 src/perfilado.py --cprofile --line --memoria --scalene --pyspy
+# Corre las cuatro sobre las cinco versiones y deja todo en profiles/
+python3 src/perfilado.py --cprofile --line --memoria --scalene
 
 # Artefactos resultantes
 snakeviz profiles/cprofile-algoritmo.prof        # grafo de llamadas interactivo
 cat      profiles/line_profiler-algoritmo.txt    # costo por línea
 scalene view profiles/scalene-inicial.json       # CPU + memoria por línea
-bash     profiles/pyspy.sh                       # flamegraphs (pide sudo en macOS)
 open     profiles/reporte.html                   # reporte autocontenido
 ```
 
-> **Límites conocidos de las herramientas sobre la versión concurrente.** `line_profiler` y Scalene instrumentan **el intérprete en el que corren** y no cruzan el límite de proceso: con `spawn`, el trabajo ocurre en los workers y ambas ven un padre que solo espera. `cProfile` lo muestra literalmente — el 0,786 s del padre está en `wait_result_broken_or_wakeup`. Scalene además aborta sobre dos de las cinco versiones (`SIGSEGV` y `BrokenProcessPool`). La única que ve el árbol completo es `py-spy` con `--subprocesses`, y en macOS necesita `sudo` por SIP. El arnés registra cada omisión con su motivo en lugar de reportar un cero engañoso.
+> **Límites conocidos de las herramientas sobre la versión concurrente.** `line_profiler` y Scalene instrumentan **el intérprete en el que corren** y no cruzan el límite de proceso: con `spawn`, el trabajo ocurre en los workers y ambas ven un padre que solo espera. `cProfile` lo muestra literalmente — el 0,786 s del padre está en `wait_result_broken_or_wakeup`. Scalene además aborta sobre dos de las cinco versiones (`SIGSEGV` y `BrokenProcessPool`). El arnés registra cada omisión con su motivo en lugar de reportar un cero engañoso.
 
 Herramientas por separado, a mano:
 
@@ -1102,6 +1235,26 @@ print(f'indice={actual/1e6:.1f} MB  pico={pico/1e6:.1f} MB')
 mprof run python3 src/baseline.py --query "algoritmo"
 mprof plot
 ```
+
+### Perfilado de la API
+
+```bash
+# La primera corrida, sin perfilador, construye y guarda el índice
+python src/perfilar_api.py --consultas 3000
+
+# cProfile sobre las búsquedas y una recarga del índice, y su grafo de llamadas
+python src/perfilar_api.py --reindexar --cprofile profiles/cprofile-api.prof
+snakeviz profiles/cprofile-api.prof
+
+# Scalene: CPU y memoria por línea (sin --reindexar: no sigue a los procesos hijos)
+scalene run -o profiles/scalene-api.json src/perfilar_api.py --- --consultas 3000
+scalene view profiles/scalene-api.json
+
+# Qué compone una recarga: fases del proceso padre y un lote de los procesos hijos
+python scripts/medir_recarga.py --repeticiones 3
+```
+
+> Los perfiles quedan en `profiles/`, que git ignora (`medir_recarga.py` solo imprime sus resultados). Lo que se versiona son las capturas en PNG de `docs/perfilado-capturas/`: el `.gitignore` también excluye los `.prof` en cualquier carpeta.
 
 ### Validación de equivalencia
 

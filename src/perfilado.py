@@ -1,10 +1,9 @@
 """
 Perfilado y medición del Buscador Eficiente de Información.
 
-Orquestador de las cinco herramientas exigidas por la consigna
-(``cProfile``, ``line_profiler``, ``memory_profiler``, ``Scalene`` y
-``py-spy``) más el banco de pruebas que produce la tabla comparativa
-obligatoria.
+Orquestador de las herramientas de perfilado (``cProfile``,
+``line_profiler``, ``memory_profiler`` y ``Scalene``) más el banco de
+pruebas que produce la tabla comparativa obligatoria.
 
 Cada versión se mide en un **proceso limpio** —el orquestador se
 invoca a sí mismo con ``--medir``— para que el pico de RSS sea
@@ -26,7 +25,7 @@ Comandos (requieren el venv con las herramientas instaladas)::
     .venv/bin/python src/perfilado.py --comparativa
     .venv/bin/python src/perfilado.py --escalabilidad
     .venv/bin/python src/perfilado.py --cprofile --line --memoria
-    .venv/bin/python src/perfilado.py --scalene --pyspy
+    .venv/bin/python src/perfilado.py --scalene
     .venv/bin/python src/perfilado.py --graficos --reporte
 """
 
@@ -916,128 +915,6 @@ def _resumir_scalene(archivo):
         "max_footprint_mb": datos.get("max_footprint_mb"),
         "top": filas[:10],
     }
-
-
-# ============================================================
-# HERRAMIENTA 5 — py-spy
-# ============================================================
-
-
-def perfilar_pyspy(corpus_dir, versiones, ejecutar):
-    """
-    Muestreo estadístico desde fuera del proceso; genera flamegraphs.
-
-    En macOS, `py-spy` necesita `sudo` para adjuntarse a otro proceso
-    (restricción de SIP), así que por defecto no se ejecuta: se deja
-    un script con los comandos exactos para correr a mano. Es la
-    única herramienta de las cinco que puede perfilar un proceso ya
-    en marcha sin instrumentarlo.
-
-    :param corpus_dir: Directorio del corpus.
-    :type corpus_dir: pathlib.Path
-    :param versiones: Versiones a perfilar (ver ``VERSIONES``).
-    :type versiones: tuple[str, ...]
-    :param ejecutar: Si se corre ``py-spy`` ahora (en macOS pide ``sudo``). Si es falso,
-        solo se escribe el script con los comandos.
-    :type ejecutar: bool
-    :return: Por versión, la ruta del flamegraph o el error. Sin ``ejecutar``,
-        ``{"omitido": ..., "script": ..., "comandos": [...]}``.
-    :rtype: dict
-    """
-    en_windows = sys.platform.startswith("win")
-
-    pyspy = (
-        BASE_DIR
-        / ".venv"
-        / ("Scripts" if en_windows else "bin")
-        / ("py-spy.exe" if en_windows else "py-spy")
-    )
-
-    def _relativa(ruta):
-        """
-        Expresa una ruta relativa a la raíz del repositorio, si está dentro.
-
-        :param ruta: Ruta a convertir.
-        :type ruta: str | pathlib.Path
-        :return: La ruta relativa a ``BASE_DIR``, o la original si queda fuera.
-        :rtype: pathlib.Path
-        """
-        try:
-            return Path(ruta).relative_to(BASE_DIR)
-        except ValueError:
-            return Path(ruta)
-
-    # Windows no tiene SIP ni sudo: py-spy se adjunta sin privilegios.
-    prefijo = "" if en_windows else "sudo "
-
-    comandos = []
-
-    for version in versiones:
-        destino = DIR_PERFILES / f"pyspy-{version}.svg"
-
-        comandos.append(
-            f"{prefijo}{_relativa(pyspy)} record "
-            f"--output {destino.relative_to(BASE_DIR)} --format flamegraph "
-            f"--subprocesses -- {_relativa(sys.executable)} "
-            f"src/perfilado.py --medir {version} "
-            f"--directorio {corpus_dir} --repeticiones 1"
-        )
-
-    if en_windows:
-        script = DIR_PERFILES / "pyspy.bat"
-        script.write_text(
-            "@echo off\r\n"
-            "REM Ejecutar desde la raiz del repo.\r\n\r\n"
-            + "\r\n\r\n".join(comandos)
-            + "\r\n",
-            encoding="utf-8",
-        )
-    else:
-        script = DIR_PERFILES / "pyspy.sh"
-        script.write_text(
-            "#!/usr/bin/env bash\n"
-            "# py-spy requiere sudo en macOS (SIP). Ejecutar desde la raíz del repo.\n"
-            "set -euo pipefail\n\n" + "\n\n".join(comandos) + "\n",
-            encoding="utf-8",
-        )
-        script.chmod(0o755)
-
-    if not ejecutar:
-        return {
-            "omitido": (
-                "comandos escritos en profiles/pyspy.bat"
-                if en_windows
-                else "requiere sudo en macOS; comandos escritos en profiles/pyspy.sh"
-            ),
-            "script": str(script.relative_to(BASE_DIR)),
-            "comandos": comandos,
-        }
-
-    hallazgos = {}
-
-    for version, comando in zip(versiones, comandos):
-        print(f"  py-spy: {version} (pedirá contraseña)", flush=True)
-
-        # shell=True porque el mismo comando se escribe en pyspy.sh/.bat
-        # para correrlo a mano (incluye `sudo`); se arma con rutas internas.
-        proceso = subprocess.run(  # nosec B602
-            comando,
-            shell=True,
-            cwd=str(BASE_DIR),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        destino = DIR_PERFILES / f"pyspy-{version}.svg"
-
-        hallazgos[version] = (
-            {"archivo": str(destino.relative_to(BASE_DIR))}
-            if destino.exists()
-            else {"error": (proceso.stderr or proceso.stdout)[-400:]}
-        )
-
-    return hallazgos
 
 
 # ============================================================
@@ -2015,7 +1892,7 @@ def _html_encabezado(entorno):
     <header>
       <h1>Perfilado y medición — Buscador Eficiente de Información</h1>
       <p class="subtitulo">Comparativa de las cinco versiones con cProfile,
-         line_profiler, memory_profiler, Scalene y py-spy.</p>
+         line_profiler, memory_profiler y Scalene.</p>
       <div class="chips">{chips}</div>
     </header>"""
 
@@ -2425,43 +2302,6 @@ def _html_scalene(scalene):
     return "".join(partes)
 
 
-def _html_pyspy(pyspy):
-    """
-    Arma la sección de py-spy: los flamegraphs o los comandos para generarlos.
-
-    :param pyspy: Hallazgos de :func:`perfilar_pyspy`: por versión, o con la
-        clave ``omitido`` si no se ejecutó.
-    :type pyspy: dict
-    :return: El HTML de la sección, o una cadena vacía si no hay datos.
-    :rtype: str
-    """
-    if not pyspy:
-        return ""
-
-    partes = ["<h3>py-spy — muestreo externo y flamegraph</h3>"]
-
-    if "omitido" in pyspy:
-        comandos = "\n".join(pyspy["comandos"])
-        partes.append(
-            f"<p>{html.escape(pyspy['omitido'])}. Es la única de las cinco "
-            "que "
-            "perfila un proceso <strong>ya en marcha</strong> sin instrumentarlo, "
-            "y la única "
-            "que ve los procesos hijos con <code>--subprocesses</code>.</p>"
-            f"<pre><code>{html.escape(comandos)}</code></pre>"
-        )
-        return "".join(partes)
-
-    for version, datos in pyspy.items():
-        detalle = datos.get("archivo") or datos.get("error", "")
-        partes.append(
-            f"<p><strong>{ETIQUETAS.get(version, version)}</strong> — "
-            f"{html.escape(str(detalle))}</p>"
-        )
-
-    return "".join(partes)
-
-
 def generar_reporte(resultados):
     """
     Arma el reporte HTML autocontenido en profiles/reporte.html.
@@ -2487,7 +2327,6 @@ def generar_reporte(resultados):
         _html_line_profiler(resultados.get("line_profiler") or {}),
         _html_memoria(memoria),
         _html_scalene(resultados.get("scalene") or {}),
-        _html_pyspy(resultados.get("pyspy") or {}),
         """
     <footer>
       <p>Generado por <code>src/perfilado.py</code>.
@@ -2589,12 +2428,6 @@ def _crear_parser():
     parser.add_argument("--line", action="store_true")
     parser.add_argument("--memoria", action="store_true")
     parser.add_argument("--scalene", action="store_true")
-    parser.add_argument("--pyspy", action="store_true")
-    parser.add_argument(
-        "--ejecutar-pyspy",
-        action="store_true",
-        help="ejecuta py-spy (pedirá sudo en macOS)",
-    )
     parser.add_argument("--graficos", action="store_true")
     parser.add_argument("--reporte", action="store_true")
 
@@ -2752,12 +2585,6 @@ def _correr_perfiladores(args, resultados, archivo, corpus_dir, corpus_liviano):
             "scalene",
             "scalene",
             lambda: perfilar_scalene(corpus_liviano, VERSIONES),
-        ),
-        (
-            args.pyspy,
-            "pyspy",
-            "py-spy",
-            lambda: perfilar_pyspy(corpus_liviano, VERSIONES, args.ejecutar_pyspy),
         ),
     )
 

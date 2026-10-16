@@ -1,0 +1,4 @@
+# Agente de New Relic para monitorear la API (src/servidor.py lo activa si
+# NEW_RELIC_LICENSE_KEY está definida). Queda fuera del CI.
+-r requirements.txt
+newrelic==14.0.0

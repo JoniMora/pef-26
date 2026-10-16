@@ -19,7 +19,13 @@ El proyecto se compone de estos módulos:
 - :mod:`indice_en_disco`: guarda el índice en disco por lotes y lo carga al
   arrancar.
 - :mod:`api`: API web con FastAPI: ``GET /buscar`` y ``POST /reindexar``.
+- :mod:`servidor`: levanta la API con uvicorn y, si hay licencia, con el
+  agente de New Relic.
 - :mod:`perfilado`: arnés de medición y perfilado de las cinco versiones.
+- :mod:`generar_trafico`: generador de carga para la API, con p50, p95 y p99
+  por tipo de consulta.
+- :mod:`perfilar_api`: hace en un solo proceso el trabajo de la API bajo
+  carga, para perfilarlo con cProfile y Scalene.
 
 .. toctree::
    :maxdepth: 2

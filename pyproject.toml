@@ -66,8 +66,8 @@ markers = [
 # ─────────────────────────────────────────────────────────────
 [tool.coverage.run]
 source = ["src"]
-# perfilado.py es el arnés de medición (lanza subprocesos, Scalene,
-# py-spy y genera gráficos), no parte del motor de búsqueda.
+# perfilado.py es el arnés de medición (lanza subprocesos y Scalene, y
+# genera gráficos), no parte del motor de búsqueda.
 omit = ["src/perfilado.py"]
 
 [tool.coverage.report]
