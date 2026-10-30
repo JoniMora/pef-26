@@ -1,0 +1,1667 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buscador Eficiente · Parte 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* ============================================================
+   TOKENS — panel de instrumento: grafito frío + ámbar de señal
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --paper:      #E9ECEB;
+  --surface:    #FBFBFA;
+  --surface-2:  #F0F3F2;
+  --surface-3:  #E4E9E7;
+  --ink:        #14181A;
+  --ink-2:      #4C575B;
+  --ink-3:      #78868B;
+  --rule:       #DCE1DF;
+  --rule-2:     #C2CAC7;
+  --accent:     #C7891A;
+  --accent-ink: #8A5E12;
+  --accent-soft:#F5E7CC;
+  --s1: #B4452F;
+  --s2: #0A6F96;
+  --s3: #C7891A;
+  --s4: #17804F;
+  --s5: #6A4A9E;
+  --shadow: 0 1px 2px rgba(20,24,26,.06), 0 14px 40px rgba(20,24,26,.10);
+  --glow: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper:      #0A0D0E;
+    --surface:    #16191B;
+    --surface-2:  #1D2224;
+    --surface-3:  #252B2E;
+    --ink:        #ECEFEE;
+    --ink-2:      #A7B1B4;
+    --ink-3:      #7E898D;
+    --rule:       #2A3134;
+    --rule-2:     #3B4448;
+    --accent:     #DBA341;
+    --accent-ink: #E2AE55;
+    --accent-soft:#33291694;
+    --s1: #D96A4E;
+    --s2: #3C9DC2;
+    --s3: #B8831D;
+    --s4: #2FA06E;
+    --s5: #8E7BD6;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 18px 50px rgba(0,0,0,.55);
+    --glow: 0 0 0 1px rgba(219,163,65,.08);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper:      #0A0D0E;
+  --surface:    #16191B;
+  --surface-2:  #1D2224;
+  --surface-3:  #252B2E;
+  --ink:        #ECEFEE;
+  --ink-2:      #A7B1B4;
+  --ink-3:      #7E898D;
+  --rule:       #2A3134;
+  --rule-2:     #3B4448;
+  --accent:     #DBA341;
+  --accent-ink: #E2AE55;
+  --accent-soft:#33291694;
+  --s1: #D96A4E;
+  --s2: #3C9DC2;
+  --s3: #B8831D;
+  --s4: #2FA06E;
+  --s5: #8E7BD6;
+  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 18px 50px rgba(0,0,0,.55);
+  --glow: 0 0 0 1px rgba(219,163,65,.08);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "IBM Plex Serif", Georgia, serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   ESCENARIO
+   ============================================================ */
+.deck { position: fixed; inset: 0; }
+.stage-wrap { position: absolute; inset: 0; display: grid; place-items: center; }
+.stage {
+  width: 1280px; height: 720px;
+  transform-origin: center center;
+  position: relative;
+  background: var(--surface);
+  box-shadow: var(--shadow), var(--glow);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.slide {
+  position: absolute; inset: 0;
+  padding: 44px 60px 34px;
+  display: none;
+  grid-template-rows: auto 1fr auto;
+  gap: 20px;
+}
+.slide.is-active { display: grid; }
+
+/* ---------- cabecera ---------- */
+.head { display: grid; gap: 8px; }
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11.5px; font-weight: 500;
+  letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex; align-items: center; gap: 12px;
+}
+.eyebrow b { color: var(--accent-ink); font-weight: 600; }
+.eyebrow .dash { width: 26px; height: 1px; background: var(--rule-2); display: inline-block; }
+h1.title {
+  margin: 0;
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-variation-settings: "wdth" 112, "wght" 700;
+  font-size: 43px; line-height: 1.04;
+  letter-spacing: -.014em;
+  text-wrap: balance;
+  color: var(--ink);
+}
+.lede {
+  margin: 0; max-width: 62ch;
+  font-size: 18.5px; line-height: 1.48; color: var(--ink-2);
+}
+.lede strong { color: var(--ink); font-weight: 600; }
+
+/* ---------- cuerpo ---------- */
+.body { min-height: 0; display: grid; gap: 18px; align-content: start; }
+.cols   { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.cols-7-5 { display: grid; grid-template-columns: 7fr 5fr; gap: 22px; }
+.cols-5-7 { display: grid; grid-template-columns: 5fr 7fr; gap: 22px; }
+.cols-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.stack  { display: grid; gap: 12px; align-content: start; }
+
+p { margin: 0; font-size: 16.5px; line-height: 1.5; color: var(--ink-2); max-width: 62ch; }
+p strong, li strong { color: var(--ink); font-weight: 600; }
+em { font-style: italic; }
+
+.panel {
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 16px 18px;
+  display: grid; gap: 10px; align-content: start;
+}
+.panel.plain { background: transparent; border: 0; padding: 0; }
+.panel.lift  { background: var(--surface); box-shadow: 0 1px 0 var(--rule-2); }
+
+.plabel {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.plabel.acc { color: var(--accent-ink); }
+
+/* ---------- listas ---------- */
+ul.list { margin: 0; padding: 0; list-style: none; display: grid; gap: 9px; }
+ul.list li {
+  font-size: 16px; line-height: 1.42; color: var(--ink-2);
+  padding-left: 18px; position: relative; max-width: 60ch;
+}
+ul.list li::before {
+  content: ""; position: absolute; left: 0; top: .58em;
+  width: 7px; height: 1.5px; background: var(--rule-2);
+}
+ul.list.acc li::before { background: var(--accent); }
+
+/* ---------- lecturas numéricas ---------- */
+.readouts { display: grid; grid-auto-flow: column; gap: 0; }
+.readout { padding: 0 22px; border-left: 1px solid var(--rule); }
+.readout:first-child { padding-left: 0; border-left: 0; }
+.readout .val {
+  font-family: Archivo, sans-serif;
+  font-variation-settings: "wdth" 100, "wght" 700;
+  font-size: 34px; line-height: 1; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+  display: flex; align-items: baseline; gap: 5px;
+}
+.readout .val .u {
+  font-family: "IBM Plex Mono", monospace; font-size: 13px;
+  font-weight: 500; color: var(--ink-3); letter-spacing: 0;
+}
+.readout .val.hl { color: var(--accent-ink); }
+.readout .cap {
+  margin-top: 7px;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  letter-spacing: .07em; color: var(--ink-3); line-height: 1.35;
+}
+
+/* ---------- tablas ---------- */
+table { border-collapse: collapse; width: 100%; }
+th, td {
+  text-align: left; padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px; line-height: 1.35;
+}
+th {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--ink-3);
+  border-bottom: 1px solid var(--rule-2);
+  padding-bottom: 6px;
+}
+td { color: var(--ink-2); font-family: Archivo, sans-serif; font-variation-settings: "wght" 400; }
+td.num, th.num { text-align: right; font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--ink); }
+td.mono, th.mono { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+tr.hl td { background: var(--accent-soft); }
+tr.hl td.num { color: var(--accent-ink); font-weight: 600; }
+td .sub { color: var(--ink-3); font-size: 12.5px; }
+tbody tr:last-child td { border-bottom: 0; }
+.tbl-wrap { overflow-x: auto; }
+
+/* ---------- código y terminal ---------- */
+pre.code, pre.term {
+  margin: 0; padding: 13px 15px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12.8px; line-height: 1.58;
+  border-radius: 4px; overflow-x: auto;
+  tab-size: 4;
+}
+pre.code { background: var(--surface-3); border: 1px solid var(--rule); color: var(--ink); }
+pre.term { background: #0E1214; border: 1px solid #1E2528; color: #D5DBDA; }
+:root[data-theme="dark"] pre.term, :root:not([data-theme="light"]) pre.term { background: #0B0E0F; }
+.code .k  { color: var(--accent-ink); }
+.code .c  { color: var(--ink-3); font-style: italic; }
+.code .s  { color: var(--s4); }
+.code .f  { color: var(--s2); }
+.term .p  { color: #6C7A7E; }
+.term .g  { color: #6FBF8E; }
+.term .y  { color: #E3B155; }
+.term .w  { color: #F2F5F4; }
+
+code.inline {
+  font-family: "IBM Plex Mono", monospace; font-size: .9em;
+  background: var(--surface-3); border: 1px solid var(--rule);
+  padding: .06em .32em; border-radius: 3px; color: var(--ink);
+}
+
+/* ---------- fichas / diagramas ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
+  padding: 4px 9px; border: 1px solid var(--rule-2); border-radius: 3px;
+  color: var(--ink-2); background: var(--surface);
+}
+.chip.on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); }
+
+.flow { display: flex; align-items: stretch; gap: 0; }
+.flow .step {
+  flex: 1; padding: 11px 13px;
+  border: 1px solid var(--rule); border-right: 0;
+  background: var(--surface-2);
+  display: grid; gap: 4px; align-content: start;
+}
+.flow .step:first-child { border-radius: 4px 0 0 4px; }
+.flow .step:last-child  { border-right: 1px solid var(--rule); border-radius: 0 4px 4px 0; }
+.flow .step .n {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  letter-spacing: .14em; color: var(--ink-3);
+}
+.flow .step .t {
+  font-family: Archivo, sans-serif; font-variation-settings: "wght" 600;
+  font-size: 14.5px; color: var(--ink);
+}
+.flow .step .d { font-size: 12.5px; color: var(--ink-3); line-height: 1.34; }
+.flow .step.on { background: var(--accent-soft); border-color: var(--accent); }
+.flow .step.on .t { color: var(--accent-ink); }
+
+/* ---------- nota al pie de diapositiva ---------- */
+.foot-note {
+  font-size: 14px; line-height: 1.45; color: var(--ink-3);
+  border-left: 2px solid var(--accent); padding-left: 12px; max-width: 78ch;
+}
+.foot-note b { color: var(--ink-2); font-weight: 600; }
+
+/* ---------- pie de diapositiva ---------- */
+.foot {
+  display: flex; align-items: center; gap: 14px;
+  border-top: 1px solid var(--rule); padding-top: 10px;
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+  letter-spacing: .1em; color: var(--ink-3); text-transform: uppercase;
+}
+.foot .sec { color: var(--ink-2); }
+.foot .spacer { flex: 1; }
+.rail { display: flex; align-items: flex-end; gap: 3px; height: 13px; }
+.rail button {
+  width: 6px; padding: 0; border: 0; cursor: pointer;
+  background: var(--rule-2); height: 5px; border-radius: 1px;
+  transition: height .15s ease, background .15s ease;
+}
+.rail button.mark { height: 9px; }
+.rail button.on { background: var(--accent); height: 13px; }
+.rail button:hover { background: var(--ink-3); }
+.rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.count { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+/* ============================================================
+   PORTADA
+   ============================================================ */
+.cover { padding: 0; }
+.cover .inner {
+  position: absolute; inset: 0;
+  padding: 56px 60px 34px;
+  display: grid; grid-template-rows: auto 1fr auto; gap: 0;
+}
+.cover h1 {
+  font-size: 76px; line-height: .98; letter-spacing: -.026em;
+  font-variation-settings: "wdth" 108, "wght" 800;
+  margin: 0; max-width: 15ch;
+}
+.cover .sub {
+  margin-top: 20px; font-size: 20px; line-height: 1.45;
+  color: var(--ink-2); max-width: 54ch;
+}
+.cover .sub b { color: var(--accent-ink); font-weight: 600; }
+.cover-grid {
+  position: absolute; right: 60px; top: 56px;
+  width: 300px; display: grid; gap: 0;
+  border: 1px solid var(--rule); border-radius: 4px; overflow: hidden;
+}
+.cover-grid .row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  padding: 9px 13px; border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+.cover-grid .row:last-child { border-bottom: 0; }
+.cover-grid .k {
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
+}
+.cover-grid .v {
+  font-family: "IBM Plex Mono", monospace; font-size: 13.5px;
+  font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 500;
+}
+.cover-grid .v.hl { color: var(--accent-ink); }
+
+/* ============================================================
+   CAPAS: índice, notas, ayuda
+   ============================================================ */
+.progress {
+  position: fixed; top: 0; left: 0; height: 2px;
+  background: var(--accent); width: 0; z-index: 40;
+  transition: width .22s ease;
+}
+.hud {
+  position: fixed; bottom: 12px; right: 14px; z-index: 30;
+  display: flex; gap: 6px; align-items: center;
+}
+.hud button {
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  letter-spacing: .06em; color: var(--ink-3);
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; padding: 5px 9px; cursor: pointer;
+}
+.hud button:hover { color: var(--ink); border-color: var(--rule-2); }
+.hud button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.hint {
+  position: fixed; bottom: 12px; left: 14px; z-index: 30;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  color: var(--ink-3); letter-spacing: .04em;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; padding: 5px 10px;
+  transition: opacity .6s ease;
+}
+.hint kbd {
+  font-family: inherit; color: var(--ink-2);
+  border: 1px solid var(--rule-2); border-radius: 2px;
+  padding: 0 3px; margin: 0 1px;
+}
+.hint.gone { opacity: 0; pointer-events: none; }
+
+.notes {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+  background: var(--surface); border-top: 1px solid var(--rule-2);
+  padding: 14px 20px 16px; max-height: 34vh; overflow-y: auto;
+  box-shadow: 0 -10px 30px rgba(0,0,0,.16);
+}
+.notes[hidden] { display: none !important; }
+.notes .plabel { margin-bottom: 8px; }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.notes li { font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.notes b { color: var(--ink); }
+
+.overview {
+  position: fixed; inset: 0; z-index: 45;
+  background: var(--paper);
+  padding: 26px 30px; overflow-y: auto;
+}
+.overview[hidden] { display: none !important; }
+.overview h2 {
+  margin: 0 0 16px;
+  font-family: Archivo, sans-serif; font-variation-settings: "wdth" 110, "wght" 700;
+  font-size: 20px; letter-spacing: -.01em; color: var(--ink);
+}
+.ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.ov-card {
+  text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 4px; padding: 11px 12px; display: grid; gap: 5px;
+}
+.ov-card:hover { border-color: var(--accent); }
+.ov-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ov-card .n {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  letter-spacing: .14em; color: var(--ink-3);
+}
+.ov-card .t {
+  font-family: Archivo, sans-serif; font-variation-settings: "wght" 600;
+  font-size: 13.5px; line-height: 1.25; color: var(--ink);
+}
+.ov-card.on { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ============================================================
+   GRÁFICOS
+   ============================================================ */
+svg.chart { display: block; width: 100%; height: auto; }
+.chart text { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.ax-line { stroke: var(--rule-2); stroke-width: 1; }
+.grid-line { stroke: var(--rule); stroke-width: 1; }
+.tick-txt { font-size: 10.5px; fill: var(--ink-3); }
+.cat-txt  { font-size: 12.5px; fill: var(--ink-2); }
+.cat-txt.on { fill: var(--accent-ink); font-weight: 600; }
+.val-txt  { font-size: 12.5px; fill: var(--ink); font-weight: 500; }
+.val-txt.on { fill: var(--accent-ink); font-weight: 600; }
+.note-txt { font-size: 11px; fill: var(--ink-3); }
+.leader   { stroke: var(--rule-2); stroke-width: 1; stroke-dasharray: 1 4; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; }
+.legend span {
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
+  color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px;
+}
+.legend i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck">
+  <div class="stage-wrap"><div class="stage" id="stage">
+
+<!-- ========== 01 · PORTADA ========== -->
+<section class="slide cover is-active" data-sec="Portada" data-title="Portada" data-mark="1">
+  <div class="inner">
+    <div>
+      <div class="eyebrow"><b>Trabajo Práctico Final · segunda parte</b><span class="dash"></span>Programación Eficiente · 2026</div>
+    </div>
+    <div style="align-self:center">
+      <h1 class="title">Buscador Eficiente de Información</h1>
+      <p class="sub">De un programa que había que correr cada vez, a <b>un servicio web</b> que se puede
+      <b>probar, revisar y medir mientras trabaja</b>.</p>
+    </div>
+    <div class="foot">
+      <span class="sec">github.com/JoniMora/pef-26</span>
+      <span class="spacer"></span>
+      <span>FastAPI · New Relic · cProfile · SnakeViz · Scalene</span>
+    </div>
+  </div>
+  <div class="cover-grid" style="width:360px">
+    <div class="row"><span class="k">Corpus</span><span class="v">50.000 docs · 68,7 MB</span></div>
+    <div class="row"><span class="k">Listo para buscar</span><span class="v hl">4,7 s → ≈1 s</span></div>
+    <div class="row"><span class="k">Tests automáticos</span><span class="v hl">0 → 122</span></div>
+    <div class="row"><span class="k">Pedidos bajo carga</span><span class="v">81.979 · 0 errores</span></div>
+    <div class="row"><span class="k">SonarCloud</span><span class="v">Aprobado</span></div>
+  </div>
+  <template class="nt"><ul>
+    <li>Arrancar con la idea central: <b>en la parte 1 hicimos rápido el buscador; en esta parte lo hicimos usable, confiable y medible</b>.</li>
+    <li>Los números de la derecha son los que vamos a ir explicando.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 02 · PUNTO DE PARTIDA ========== -->
+<section class="slide" data-sec="Punto de partida" data-n="1" data-title="Dónde habíamos quedado" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§1</b><span class="dash"></span>Punto de partida</div>
+    <h1 class="title">El buscador ya era rápido. Faltaba que se pudiera usar</h1>
+    <p class="lede">Con el índice invertido, el heap y la caché, una búsqueda pasó de <strong>2,5 segundos a 8 milisegundos</strong>.
+    Pero seguía siendo un script que se corría desde la terminal.</p>
+  </div>
+  <div class="body">
+    <div class="cols-5-7">
+      <div class="panel stack">
+        <div class="plabel acc">Lo que ya teníamos (parte 1)</div>
+        <div class="readouts">
+          <div class="readout"><div class="val"><span class="from">2.485</span><span class="arr">→</span>8,3<span class="u">ms</span></div><div class="cap">una búsqueda, sin<br>índice y con índice</div></div>
+        </div>
+        <div class="readouts">
+          <div class="readout"><div class="val">4,7<span class="u">s</span></div><div class="cap">construir el índice<br>con 4 procesos</div></div>
+          <div class="readout"><div class="val hl">47.797</div><div class="cap">coincidencias,<br>iguales en todas</div></div>
+        </div>
+      </div>
+      <div class="panel plain stack">
+        <div class="plabel">Lo que faltaba</div>
+        <ul class="list acc">
+          <li><strong>Cada vez que se usaba, volvía a construir el índice:</strong> 4,7 s de espera antes de poder buscar.</li>
+          <li><strong>Solo se usaba desde la terminal</strong>, una consulta por vez. No se podía conectar con nada.</li>
+          <li><strong>No había ningún test automático.</strong> La prueba de que las versiones daban lo mismo estaba pendiente.</li>
+          <li><strong>Leía cada archivo entero</strong> en memoria, sin importar su tamaño.</li>
+          <li><strong>No sabíamos cómo se portaba con muchos usuarios a la vez</strong>, ni dónde se iba el tiempo dentro de un servidor.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-note">El recorrido de hoy: <b>ordenar y probar el código</b>, <b>convertirlo en un servicio</b>, <b>leer y guardar mejor</b>, y después <b>medirlo en vivo</b> para entender dónde se va el tiempo.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Repaso rápido de la parte 1: no hace falta volver a explicar el índice ni el heap.</li>
+    <li>La lista de la derecha es la agenda: cada punto tiene su diapositiva.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 03 · CALIDAD ========== -->
+<section class="slide" data-sec="Calidad" data-n="2" data-title="Ordenar antes de tocar" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§2</b><span class="dash"></span>Calidad del código</div>
+    <h1 class="title">Antes de cambiar nada, ordenamos el código</h1>
+    <p class="lede">Si íbamos a modificar el buscador, primero tenía que ser <strong>fácil de leer y de revisar</strong>, por nosotros y por herramientas automáticas.</p>
+  </div>
+  <div class="body">
+    <div class="cols-3">
+      <div class="panel stack">
+        <div class="plabel acc">Formato y nombres</div>
+        <p style="font-size:15px">Ruff deja todo el código con el mismo formato (el estándar <strong>PEP 8</strong>).</p>
+        <p style="font-size:15px">Los nombres de una letra pasaron a nombres que dicen qué guardan: <code class="inline">k</code> → <code class="inline">top_k</code>.</p>
+        <p style="font-size:15px">Cada función explica qué hace, qué recibe y qué devuelve.</p>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">Documentación automática</div>
+        <p style="font-size:15px">Sphinx lee esas explicaciones y arma <strong>una página web con la documentación</strong> de todo el código.</p>
+        <p style="font-size:15px">Si alguien agrega una función sin documentar, el control lo marca.</p>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">Revisión automática</div>
+        <p style="font-size:15px">SonarCloud revisa cada cambio buscando errores, problemas de seguridad y código repetido.</p>
+        <div class="readouts" style="margin-top:4px">
+          <div class="readout"><div class="val hl">A·A·A</div><div class="cap">fiabilidad, seguridad<br>y mantenimiento</div></div>
+          <div class="readout"><div class="val">0</div><div class="cap">problemas<br>abiertos</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="stack" style="gap:8px">
+      <div class="plabel">Cada pull request pasa por estos controles antes de entrar</div>
+      <div class="flow">
+        <div class="step"><span class="n">01</span><span class="t">Estilo</span><span class="d">Ruff: formato y reglas</span></div>
+        <div class="step"><span class="n">02</span><span class="t">Seguridad</span><span class="d">Bandit y pip-audit</span></div>
+        <div class="step on"><span class="n">03</span><span class="t">Tests</span><span class="d">al menos 80 % del código probado</span></div>
+        <div class="step"><span class="n">04</span><span class="t">SonarCloud</span><span class="d">calidad y seguridad</span></div>
+        <div class="step"><span class="n">05</span><span class="t">Rendimiento</span><span class="d">una búsqueda tiene que tardar menos de 0,5 s</span></div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>La idea: <b>que las revisiones no dependan de acordarse</b>. Si algo se rompe, el pull request queda en rojo.</li>
+    <li>Ejemplo real: pip-audit encontró <b>seis vulnerabilidades en Starlette</b> (la base de FastAPI). Se actualizó la versión y ahora el CI falla si aparece otra.</li>
+    <li>Ejemplo real: SonarCloud marcó que el archivo que describe el índice guardado podía usarse para leer archivos de afuera. Se corrigió y hay un test que lo prueba.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 04 · TESTS ========== -->
+<section class="slide" data-sec="Tests" data-n="3" data-title="Una red de seguridad" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§3</b><span class="dash"></span>Tests y limpieza</div>
+    <h1 class="title">Una red de seguridad: 122 tests que corren solos</h1>
+    <p class="lede">En la parte 1 no había ningún test automático. Ahora <strong>cada cambio se prueba antes de entrar</strong>, y eso nos dejó limpiar el código sin miedo a romperlo.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="tbl-wrap">
+        <table class="tight">
+          <thead><tr><th>Qué se prueba</th><th class="num">Tests</th><th>Por ejemplo</th></tr></thead>
+          <tbody>
+            <tr><td>Texto y stemmer</td><td class="num">28</td><td class="sub">"datos" y "dato" terminan siendo la misma palabra</td></tr>
+            <tr><td>Índice y búsqueda</td><td class="num">30</td><td class="sub">archivos vacíos, índice en paralelo igual al de un proceso</td></tr>
+            <tr class="hl"><td>Equivalencia</td><td class="num">3</td><td class="sub">la versión lenta y la rápida devuelven los mismos documentos</td></tr>
+            <tr><td>Lectura de a pedazos</td><td class="num">21</td><td class="sub">leer de a bloques da lo mismo que leer el archivo entero</td></tr>
+            <tr><td>Índice en disco</td><td class="num">10</td><td class="sub">guardar y cargar da el mismo índice; uno dañado se descarta</td></tr>
+            <tr><td>API y servidor</td><td class="num">17</td><td class="sub">respuestas, errores y New Relic con un agente de mentira</td></tr>
+            <tr><td>Carga y perfilado</td><td class="num">13</td><td class="sub">el generador de tráfico y la simulación para perfilar</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="readouts">
+            <div class="readout"><div class="val hl">122</div><div class="cap">tests, más 2 de<br>rendimiento</div></div>
+            <div class="readout"><div class="val">99,6<span class="u">%</span></div><div class="cap">del código<br>queda probado</div></div>
+          </div>
+        </div>
+        <div class="panel plain stack">
+          <div class="plabel">Con esa red, limpiamos</div>
+          <ul class="list">
+            <li>El procesamiento de texto que compartían varias versiones pasó a <strong>un módulo propio</strong>.</li>
+            <li>Un bloque copiado en dos archivos pasó a <strong>una sola función</strong>: de 42 líneas repetidas a <strong>0</strong>.</li>
+            <li>Ninguna función puede pasar de <strong>10 caminos posibles</strong>; las más enredadas se partieron.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>El test más importante es el de <b>equivalencia</b>: era la deuda que habíamos dejado en la parte 1.</li>
+    <li>Los tests generan su propio corpus de 2.000 documentos con semilla fija, así que corren en cualquier máquina en segundos.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 05 · API ========== -->
+<section class="slide" data-sec="API" data-n="4" data-title="De script a servicio" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§4</b><span class="dash"></span>El buscador como servicio</div>
+    <h1 class="title">De un script a un servicio que cualquiera puede consultar</h1>
+    <p class="lede">Envolvimos el buscador en una <strong>API web con FastAPI</strong>: se le pregunta por HTTP y responde en JSON, sin abrir una terminal.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+<pre class="term"><span class="p">$</span> curl <span class="y">"http://127.0.0.1:8000/buscar?q=algoritmo&amp;top_k=3"</span>
+<span class="w">{"consulta": "algoritmo", "total":</span> <span class="g">47797</span><span class="w">,</span>
+<span class="w"> "resultados": [{"documento": "doc_013616.txt", "score": 0.8561}, …]}</span></pre>
+        <div class="tbl-wrap">
+          <table class="tight">
+            <thead><tr><th>Pedido</th><th>Qué hace</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">GET /buscar?q=…&amp;top_k=…</td><td class="sub">busca y devuelve los mejores documentos (de 1 a 100)</td></tr>
+              <tr><td class="mono">POST /reindexar</td><td class="sub">vuelve a construir el índice</td></tr>
+              <tr><td class="mono">/docs</td><td class="sub">página interactiva para probar la API desde el navegador</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:14.5px">Una consulta vacía o un <code class="inline">top_k</code> fuera de rango devuelven un error claro (422) en vez de romper el servidor.</p>
+        <div class="pasos">
+          <div class="paso"><span class="num">1</span><div><b>Recibe el pedido</b><span>Lee la dirección web: qué palabra buscar y cuántos resultados mostrar.</span></div></div>
+          <div class="paso"><span class="num">2</span><div><b>Lo revisa</b><span>Si falta la palabra o se piden más de 100 resultados, lo rechaza antes de molestar al buscador.</span></div></div>
+          <div class="paso"><span class="num">3</span><div><b>Se lo pasa al buscador</b><span>Lo traduce a una llamada en Python y espera el resultado.</span></div></div>
+          <div class="paso"><span class="num">4</span><div><b>Devuelve la respuesta ordenada</b><span>Siempre con la misma forma: qué se buscó, cuántos documentos hay y cuáles son los mejores.</span></div></div>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="plabel acc">Dos problemas que encontramos al probarla</div>
+        <div class="panel">
+          <div class="readouts"><div class="readout"><div class="val"><span class="from">1,6 s</span><span class="arr">→</span>2–13<span class="u">ms</span></div><div class="cap">cada consulta, en la<br>primera versión y ahora</div></div></div>
+          <p style="font-size:14.5px">Para saber si el corpus había cambiado, revisaba <strong>los 50.000 archivos en cada pedido</strong>. Ahora mira solo la fecha de la carpeta.</p>
+        </div>
+        <div class="panel">
+          <p style="font-size:14.5px"><strong>Con 8 consultas a la vez, la caché podía fallar</strong> (error 500): un hilo borraba un resultado mientras otro lo leía. Se arregló con un candado (<code class="inline">Lock</code>).</p>
+        </div>
+        <div class="stack" style="gap:6px">
+          <div class="plabel acc">En el proyecto hay dos candados (Lock)</div>
+          <ul class="list acc xs" style="gap:5px">
+            <li><strong>En la caché:</strong> que nadie borre una respuesta guardada mientras otro la está leyendo. Es el problema del error 500 que vimos.</li>
+            <li><strong>En el índice:</strong> que, si dos personas buscan justo al arrancar, el índice se construya una sola vez y no dos al mismo tiempo. El segundo espera y usa el que armó el primero.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>FastAPI atiende varias búsquedas a la vez en hilos distintos: por eso aparecieron problemas que en el script nunca se veían.</li>
+    <li>El primer problema lo encontramos midiendo: 1,6 s por consulta no tenía sentido para un índice ya cargado.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 06 · LECTURA POR BLOQUES ========== -->
+<section class="slide" data-sec="Entrada y salida" data-n="5" data-title="Leer de a pedazos" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§5</b><span class="dash"></span>Leer y guardar mejor</div>
+    <h1 class="title">Leer los archivos de a pedazos, no enteros</h1>
+    <p class="lede">Antes cada archivo se cargaba completo en memoria. Con archivos chicos no se nota; con <strong>uno gigante, llena la memoria</strong>.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="plabel">Cómo lee ahora</div>
+        <div class="flow">
+          <div class="step"><span class="n">01</span><span class="t">Leer 64 KiB</span><span class="d">un pedazo del archivo</span></div>
+          <div class="step on"><span class="n">02</span><span class="t">Contar palabras</span><span class="d">de ese pedazo</span></div>
+          <div class="step"><span class="n">03</span><span class="t">Guardar el resto</span><span class="d">lo que quedó cortado</span></div>
+          <div class="step"><span class="n">04</span><span class="t">Siguiente pedazo</span><span class="d">hasta terminar</span></div>
+        </div>
+        <div class="panel">
+          <div class="plabel">El detalle: ¿y si el corte cae en el medio de una palabra?</div>
+<pre class="code">pedazo 1:  "…buscamos el algori"   <span class="c">← "algori" queda guardado</span>
+pedazo 2:  "tmo más rápido…"       <span class="c">← se pega adelante: "algoritmo"</span></pre>
+          <p style="font-size:14.5px">Lo mismo con las letras con tilde, que ocupan más de un byte y también se pueden cortar. Hay 21 tests que prueban pedazos de 1 a 10.000 bytes.</p>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Leyendo un archivo de 21 MB</div>
+          <div class="readouts"><div class="readout"><div class="val hl"><span class="from">279 MB</span><span class="arr">→</span>1,1<span class="u">MB</span></div><div class="cap">memoria máxima<br>antes y ahora</div></div></div>
+          <p style="font-size:14.5px">Cuenta exactamente las mismas palabras y tarda lo mismo, unos 5 segundos.</p>
+        </div>
+        <div class="foot-note">La versión más lenta (la línea base) sigue leyendo todo de una vez, <b>a propósito</b>: es la versión ingenua contra la que comparamos.</div>
+        <div class="stack" style="gap:2px">
+          <div class="plabel acc">Concepto aplicado</div>
+          <div class="concepto-t">Buffer</div>
+          <p style="font-size:14.5px">Se usa para <strong>armar el índice</strong>.</p>
+        </div>
+      </div>
+    </div>
+    <div class="bufflow">
+      <div class="caja">
+        <div class="plabel">Archivo (disco)</div>
+        <div class="box">
+          <div class="pedazos">
+            <span style="background:var(--s2)">pedazo 1 &nbsp;✓ leído</span>
+            <span class="leyendo" style="background:var(--s1)">pedazo 2 &nbsp;leyendo</span>
+            <span style="background:var(--s4)">pedazo 3</span>
+            <span style="background:var(--s3)">pedazo 4</span>
+            <span style="background:#D9659A">pedazo 5</span>
+          </div>
+        </div>
+      </div>
+      <div class="conector">
+        <span>lee un pedazo</span>
+        <svg viewBox="0 0 70 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="63" y2="5" stroke-width="1.2"></line><path d="M62 1 L70 5 L62 9 Z"></path></svg>
+        <svg viewBox="0 0 70 10" preserveAspectRatio="none" style="margin-top:22px"><line x1="7" y1="5" x2="70" y2="5" stroke-width="1.2" stroke-dasharray="3 3"></line><path d="M8 1 L0 5 L8 9 Z"></path></svg>
+        <span>y el siguiente</span>
+      </div>
+      <div class="caja">
+        <div class="plabel acc">Buffer en la RAM</div>
+        <div class="box buf">
+          <div class="chipbuf"><span style="background:var(--s2)">algori</span><span style="background:var(--s1)">tmo más rápido el dato…</span></div>
+          <p>El pedazo 2, con lo que quedó cortado del 1 pegado adelante. En la RAM hay <strong>un solo pedazo por vez</strong>, unos 64 KiB, sea el archivo chico o gigante.</p>
+        </div>
+      </div>
+      <div class="conector">
+        <span>cuenta</span>
+        <svg viewBox="0 0 70 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="63" y2="5" stroke-width="1.2"></line><path d="M62 1 L70 5 L62 9 Z"></path></svg>
+      </div>
+      <div class="caja">
+        <div class="plabel">Conteo del archivo</div>
+        <div class="box cont">
+          <div class="conteo"><span>algoritmo</span><b>+1</b><span>rápido</span><b>+1</b><span>dato</span><b>+1</b></div>
+          <p>Suma lo de cada pedazo. Las palabras comunes, como «el», se descartan.</p>
+        </div>
+      </div>
+      <div class="conector">
+        <span>al terminar</span>
+        <svg viewBox="0 0 70 10" preserveAspectRatio="none"><line x1="0" y1="5" x2="63" y2="5" stroke-width="1.2"></line><path d="M62 1 L70 5 L62 9 Z"></path></svg>
+      </div>
+      <div class="caja">
+        <div class="plabel">Índice (RAM)</div>
+        <div class="box idx">
+<pre class="idx-lista">algoritmo → doc_000000: 4
+dato      → doc_000000: 2
+red       → doc_000000: 1
+…</pre>
+          <p style="color:#8E9A9E">Al terminar el archivo, guarda el total.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>La primera versión de este punto usaba un "buffer" de 1 MiB, pero seguía leyendo cada archivo entero. Un buffer cambia cómo se lee del disco, no cuánto texto queda en memoria: lo corregimos.</li>
+    <li>Lo importante: <b>la memoria ya no depende del tamaño del archivo</b>, sino del tamaño del pedazo.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 07 · ÍNDICE EN DISCO ========== -->
+<section class="slide" data-sec="Entrada y salida" data-n="5" data-title="Guardar el índice en disco">
+  <div class="head">
+    <div class="eyebrow"><b>§5</b><span class="dash"></span>Leer y guardar mejor</div>
+    <h1 class="title">Guardar el índice en disco para no reconstruirlo cada vez</h1>
+    <p class="lede">Construir el índice de 50.000 documentos lleva varios segundos. Ahora <strong>se construye una vez, se guarda, y al arrancar se carga</strong>.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <div class="cols" style="gap:16px">
+<pre class="code">data/indice_corpus/
+├── manifiesto.json
+├── lote_000.json
+├── lote_001.json
+└── …  <span class="c">(16 lotes)</span></pre>
+          <p style="font-size:14.5px">Cada lote <strong>se guarda apenas termina</strong>, mientras los procesos siguen con los demás. El manifiesto dice de qué corpus es y qué lotes tiene.</p>
+        </div>
+        <div class="tbl-wrap">
+          <table class="tight">
+            <thead><tr><th>Formato probado</th><th class="num">Guardar</th><th class="num">Cargar</th><th class="num">Tamaño</th></tr></thead>
+            <tbody>
+              <tr class="hl"><td>JSON <span class="sub">(elegido)</span></td><td class="num">0,32 s</td><td class="num">0,69 s</td><td class="num">14,6 MB</td></tr>
+              <tr><td>pickle</td><td class="num">0,13 s</td><td class="num">0,49 s</td><td class="num">9,3 MB</td></tr>
+              <tr><td>SQLite</td><td class="num">2,24 s</td><td class="num">2,02 s</td><td class="num">38,5 MB</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:14px">Elegimos JSON aunque pickle carga 0,2 s más rápido: <strong>leer un pickle puede ejecutar código</strong>, y un JSON no. Además se puede abrir y leer a mano.</p>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">La primera búsqueda al arrancar</div>
+          <div class="readouts" style="grid-auto-flow:row;gap:14px">
+            <div class="readout" style="padding-left:0;border-left:0"><div class="val">6,4<span class="u">s</span></div><div class="cap">sin índice guardado: lo construye y lo guarda</div></div>
+            <div class="readout" style="padding-left:0;border-left:0"><div class="val hl">0,93<span class="u">s</span></div><div class="cap">con índice guardado: solo lo carga</div></div>
+            <div class="readout" style="padding-left:0;border-left:0"><div class="val">2–13<span class="u">ms</span></div><div class="cap">las búsquedas siguientes</div></div>
+          </div>
+        </div>
+        <div class="foot-note">Si el corpus cambió o un lote está dañado, el índice guardado <b>se descarta y se reconstruye solo</b>.</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:218px 1fr;gap:22px;align-items:start">
+      <div class="stack" style="gap:2px">
+        <div class="plabel acc">Concepto aplicado</div>
+        <div class="concepto-t">Batching</div>
+      </div>
+      <p style="font-size:15px;max-width:none">El índice se arma en lotes repartidos entre varios procesos, y <strong>cada lote se guarda en su archivo apenas termina</strong>. Así se viaja menos, el trabajo se reparte parejo, se guarda mientras se calcula, y un corte o un daño nunca dejan un índice roto en uso.</p>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Las versiones de terminal (optimizado y concurrente) siguen construyendo el índice cada vez, a propósito: las usamos para medir cuánto cuesta indexar.</li>
+    <li>Si preguntan por seguridad: el manifiesto guarda números de lote, no nombres de archivo, para que nadie pueda hacerle leer archivos de afuera (lo marcó SonarCloud).</li>
+  </ul></template>
+</section>
+
+<!-- ========== 08 · ANTES Y AHORA ========== -->
+<section class="slide" data-sec="Comparación" data-n="6" data-title="Antes y ahora" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§6</b><span class="dash"></span>Antes y ahora</div>
+    <h1 class="title">Antes y ahora: qué tiempos bajaron y cuáles no</h1>
+    <p class="lede">Parte 1 (septiembre) contra hoy, con los mismos comandos y en la misma máquina.</p>
+  </div>
+  <div class="body" style="gap:14px">
+    <div class="tbl-wrap">
+      <table class="tight">
+        <thead><tr><th>Qué medimos</th><th class="num">Parte 1</th><th class="num">Ahora</th><th>Resultado</th><th>Por qué</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td>Tener el buscador listo para buscar</td><td class="num">4,7 s</td><td class="num">≈1 s</td><td><span class="tag up">4,7× más rápido</span></td><td class="sub">carga el índice guardado en vez de construirlo</td></tr>
+          <tr class="hl"><td>Memoria para leer un archivo de 21 MB</td><td class="num">279 MB</td><td class="num">1,1 MB</td><td><span class="tag up">250× menos</span></td><td class="sub">lee de a pedazos de 64 KiB</td></tr>
+          <tr><td>Una búsqueda nueva de "algoritmo"</td><td class="num">9,5 ms</td><td class="num">11 ms *</td><td><span class="tag eq">igual</span></td><td class="sub">en esta parte no cambiamos cómo se calcula el ranking</td></tr>
+          <tr><td>Construir el índice con 4 procesos</td><td class="num">4,7 s</td><td class="num">6,2 s *</td><td><span class="tag eq">igual</span></td><td class="sub">leer de a pedazos buscaba ahorrar memoria, no tiempo; guardarlo suma 0,6 s</td></tr>
+          <tr><td>Una búsqueda repetida (sale de la caché)</td><td class="num">0,002 ms</td><td class="num">1,7 ms</td><td><span class="tag diff">no comparable</span></td><td class="sub">ahora pasa por el servidor web: recibir el pedido, validarlo y armar la respuesta</td></tr>
+          <tr><td>Atender a 20 usuarios a la vez</td><td class="num">—</td><td class="num">≈110 / s</td><td><span class="tag new">nuevo</span></td><td class="sub">búsquedas por segundo, sin un solo error</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols-7-5" style="align-items:start">
+      <div class="panel">
+        <div class="plabel acc">* Ojo con los números de hoy</div>
+        <p style="font-size:14.5px">La búsqueda sin índice <strong>no cambió ni una línea</strong> y hoy tardó <strong>3,3 s en vez de 2,5 s</strong> (+35 %): la máquina estaba más cargada.
+        Construir el índice subió lo mismo (+32 %), así que <strong>cuesta lo mismo que antes</strong>.</p>
+      </div>
+      <div class="foot-note">Lo que mejoró es <b>todo lo que rodea a la búsqueda</b>: arrancar, leer, guardar y atender a muchos. La búsqueda en sí es el próximo paso, y el perfilado muestra por dónde atacarla.</div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Ser honestos con la comparación: <b>dos cosas mejoraron mucho, dos quedaron igual, una cambió de naturaleza</b>.</li>
+    <li>Cómo se midió hoy: los mismos comandos de la demo de la parte 1, tres rondas alternadas, descartando la primera. La línea base sirve de control porque su código no cambió.</li>
+    <li>La búsqueda repetida: en la parte 1 se medía dentro del script (0,002 ms). Ahora el 1,7 ms es casi todo el trabajo de FastAPI alrededor de la búsqueda, medido por New Relic dentro del servidor.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 09 · NEW RELIC ========== -->
+<section class="slide" data-sec="Monitoreo" data-n="7" data-title="New Relic en vivo" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§7</b><span class="dash"></span>Monitoreo en vivo</div>
+    <h1 class="title">New Relic: ver la API mientras recibe pedidos</h1>
+    <p class="lede">Le agregamos el agente de New Relic <strong>sin tocar el buscador</strong> y le mandamos tráfico con un generador propio.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5" style="grid-template-columns:8fr 4fr">
+      <figure class="fig">
+        <img class="shot" src="../docs/newrelic-capturas/04-dashboard.png" alt="Dashboard de New Relic con la latencia de /buscar, los pedidos por minuto, la RAM y la CPU del proceso">
+        <figcaption>El dashboard que armamos: cuánto tarda cada búsqueda, pedidos por minuto, RAM y CPU del proceso.</figcaption>
+        <div style="display:grid;grid-template-columns:4fr 8fr;gap:20px;margin-top:2px">
+          <div class="stack" style="gap:4px">
+            <div class="plabel acc">La idea</div>
+            <div class="idea-t">Cambiar una sola cosa por vez</div>
+          </div>
+          <div class="stack" style="gap:4px">
+            <p style="font-size:12.5px;line-height:1.42;max-width:none">Los tres escenarios son tres pruebas seguidas, de 4 minutos cada una. De una a la siguiente <strong>cambia una sola cosa</strong>, así se sabe qué provocó cada diferencia:</p>
+            <ul class="list acc xs" style="gap:2px;font-size:12.5px">
+              <li style="font-size:12.5px"><strong>Del 1 al 2</strong> solo cambia la cantidad de usuarios: de 1 a 20.</li>
+              <li style="font-size:12.5px"><strong>Del 2 al 3</strong> solo se agrega la recarga del índice cada 60 segundos.</li>
+            </ul>
+          </div>
+        </div>
+      </figure>
+      <div class="stack">
+        <div class="plabel acc">Cómo lo probamos</div>
+        <table class="tight">
+          <thead><tr><th>Escenario</th><th>Usuarios</th><th>Recarga</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>1</td><td class="sub">no</td></tr>
+            <tr><td>2</td><td>20</td><td class="sub">no</td></tr>
+            <tr><td>3</td><td>20</td><td class="sub">cada 60 s</td></tr>
+          </tbody>
+        </table>
+        <ul class="list" style="gap:5px">
+          <li>4 minutos cada uno, sobre los 50.000 documentos.</li>
+          <li>60 % búsquedas repetidas, 30 % nuevas y 10 % de palabras que no existen.</li>
+          <li>La licencia va en un <code class="inline">.env</code> que no se sube al repositorio.</li>
+        </ul>
+        <div class="panel" style="gap:3px;padding:8px 12px">
+          <div class="plabel acc">La conclusión</div>
+          <p style="font-size:12px;line-height:1.4">La API es como un banco con <strong>un solo cajero</strong>, porque usa un solo núcleo del procesador:</p>
+          <ul class="list acc xs" style="gap:2px">
+            <li style="font-size:12px;line-height:1.36"><strong>Con 1 cliente,</strong> lo atienden al instante.</li>
+            <li style="font-size:12px;line-height:1.36"><strong>Con 20,</strong> el cajero no atiende más rápido; solo se arma más fila.</li>
+            <li style="font-size:12px;line-height:1.36"><strong>Con trabajo pesado de por medio,</strong> sigue atendiendo a todos sin errores, aunque algunos esperan más.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li><b>Un problema en el camino:</b> en la primera corrida los datos llegaron como "Python Application". El agente lee el nombre al importarse y nosotros lo definíamos después. Se corrigió, se agregó un test y se repitió toda la campaña.</li>
+    <li>Sin licencia, la API arranca igual, sin monitoreo: así los tests y el CI no dependen de New Relic.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 10 · QUÉ MOSTRÓ NEW RELIC ========== -->
+<section class="slide" data-sec="Monitoreo" data-n="7" data-title="Más usuarios, más espera">
+  <div class="head">
+    <div class="eyebrow"><b>§7</b><span class="dash"></span>Monitoreo en vivo · resultados</div>
+    <h1 class="title">Más usuarios no es más velocidad: es más espera</h1>
+    <p class="lede">Con 20 usuarios a la vez, el servidor atiende <strong>la misma cantidad de búsquedas por segundo</strong> que con uno solo.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <table class="tight">
+          <thead><tr><th>Escenario</th><th class="num">Búsquedas / s</th><th class="num">Mitad tarda menos de</th><th class="num">La más lenta</th></tr></thead>
+          <tbody>
+            <tr><td>1 usuario</td><td class="num">116</td><td class="num">1,6 ms</td><td class="num">228 ms</td></tr>
+            <tr><td>20 usuarios</td><td class="num">107</td><td class="num">145 ms</td><td class="num">567 ms</td></tr>
+            <tr class="hl"><td>20 usuarios + recargas</td><td class="num">117</td><td class="num">134 ms</td><td class="num">1.113 ms</td></tr>
+          </tbody>
+        </table>
+        <div class="readouts" style="margin-top:6px">
+          <div class="readout"><div class="val hl">81.979</div><div class="cap">pedidos,<br>0 errores</div></div>
+          <div class="readout"><div class="val">≈16<span class="u">s</span></div><div class="cap">cada recarga<br>del índice</div></div>
+          <div class="readout"><div class="val"><span class="from">230</span><span class="arr">→</span>590<span class="u">MB</span></div><div class="cap">RAM durante la recarga:<br>conviven índice viejo y nuevo</div></div>
+        </div>
+        <div class="stack" style="gap:6px;margin-top:6px">
+          <div class="plabel acc">Lo que New Relic no ve</div>
+          <p style="font-size:14px;max-width:none">New Relic mide desde que el pedido entra a la aplicación; el generador, todo lo que espera el usuario. La diferencia es la parte de la fila que se forma <strong>antes de entrar</strong>, donde New Relic no mide.</p>
+          <table class="tight">
+            <thead><tr><th>Escenario</th><th class="num">Servidor (New Relic)</th><th class="num">Cliente</th><th class="num">Diferencia</th></tr></thead>
+            <tbody>
+              <tr><td>1 usuario</td><td class="num">1,6 ms</td><td class="num">3,0 ms</td><td class="num" style="color:var(--accent-ink)">1,4 ms</td></tr>
+              <tr><td>20 usuarios</td><td class="num">145 ms</td><td class="num">169,4 ms</td><td class="num" style="color:var(--accent-ink)">24,4 ms</td></tr>
+              <tr><td>20 usuarios + recargas</td><td class="num">134 ms</td><td class="num">155,6 ms</td><td class="num" style="color:var(--accent-ink)">21,6 ms</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Por qué</div>
+          <p style="font-size:15px">Python deja que <strong>un solo hilo haga cuentas a la vez</strong> (el GIL). Los 20 usuarios hacen fila: la CPU del proceso no pasó del <strong>25 %</strong>, que es un núcleo de los cuatro.</p>
+        </div>
+        <div class="panel">
+          <div class="plabel">La cuenta cierra</div>
+          <p style="font-size:15px">Si atiende 107,5 por segundo y hay 20 esperando, cada uno espera 20 ÷ 107,5 = <strong>186 ms</strong>. El generador midió <strong>185,8 ms</strong>.</p>
+        </div>
+        <div class="panel">
+          <div class="plabel">Y cerró dos veces</div>
+          <p style="font-size:14.5px">En la primera corrida atendió 136,3 por segundo: 20 ÷ 136,3 = <strong>147 ms</strong>, y el generador midió <strong>146,6 ms</strong>. Aunque el ritmo cambió, la explicación se cumplió en las dos.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>La "cuenta que cierra" es la Ley de Little: usuarios = rendimiento × tiempo de respuesta. Que coincida con lo medido confirma que casi todo el tiempo con 20 usuarios es espera.</li>
+    <li>La búsqueda repetida, que sale de la caché, tardó 3 ms con un usuario y 160 ms con 20: no se volvió más lenta, esperó su turno.</li>
+    <li>Cómo mejorarlo: varios procesos de Uvicorn, cada uno con su copia del índice (unos 230 MB cada uno).</li>
+  </ul></template>
+</section>
+
+<!-- ========== 11 · MAC VS WINDOWS ========== -->
+<section class="slide" data-sec="Monitoreo" data-n="7" data-title="La misma API en Windows">
+  <div class="head">
+    <div class="eyebrow"><b>§7</b><span class="dash"></span>Monitoreo en vivo · otra máquina</div>
+    <h1 class="title">La misma API en Windows: la búsqueda tarda igual, la recarga no</h1>
+    <p class="lede">Otro integrante repitió el monitoreo en <strong>una PC con Windows 11</strong>, con otras pruebas. Comparamos lo que se puede comparar.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="tbl-wrap">
+        <table class="tight">
+          <thead><tr><th>Medido dentro del servidor</th><th class="num">Mac</th><th class="num">Windows</th></tr></thead>
+          <tbody>
+            <tr><td>Búsqueda repetida (caché)</td><td class="num">1,6 ms</td><td class="num">1,7 ms</td></tr>
+            <tr class="hl"><td>Búsqueda nueva</td><td class="num">≈23 ms</td><td class="num">20,8 ms</td></tr>
+            <tr class="hl"><td>Recarga del índice, sola</td><td class="num">7 a 9 s</td><td class="num">3,0 s</td></tr>
+            <tr><td>Recarga con 20 usuarios buscando</td><td class="num">≈16 s</td><td class="num">—</td></tr>
+            <tr><td>Errores</td><td class="num">0 de 81.979</td><td class="num">14.306 provocados,<br>todos detectados</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:13px;margin-top:8px;color:var(--ink-3)">Mac: en la búsqueda repetida, la mitad de las búsquedas de un usuario (casi todas desde la caché); en la nueva, medido con el perfilado, sin HTTP.</p>
+        <div class="panel" style="margin-top:16px">
+          <div class="plabel acc">El Apdex, leído con criterio</div>
+          <p style="font-size:14px;max-width:none">Es la nota de satisfacción de New Relic, con un umbral de 0,5 s. En la Mac, <strong>/reindexar</strong> dio <strong>0</strong>: esperable para una tarea de mantenimiento de 16 s. En Windows bajó a <strong>0,46</strong> por los 422 que provocamos a propósito. Ninguno indica que la API ande mal. <strong>Propuesta:</strong> marcar los 422 como errores esperados, para que el Apdex muestre solo problemas reales.</p>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Lo que dice la comparación</div>
+          <ul class="list acc">
+            <li><strong>Una búsqueda nueva cuesta lo mismo en las dos:</strong> es Python haciendo cuentas, y eso no lo arregla el hardware. Lo mismo vimos en la parte 1.</li>
+            <li><strong>La recarga sí mejora:</strong> reparte el trabajo en varios procesos y lee 50.000 archivos, y ahí la otra máquina rinde.</li>
+          </ul>
+        </div>
+        <div class="panel plain stack">
+          <div class="plabel">Cada prueba vio otra cosa</div>
+          <p style="font-size:14.5px"><strong>Mac:</strong> carga con muchos usuarios, CPU y RAM. <strong>Windows:</strong> la caché (12 veces más rápida), los errores clasificados por causa y el Apdex.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Las pruebas no fueron iguales: Windows usó cinco fases (carga con 8 clientes, caché con aciertos, caché con fallos, errores y una operación lenta), Python 3.13 y una versión anterior de FastAPI.</li>
+    <li>En Windows, el monitoreo también encontró tres problemas del entorno: el agente perdía los primeros pedidos (se arregló esperando su conexión), la consola se congeló 266 s por seleccionar texto, y el generador se quedó sin puertos por abrir una conexión por pedido.</li>
+    <li>El Apdex bajó a 0,46 solo en la fase de errores: New Relic cuenta cada error 422 como una mala experiencia, aunque haya respondido rápido.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 12 · PERFILADO: POR QUÉ ========== -->
+<section class="slide" data-sec="Perfilado" data-n="8" data-title="Buscar el porqué" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§8</b><span class="dash"></span>Perfilado</div>
+    <h1 class="title">New Relic dice qué es lento. Para saber por qué, perfilamos</h1>
+    <p class="lede">New Relic mostraba que <code class="inline">/reindexar</code> tardaba 16 s, pero el 98,9 % quedaba en una sola función, sin más detalle.</p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <figure class="fig">
+        <img class="shot" src="../docs/perfilado-capturas/01-snakeviz-general.png" alt="SnakeViz: árbol de llamadas de 3.000 búsquedas y una recarga">
+        <figcaption>SnakeViz: 3.000 búsquedas y una recarga. Buscar se lleva el 79 % (49 de 61,9 s) y la recarga, el 18 %.</figcaption>
+      </figure>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Un truco necesario</div>
+          <p style="font-size:15px">La API atiende cada búsqueda en un hilo aparte, y cProfile <strong>solo mide el hilo donde arranca</strong>.
+          Por eso hicimos <code class="inline">perfilar_api.py</code>: el mismo trabajo que la API, en un solo proceso y sin HTTP.</p>
+        </div>
+        <div class="stack" style="gap:8px">
+          <div class="plabel">Las herramientas</div>
+          <div class="chips"><span class="chip on">cProfile + SnakeViz</span><span class="chip on">Scalene</span></div>
+          <p style="font-size:14.5px">SnakeViz dibuja quién llama a quién y cuánto tarda. Scalene va <strong>línea por línea</strong> y separa CPU y memoria.</p>
+        </div>
+        <div class="foot-note">Los perfiladores agregan peso: las 3.000 búsquedas pasan de <b>20 s</b> a <b>45–49 s</b>. Por eso comparamos porcentajes, no segundos.</div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>La lectura de la captura: el bloque ancho de la izquierda es buscar; adentro, casi todo es el ranking (rankear → nlargest → puntuados).</li>
+    <li>La consigna nombraba también py-spy: no pudimos usarlo, lo contamos más adelante.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 13 · PERFILADO: BÚSQUEDA ========== -->
+<section class="slide" data-sec="Perfilado" data-n="8" data-title="Dónde se va una búsqueda">
+  <div class="head">
+    <div class="eyebrow"><b>§8</b><span class="dash"></span>Perfilado · búsqueda</div>
+    <h1 class="title">Una búsqueda nueva puntúa 45.700 documentos, uno por uno</h1>
+    <p class="lede">El corpus tiene solo 39 palabras y casi todas aparecen en casi todos los documentos: <strong>cruzar las listas casi no descarta nada</strong>.</p>
+  </div>
+  <div class="body">
+    <div class="cols-5-7">
+      <figure class="fig">
+        <img class="shot" style="max-height:372px;width:auto" src="../docs/perfilado-capturas/06-scalene-ranking.png" alt="Scalene: tiempo por línea de optimizado.py">
+        <figcaption>Scalene: las líneas 302 y 304 se llevan el 53 % del tiempo.</figcaption>
+      </figure>
+      <div class="stack">
+        <figure class="fig">
+          <img class="shot" src="../docs/perfilado-capturas/02-snakeviz-ranking.png" alt="SnakeViz: zoom sobre rankear, nlargest y puntuados">
+          <figcaption>SnakeViz: dentro del ranking, casi todo es <code class="inline">puntuados</code> (37,7 de 46,1 s).</figcaption>
+        </figure>
+        <div class="readouts">
+          <div class="readout"><div class="val hl">36,9<span class="u">millones</span></div><div class="cap">de puntajes calculados<br>en 808 búsquedas</div></div>
+          <div class="readout"><div class="val">91<span class="u">%</span></div><div class="cap">del corpus puntuado<br>en cada búsqueda</div></div>
+          <div class="readout"><div class="val">≈23<span class="u">ms</span></div><div class="cap">cada búsqueda nueva,<br>sin perfilador</div></div>
+        </div>
+        <div class="panel">
+          <div class="plabel acc">Y esto explica lo que vio New Relic</div>
+          <p style="font-size:14.5px">Son 23 ms de cuentas en Python sin soltar el GIL: <strong>un proceso no puede hacer más de unas 45 búsquedas nuevas por segundo</strong>, con cualquier cantidad de usuarios.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Línea 302: <code>score += postings.get(doc_id, 0) * idf</code>, una consulta a un diccionario por cada documento y cada palabra. Línea 304: entregar cada resultado al heap.</li>
+    <li>Este es el cierre del círculo: <b>el monitoreo encontró el techo, el perfilado encontró la línea que lo causa</b>.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 14 · PERFILADO: RECARGA ========== -->
+<section class="slide" data-sec="Perfilado" data-n="8" data-title="Dónde se va una recarga">
+  <div class="head">
+    <div class="eyebrow"><b>§8</b><span class="dash"></span>Perfilado · recarga</div>
+    <h1 class="title">La recarga trabaja en otros procesos, y ahí no llegan los perfiladores</h1>
+    <p class="lede">SnakeViz muestra 10 s en <code class="inline">construir_indice</code> y debajo casi nada: el trabajo lo hacen los procesos hijos. <strong>Lo medimos aparte con un script.</strong></p>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+        <figure class="fig">
+          <img class="shot" src="../docs/perfilado-capturas/03-snakeviz-recarga.png" alt="SnakeViz: zoom sobre la recarga del índice">
+          <figcaption>SnakeViz sobre la recarga: el hueco debajo de <code class="inline">construir_indice</code> es lo que cProfile no ve.</figcaption>
+        </figure>
+        <div class="stack" style="gap:6px">
+          <div class="plabel">Dentro de cada proceso hijo (un lote de 3.125 documentos)</div>
+          <div class="bar">
+            <span style="width:62%;background:var(--s1)">tokenizar 62 %</span>
+            <span style="width:22%;background:var(--s2)">leer 22 %</span>
+            <span style="width:16%;background:var(--rule-2);color:var(--ink-2)">resto</span>
+          </div>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="readouts">
+          <div class="readout"><div class="val">7 a 9<span class="u">s</span></div><div class="cap">la recarga sola,<br>sin perfilador</div></div>
+          <div class="readout"><div class="val">≈12<span class="u">s</span></div><div class="cap">de CPU repartidos<br>en 4 procesos</div></div>
+        </div>
+        <div class="panel">
+          <div class="plabel acc">El proceso padre hace poco: 1,6 s</div>
+          <ul class="list">
+            <li>Listar y ordenar las 50.000 rutas: 0,65 s</li>
+            <li>Guardar los 16 lotes en JSON: 0,6 s</li>
+            <li>Juntar los lotes y revisar el corpus: 0,4 s</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <p style="font-size:14.5px"><strong>Un hallazgo chico:</strong> ordenar las rutas como objetos <code class="inline">Path</code> tarda <strong>0,48 s</strong>; ordenarlas por nombre, <strong>0,17 s</strong>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>El script es <code>scripts/medir_recarga.py</code>: cronometra lo que hace el proceso padre y perfila un lote dentro del padre para ver qué hacen los hijos. Está en el repositorio para que cualquiera repita los números.</li>
+    <li>Con 20 usuarios buscando, la recarga sube a 16 s porque los procesos compiten por la CPU con las búsquedas.</li>
+    <li>En Python 3.14, cProfile además mezcla los hilos internos del pool en el árbol de la recarga: otra razón para medir aparte.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 15 · CUELLOS DE BOTELLA ========== -->
+<section class="slide" data-sec="Próximos pasos" data-n="9" data-title="Cuellos de botella y cómo atacarlos" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§9</b><span class="dash"></span>Próximos pasos</div>
+    <h1 class="title">Los cuellos de botella que encontramos, y cómo atacarlos</h1>
+    <p class="lede">Ninguna de estas mejoras está hecha todavía: son lo que el perfilado nos dice que conviene hacer después.</p>
+  </div>
+  <div class="body">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Cuello de botella</th><th>Cuánto pesa</th><th>Cómo atacarlo</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td><strong>El ranking de las búsquedas nuevas</strong></td><td class="sub">53 % del tiempo en dos líneas; techo de 45 búsquedas nuevas por segundo</td><td class="sub">Guardar en el índice el puntaje ya calculado, cortar el ranking antes, o probar <strong>PyPy</strong>, un compilador que acelera justo este tipo de bucles. Para el techo de un núcleo: varios procesos de Uvicorn.</td></tr>
+          <tr><td><strong>Tokenizar durante la recarga</strong></td><td class="sub">62 % de cada lote, unos 7 s de CPU por recarga</td><td class="sub">Resolver cada palabra con una sola consulta a la caché, en vez de tres pasos por palabra.</td></tr>
+          <tr><td><strong>Ordenar las rutas como <code class="inline">Path</code></strong></td><td class="sub">0,48 s por recarga</td><td class="sub">Ordenarlas por nombre: 0,17 s.</td></tr>
+          <tr><td><strong>La recarga compite con las búsquedas</strong></td><td class="sub">7 a 9 s sola, 16 s con 20 usuarios</td><td class="sub">Recargar con menos procesos mientras la API atiende, o en momentos tranquilos.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols-7-5" style="align-items:start;margin-top:-6px">
+      <div class="foot-note" style="margin-top:22px">La regla que seguimos en todo el trabajo: <b>medir primero, optimizar después</b>. Cada fila de esta tabla sale de una medición, no de una intuición.</div>
+      <div class="panel" style="gap:6px;padding:10px 14px">
+        <div class="plabel acc">El próximo paso, con números</div>
+        <div class="cifras">
+          <b>≈110 /s</b><span>un proceso hoy: usa 1 núcleo de los 4</span>
+          <b>2× a 4×</b><span>con varios procesos de Uvicorn, según los núcleos reales (2 en la Mac)</span>
+          <b>+230 MB</b><span>de RAM por proceso: cada uno carga su copia del índice</span>
+        </div>
+        <p style="font-size:12px"><strong>Memoria a cambio de capacidad.</strong> Es una estimación: falta medirlo.</p>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>PyPy aparece en la guía de la materia como compilador JIT "ideal para códigos con muchos bucles en Python puro": es exactamente nuestro cuello de botella.</li>
+    <li>El primero es el que más rinde: ataca el techo que vio New Relic.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 16 · LO QUE NO SALIÓ ========== -->
+<section class="slide" data-sec="Límites" data-n="10" data-title="Lo que no salió" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§10</b><span class="dash"></span>Límites</div>
+    <h1 class="title">Lo que no salió como esperábamos</h1>
+  </div>
+  <div class="body">
+    <div class="cols-3">
+      <div class="panel stack">
+        <div class="plabel acc">py-spy no se pudo usar</div>
+        <p style="font-size:15px">Era la herramienta para ver <strong>la API real completa</strong>, con los procesos hijos y el framework.</p>
+        <p style="font-size:15px">En la Mac <strong>no logró engancharse al proceso, ni con sudo</strong> ("No such process"). Descartamos la versión y la firma de Python como causa. Lo documentamos y lo sacamos.</p>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">Los perfiladores no ven todo</div>
+        <p style="font-size:15px">Ni cProfile ni Scalene ven lo que hacen los <strong>procesos hijos</strong>, y lo que agrega HTTP queda afuera de la simulación.</p>
+        <p style="font-size:15px">Por eso la recarga se midió con un script aparte, que quedó en el repositorio.</p>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">Una sola máquina</div>
+        <p style="font-size:15px">El servidor y el generador de carga compartieron <strong>2 núcleos</strong>: cualquier otro programa abierto mueve los números.</p>
+        <p style="font-size:15px">La misma campaña, corrida dos veces el mismo día, dio <strong>136 y 107</strong> búsquedas por segundo. La conclusión fue la misma en las dos.</p>
+      </div>
+    </div>
+    <div class="foot-note">En macOS, New Relic informa el <b>pico</b> de memoria del proceso, no la memoria actual: por eso la línea de RAM del dashboard nunca baja.</div>
+    <div class="stack" style="gap:8px">
+      <div class="plabel acc">Al medir, también falló el instrumento</div>
+      <div class="cols-4">
+        <div class="panel tarjeta"><div class="plabel">Mac</div><div class="idea-t">El nombre equivocado</div><p>Los datos llegaban como «Python Application»: el agente lee el nombre al importarse. Se corrigió el orden y se agregó un test.</p></div>
+        <div class="panel tarjeta"><div class="plabel">Windows</div><div class="idea-t">Búsquedas sin registrar</div><p>Las primeras llegaron antes de que el agente se conectara. Se arregla con <code class="inline">NEW_RELIC_STARTUP_TIMEOUT</code>.</p></div>
+        <div class="panel tarjeta"><div class="plabel">Windows</div><div class="idea-t">Una búsqueda de 266 s</div><p>Seleccionar texto en la consola congeló el servidor. New Relic lo registró como una traza lenta.</p></div>
+        <div class="panel tarjeta"><div class="plabel">Windows</div><div class="idea-t">El generador sin puertos</div><p>Abría una conexión por búsqueda y agotó los 16.384 puertos de Windows. Se arregló reusando las conexiones.</p></div>
+      </div>
+    </div>
+    <div class="foot-note" style="color:var(--ink-2)"><b>La lección:</b> antes de creerle a una medición, hay que verificar el instrumento.</div>
+  </div>
+  <template class="nt"><ul>
+    <li>Contarlo sin vueltas: explicar por qué no se usó una herramienta también es parte del trabajo.</li>
+    <li>py-spy en macOS necesita permisos especiales para leer la memoria de otro proceso; en esta máquina falló igual. En Windows no necesita sudo, así que es una prueba que quedaría para otra máquina.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 17 · DEMOSTRACIÓN ========== -->
+<section class="slide" data-sec="Demostración" data-n="11" data-title="Demostración" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§11</b><span class="dash"></span>Demostración</div>
+    <h1 class="title">Demostración: levantar la API, buscar y mirarla en vivo</h1>
+  </div>
+  <div class="body">
+    <div class="cols-7-5">
+      <div class="stack">
+<pre class="term"><span class="p">$</span> python src/servidor.py --env-file .env
+<span class="w">New Relic: activo (app pef-26)</span>
+<span class="g">INFO:     Uvicorn running on http://127.0.0.1:8000</span></pre>
+<pre class="term"><span class="p">$</span> curl <span class="y">"http://127.0.0.1:8000/buscar?q=algoritmo&amp;top_k=3"</span>
+<span class="p">$</span> python src/generar_trafico.py --duracion 60 --concurrencia 20</pre>
+<pre class="term"><span class="p">$</span> python src/perfilar_api.py --reindexar --cprofile profiles/cprofile-api.prof
+<span class="p">$</span> snakeviz profiles/cprofile-api.prof</pre>
+      </div>
+      <div class="stack">
+        <div class="panel">
+          <div class="plabel acc">Qué mostrar</div>
+          <ul class="list acc">
+            <li>La página <strong>/docs</strong>: probar una búsqueda desde el navegador.</li>
+            <li>La <strong>primera búsqueda</strong> carga el índice (≈1 s); las siguientes tardan milisegundos.</li>
+            <li>Con el generador corriendo, el <strong>dashboard de New Relic</strong> se mueve en vivo.</li>
+            <li>Un <code class="inline">POST /reindexar</code> y la RAM subiendo mientras se reconstruye.</li>
+          </ul>
+        </div>
+        <div class="foot-note">Si no hay conexión para New Relic, la API arranca igual sin monitoreo, y el dashboard se muestra desde las capturas.</div>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li><b>Orden sugerido:</b> levantar el servidor antes de empezar a hablar, así el índice ya está cargado.</li>
+    <li>El dashboard de New Relic tarda hasta un minuto en reflejar los pedidos: arrancar el generador apenas empieza la demo.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 18 · CONCLUSIONES ========== -->
+<section class="slide" data-sec="Conclusiones" data-n="12" data-title="Conclusiones" data-mark="1">
+  <div class="head">
+    <div class="eyebrow"><b>§12</b><span class="dash"></span>Conclusiones</div>
+    <h1 class="title">Qué mejoró, qué quedó igual y qué aprendimos</h1>
+  </div>
+  <div class="body">
+    <div class="cols-3">
+      <div class="panel stack">
+        <div class="plabel acc">Mejoró</div>
+        <div class="readouts"><div class="readout"><div class="val hl"><span class="from">4,7 s</span><span class="arr">→</span>≈1<span class="u">s</span></div><div class="cap">listo para buscar</div></div></div>
+        <ul class="list">
+          <li>La memoria para leer un archivo grande: <strong>279 MB → 1,1 MB</strong>.</li>
+          <li>Ahora es <strong>un servicio</strong> que atendió 81.979 pedidos sin errores.</li>
+          <li><strong>122 tests</strong> y revisiones automáticas en cada cambio.</li>
+        </ul>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">Quedó igual, y por qué</div>
+        <ul class="list">
+          <li><strong>Una búsqueda nueva</strong> (≈10 ms) y <strong>construir el índice</strong> (≈5 s) cuestan lo mismo: esta parte no apuntaba ahí.</li>
+          <li>La búsqueda repetida tarda 1,7 ms porque ahora pasa por HTTP, no porque la caché ande peor.</li>
+          <li>El próximo cuello ya está identificado: <strong>el ranking</strong>.</li>
+        </ul>
+      </div>
+      <div class="panel stack">
+        <div class="plabel acc">Aprendimos</div>
+        <ul class="list">
+          <li><strong>El monitoreo dice qué es lento; el perfilado dice por qué.</strong> Se necesitan las dos cosas.</li>
+          <li><strong>Más usuarios o más hardware no arreglan un bucle de Python:</strong> lo vimos con 20 usuarios y en Windows.</li>
+          <li>Las herramientas también fallan, y hay que contarlo.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Si hay una sola idea para llevarse: <b>en la parte 1 hicimos rápida la búsqueda; en esta, hicimos que el buscador se pueda usar, probar y medir</b>.</li>
+  </ul></template>
+</section>
+
+<!-- ========== 19 · CIERRE ========== -->
+<section class="slide cover" data-sec="Cierre" data-title="Cierre">
+  <div class="inner">
+    <div><div class="eyebrow"><b>§12</b><span class="dash"></span>Conclusiones · cierre</div></div>
+    <div style="align-self:center">
+      <h1 class="title" style="font-size:48px;max-width:none">Primero lo hicimos rápido.<br>Ahora lo podemos usar, probar y medir.</h1>
+      <div class="readouts" style="margin-top:30px">
+        <div class="readout"><div class="val hl">≈1<span class="u">s</span></div><div class="cap">listo para buscar<br>(antes 4,7 s)</div></div>
+        <div class="readout"><div class="val hl">122<span class="u">tests</span></div><div class="cap">en cada cambio<br>(antes ninguno)</div></div>
+        <div class="readout"><div class="val hl">81.979<span class="u">pedidos</span></div><div class="cap">bajo carga,<br>sin errores</div></div>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="sec">Gracias · preguntas</span>
+      <span class="spacer"></span>
+      <span>github.com/JoniMora/pef-26</span>
+    </div>
+  </div>
+  <template class="nt"><ul>
+    <li>Dejar esta diapositiva abierta durante las preguntas.</li>
+    <li>Preguntas probables: por qué no se usó py-spy (diapositiva de límites), por qué la búsqueda no bajó (antes y ahora) y cómo se haría más rápida (cuellos de botella).</li>
+  </ul></template>
+</section>
+
+  </div></div>
+</div>
+
+<div class="hint" id="hint">
+  <kbd>→</kbd> avanzar · <kbd>o</kbd> índice · <kbd>n</kbd> notas · <kbd>t</kbd> tema · <kbd>f</kbd> pantalla completa
+</div>
+
+<div class="hud">
+  <button id="btn-prev" title="Anterior (←)" aria-label="Diapositiva anterior">‹</button>
+  <button id="btn-next" title="Siguiente (→)" aria-label="Diapositiva siguiente">›</button>
+  <button id="btn-ov"   title="Índice (o)">índice</button>
+  <button id="btn-notes" title="Notas del orador (n)">notas</button>
+  <button id="btn-theme" title="Tema claro / oscuro (t)">tema</button>
+</div>
+
+<div class="notes" id="notes" hidden>
+  <div class="plabel acc" id="notes-title">Notas del orador</div>
+  <div id="notes-body"></div>
+</div>
+
+<div class="overview" id="overview" hidden>
+  <h2>Índice — Buscador Eficiente · Parte 2</h2>
+  <div class="ov-grid" id="ov-grid"></div>
+</div>
+
+<style>
+/* añadidos: tablas densas y títulos con identificadores */
+table.tight th, table.tight td { padding: 5px 8px; font-size: 13px; }
+table.tight td.num, table.tight th.num { font-size: 12.5px; }
+h1.title code.inline { font-size: .82em; }
+svg.chart polyline { fill: none; }
+td strong, td b { font-variation-settings: "wght" 680; }
+td .efecto { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+/* añadidos de la parte 2: capturas, etiquetas, antes → ahora y barras */
+figure.fig { margin: 0; display: grid; gap: 7px; align-content: start; min-width: 0; }
+figure.fig figcaption {
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  letter-spacing: .03em; line-height: 1.45; color: var(--ink-3);
+}
+img.shot {
+  display: block; max-width: 100%; height: auto;
+  border: 1px solid var(--rule-2); border-radius: 4px; background: #fff;
+}
+.readout .val .from {
+  font-variation-settings: "wdth" 100, "wght" 500;
+  font-size: 22px; color: var(--ink-3);
+}
+.readout .val .arr { font-size: 18px; color: var(--ink-3); font-variation-settings: "wght" 400; }
+.tag {
+  display: inline-block; white-space: nowrap;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600;
+  padding: 2px 7px; border-radius: 3px; border: 1px solid currentColor;
+}
+.tag.up   { color: var(--s4); }
+.tag.eq   { color: var(--ink-3); }
+.tag.diff { color: var(--s2); }
+.tag.new  { color: var(--accent-ink); }
+.bar { display: flex; height: 28px; border-radius: 3px; overflow: hidden; }
+.bar span {
+  display: flex; align-items: center; padding-left: 9px;
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600;
+  color: #fff; white-space: nowrap;
+}
+/* añadidos de la versión final: pasos, conceptos, diagrama del buffer y tarjetas */
+ul.list.sm li { font-size: 14px; }
+ul.list.xs li { font-size: 13px; line-height: 1.4; padding-left: 14px; }
+.concepto-t, .idea-t {
+  font-family: "IBM Plex Serif", Georgia, serif; font-weight: 600; color: var(--ink);
+}
+.concepto-t { font-size: 26px; line-height: 1.1; }
+.idea-t { font-size: 20px; line-height: 1.25; }
+.pasos {
+  max-width: 608px;
+  background: #0E1214; border: 1px solid #1E2528; border-radius: 4px;
+  padding: 9px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px;
+}
+.paso { display: grid; grid-template-columns: 20px 1fr; gap: 9px; align-items: start; }
+.paso .num {
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  background: #11342B; color: #4CD4A4;
+  font-family: Archivo, sans-serif; font-variation-settings: "wght" 700; font-size: 11px;
+}
+.paso b {
+  display: block; margin-bottom: 1px; color: #F2F5F4;
+  font-family: Archivo, sans-serif; font-variation-settings: "wght" 700; font-size: 11.5px;
+}
+.paso span:not(.num) { font-family: Archivo, sans-serif; font-size: 10.5px; line-height: 1.45; color: #A3AEB2; }
+.bufflow { display: grid; grid-template-columns: 176px 92px 1.45fr 72px 1fr 76px 1.45fr; margin-top: -6px; }
+.bufflow .caja { display: grid; gap: 5px; align-content: start; }
+.bufflow .box {
+  min-height: 104px; padding: 8px 11px; border: 1px solid var(--rule-2); border-radius: 4px;
+  background: var(--surface); display: grid; gap: 6px; align-content: start;
+  font-size: 11px; line-height: 1.38; color: var(--ink-2);
+}
+.bufflow .box.buf { background: var(--accent-soft); border: 2px solid var(--accent); }
+.bufflow .box.cont { background: var(--surface-2); }
+.bufflow .box.idx { background: #0E1214; border-color: #1E2528; color: #8E9A9E; }
+.bufflow .box p { font-size: 11px; line-height: 1.38; }
+.pedazos { display: grid; gap: 3px; }
+.pedazos span, .chipbuf span {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600;
+  color: #fff; padding: 1px 7px; border-radius: 2px; white-space: nowrap;
+}
+.pedazos span.leyendo { box-shadow: 0 0 0 2px var(--ink); }
+.chipbuf { display: flex; gap: 4px; flex-wrap: wrap; }
+.chipbuf span { font-size: 10.5px; padding: 2px 7px; }
+.conteo { display: grid; grid-template-columns: 1fr auto; gap: 0 10px;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink); }
+.conteo b { color: var(--s1); font-weight: 600; }
+.idx-lista { font-family: "IBM Plex Mono", monospace; font-size: 11px; line-height: 1.5;
+  color: #E6ECEB; white-space: pre; margin: 0; }
+.conector {
+  display: grid; align-content: center; justify-items: center; gap: 3px;
+  padding: 22px 4px 0; font-size: 10.5px; color: var(--ink-3); white-space: nowrap;
+}
+.conector svg { width: 100%; height: 10px; overflow: visible; }
+.conector svg * { stroke: var(--ink-3); fill: var(--ink-3); }
+.cols-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.tarjeta { gap: 5px; padding: 12px 14px; }
+.tarjeta .idea-t { font-size: 15px; }
+.tarjeta p { font-size: 12.5px; line-height: 1.42; }
+.cifras { display: grid; grid-template-columns: 100px 1fr; gap: 3px 12px; align-items: baseline; }
+.cifras b { font-family: "IBM Plex Serif", Georgia, serif; font-weight: 600; font-size: 17px; color: var(--ink); white-space: nowrap; }
+.cifras span { font-size: 12px; line-height: 1.32; color: var(--ink-2); }
+</style>
+
+<script>
+(function () {
+  "use strict";
+
+  var slides  = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var stage   = document.getElementById("stage");
+  var wrap    = document.querySelector(".stage-wrap");
+  var progress= document.getElementById("progress");
+  var notes   = document.getElementById("notes");
+  var notesBody = document.getElementById("notes-body");
+  var overview  = document.getElementById("overview");
+  var ovGrid    = document.getElementById("ov-grid");
+  var hint      = document.getElementById("hint");
+  var total     = slides.length;
+  var current   = 0;
+  var notesOpen = false;
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  /* ---------- pie e índice lateral de cada diapositiva ---------- */
+  slides.forEach(function (slide, i) {
+    if (slide.classList.contains("cover")) { return; }
+
+    var foot = document.createElement("div");
+    foot.className = "foot";
+
+    var sec = document.createElement("span");
+    sec.className = "sec";
+    sec.textContent = (slide.dataset.n ? "§" + slide.dataset.n + " · " : "") + (slide.dataset.sec || "");
+
+    var spacer = document.createElement("span");
+    spacer.className = "spacer";
+
+    var rail = document.createElement("div");
+    rail.className = "rail";
+
+    slides.forEach(function (other, j) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("aria-label", "Ir a la diapositiva " + (j + 1) + ": " + (other.dataset.title || ""));
+      b.title = pad(j + 1) + " · " + (other.dataset.title || "");
+      if (other.dataset.mark) { b.className = "mark"; }
+      b.addEventListener("click", function () { goTo(j); });
+      rail.appendChild(b);
+    });
+
+    var count = document.createElement("span");
+    count.className = "count";
+    count.textContent = pad(i + 1) + " / " + pad(total);
+
+    foot.appendChild(sec);
+    foot.appendChild(spacer);
+    foot.appendChild(rail);
+    foot.appendChild(count);
+    slide.appendChild(foot);
+  });
+
+  /* ---------- índice general ---------- */
+  slides.forEach(function (slide, i) {
+    var card = document.createElement("button");
+    card.type = "button";
+    card.className = "ov-card";
+    var n = document.createElement("span");
+    n.className = "n";
+    n.textContent = pad(i + 1) + (slide.dataset.n ? "  ·  §" + slide.dataset.n : "");
+    var t = document.createElement("span");
+    t.className = "t";
+    t.textContent = slide.dataset.title || "";
+    var s = document.createElement("span");
+    s.className = "n";
+    s.textContent = slide.dataset.sec || "";
+    card.appendChild(n);
+    card.appendChild(t);
+    card.appendChild(s);
+    card.addEventListener("click", function () { toggleOverview(false); goTo(i); });
+    ovGrid.appendChild(card);
+  });
+  var ovCards = Array.prototype.slice.call(ovGrid.children);
+
+  /* ---------- navegación ---------- */
+  function goTo(i) {
+    if (i < 0) { i = 0; }
+    if (i > total - 1) { i = total - 1; }
+    slides[current].classList.remove("is-active");
+    current = i;
+    slides[current].classList.add("is-active");
+
+    slides[current].querySelectorAll(".rail button").forEach(function (b, j) {
+      b.classList.toggle("on", j === current);
+    });
+    ovCards.forEach(function (c, j) { c.classList.toggle("on", j === current); });
+
+    progress.style.width = (total > 1 ? (current / (total - 1)) * 100 : 100) + "%";
+    renderNotes();
+
+    if (history.replaceState) {
+      history.replaceState(null, "", "#" + (current + 1));
+    }
+  }
+
+  function next() { goTo(current + 1); }
+  function prev() { goTo(current - 1); }
+
+  /* ---------- notas del orador ---------- */
+  function renderNotes() {
+    var tpl = slides[current].querySelector("template.nt");
+    notesBody.innerHTML = tpl ? tpl.innerHTML : "<ul><li>—</li></ul>";
+  }
+
+  function toggleNotes(force) {
+    notesOpen = (typeof force === "boolean") ? force : !notesOpen;
+    notes.hidden = !notesOpen;
+    fit();
+  }
+
+  /* ---------- índice general ---------- */
+  function toggleOverview(force) {
+    var open = (typeof force === "boolean") ? force : overview.hidden;
+    overview.hidden = !open;
+  }
+
+  /* ---------- tema ---------- */
+  function toggleTheme() {
+    var root = document.documentElement;
+    var now = root.getAttribute("data-theme");
+    var isDark = now
+      ? now === "dark"
+      : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = isDark ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("pef-tema", next); } catch (e) {}
+  }
+
+  try {
+    var saved = localStorage.getItem("pef-tema");
+    if (saved === "dark" || saved === "light") {
+      document.documentElement.setAttribute("data-theme", saved);
+    }
+  } catch (e) {}
+
+  /* ---------- escalado del escenario ---------- */
+  function fit() {
+    var margin = 40;
+    var reserved = notesOpen ? Math.min(notes.offsetHeight + 20, window.innerHeight * 0.4) : 0;
+    var availW = window.innerWidth - margin;
+    var availH = window.innerHeight - margin - reserved;
+    var scale = Math.min(availW / 1280, availH / 720);
+    stage.style.transform = "scale(" + scale + ")";
+    wrap.style.paddingBottom = reserved + "px";
+  }
+
+  window.addEventListener("resize", fit);
+  fit();
+
+  /* ---------- teclado ---------- */
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) { return; }
+    var k = e.key;
+
+    if (k === "Escape") {
+      if (!overview.hidden) { toggleOverview(false); e.preventDefault(); }
+      else if (notesOpen)   { toggleNotes(false);    e.preventDefault(); }
+      return;
+    }
+    if (k === "ArrowRight" || k === "PageDown" || k === " " || k === "Spacebar") { next(); e.preventDefault(); return; }
+    if (k === "ArrowLeft"  || k === "PageUp"  || k === "Backspace")             { prev(); e.preventDefault(); return; }
+    if (k === "Home") { goTo(0); e.preventDefault(); return; }
+    if (k === "End")  { goTo(total - 1); e.preventDefault(); return; }
+
+    var lower = k.toLowerCase ? k.toLowerCase() : k;
+    if (lower === "o") { toggleOverview(); e.preventDefault(); return; }
+    if (lower === "n") { toggleNotes();    e.preventDefault(); return; }
+    if (lower === "t") { toggleTheme();    e.preventDefault(); return; }
+    if (lower === "f") {
+      e.preventDefault();
+      if (document.fullscreenElement) { document.exitFullscreen(); }
+      else if (document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen(); }
+      return;
+    }
+  });
+
+  document.getElementById("btn-next").addEventListener("click", next);
+  document.getElementById("btn-prev").addEventListener("click", prev);
+  document.getElementById("btn-ov").addEventListener("click", function () { toggleOverview(); });
+  document.getElementById("btn-notes").addEventListener("click", function () { toggleNotes(); });
+  document.getElementById("btn-theme").addEventListener("click", toggleTheme);
+
+  /* ---------- gestos ---------- */
+  var x0 = null;
+  document.addEventListener("touchstart", function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener("touchend", function (e) {
+    if (x0 === null) { return; }
+    var dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 60) { dx < 0 ? next() : prev(); }
+    x0 = null;
+  }, { passive: true });
+
+  /* ---------- arranque ---------- */
+  var fromHash = parseInt((location.hash || "").replace("#", ""), 10);
+  goTo(isNaN(fromHash) ? 0 : fromHash - 1);
+
+  window.setTimeout(function () { hint.classList.add("gone"); }, 7000);
+}());
+</script>
+</body>
+</html>
