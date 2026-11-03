@@ -1,0 +1,11 @@
+{
+  "name": "pef-26-herramientas",
+  "private": true,
+  "description": "Herramientas de Node.js para revisar la documentación (make docs).",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.24.0"
+  }
+}

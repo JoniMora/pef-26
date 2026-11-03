@@ -1,0 +1,73 @@
+"""
+Protege que la instalación sea reproducible: cada versión pedida en un .in
+tiene que estar en su lock, con hash, y un cambio a medias no puede pasar.
+"""
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+
+RAIZ = Path(__file__).resolve().parents[1]
+ENTRADAS = sorted(RAIZ.glob("requirements*.in"))
+LOCKS = sorted(RAIZ.glob("requirements*.txt"))
+PIN = re.compile(r"^([A-Za-z0-9._-]+)(?:\[[^\]]*\])?==([^\s;\\]+)")
+
+
+def _nombre(paquete):
+    return re.sub(r"[-_.]+", "-", paquete).lower()
+
+
+def _pines(ruta):
+    lineas = ruta.read_text(encoding="utf-8").splitlines()
+    coincidencias = (PIN.match(linea) for linea in lineas)
+
+    return {_nombre(pin[1]): pin[2] for pin in coincidencias if pin}
+
+
+def _requisitos_del_lock(ruta):
+    # Une cada paquete con sus líneas de continuación (los hashes).
+    texto = ruta.read_text(encoding="utf-8").replace("\\\n", " ")
+
+    return [linea for linea in texto.splitlines() if PIN.match(linea)]
+
+
+def test_cada_entrada_tiene_su_lock():
+    assert [ruta.stem for ruta in ENTRADAS] == [ruta.stem for ruta in LOCKS]
+
+
+@pytest.mark.parametrize("entrada", ENTRADAS, ids=lambda ruta: ruta.name)
+def test_el_lock_tiene_las_versiones_pedidas(entrada):
+    pines = _pines(entrada.with_suffix(".txt"))
+
+    faltan = {
+        paquete: version
+        for paquete, version in _pines(entrada).items()
+        if pines.get(paquete) != version
+    }
+
+    assert faltan == {}, "Falta correr `make lock`"
+
+
+@pytest.mark.parametrize("lock", LOCKS, ids=lambda ruta: ruta.name)
+def test_cada_paquete_del_lock_tiene_hash(lock):
+    requisitos = _requisitos_del_lock(lock)
+
+    assert requisitos
+    assert [req for req in requisitos if "--hash=sha256:" not in req] == []
+
+
+def test_la_instalacion_exige_los_hashes():
+    makefile = (RAIZ / "Makefile").read_text("utf-8")
+
+    assert "pip install --require-hashes -r requirements-dev.txt" in makefile
+
+
+def test_el_lock_de_node_fija_lo_que_pide_package_json():
+    pedidos = json.loads((RAIZ / "package.json").read_text("utf-8"))
+    lock = json.loads((RAIZ / "package-lock.json").read_text("utf-8"))
+
+    for paquete, version in pedidos["devDependencies"].items():
+        assert lock["packages"][f"node_modules/{paquete}"]["version"] == version
