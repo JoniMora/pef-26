@@ -23,8 +23,8 @@ ENV/
 
 # ─────────────────────────────────────────────────────────────
 #  Corpus de documentos
-#  Colección masiva (>= 1 GB): se descarga con
-#  `python -m src.tools.fetch_corpus`, no se versiona.
+#  Colección masiva: se genera con
+#  `python3 src/baseline.py --generar`, no se versiona.
 # ─────────────────────────────────────────────────────────────
 data/*
 !data/.gitkeep
@@ -57,9 +57,8 @@ index_cache/
 
 # ─────────────────────────────────────────────────────────────
 #  Salidas de perfilado
-#  Los binarios de profiling se ignoran; la tabla de resultados
-#  (benchmarks/results.md) SÍ se versiona: es la evidencia
-#  entregable de la mejora de rendimiento.
+#  Las salidas de los perfiladores se regeneran. Las cifras y las
+#  capturas que se entregan están en docs/.
 # ─────────────────────────────────────────────────────────────
 profiles/*
 !profiles/.gitkeep
@@ -67,6 +66,7 @@ profiles/*
 *.lprof
 mprofile_*.dat
 *.svg
+!docs/diagramas/*.svg
 *.speedscope.json
 
 # ─────────────────────────────────────────────────────────────
