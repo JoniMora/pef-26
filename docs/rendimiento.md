@@ -420,23 +420,24 @@ Cómo se mide:
 - **Mismo código de medición:** los dos lados corren la suite de la rama actual, porque la rama base puede no tenerla. La suite verifica de dónde importó el motor: si los dos lados midieran lo mismo, el control nunca rechazaría.
 - **Mismos datos:** el corpus se genera una sola vez y lo usan los dos.
 - **Corridas alternadas:** 3 rondas por lado, en orden alternado, para repartir la deriva de la máquina. De cada estadístico se toma la mediana entre rondas, que descarta una ronda anómala.
+- **Confirmación:** antes de rechazar se repite solo lo sospechoso, 3 rondas más por lado, y decide esa segunda medición. Un período lento de la máquina que cae más sobre un lado mueve todos los estadísticos, igual que una regresión. Lo que los distingue es que la regresión persiste.
 
-**Por qué esos valores.** Como la rama que agregó este control no cambia `src/`, cada corrida del job compara el código contra sí mismo. En 28 corridas de GitHub Actions, contando los dos sentidos, porque qué lado sale más lento es azar:
+**Por qué esos valores.** Como la rama que agregó este control no cambia `src/`, cada corrida del job compara el código contra sí mismo. En 43 corridas de GitHub Actions, contando los dos sentidos, porque qué lado sale más lento es azar:
 
-| Benchmark | Mediana en la rama base (ms) | Mayor razón de la regla pareja | Mayor razón de un solo estadístico |
+| Benchmark | Mediana en la rama base (ms) | Regla pareja: mayor razón | Un solo estadístico: mayor razón |
 | :--- | ---: | ---: | ---: |
-| `api_buscar` | 0,49 a 1,15 | 1,038 | 1,168 |
-| `busqueda_secuencial` | 19,5 a 33,1 | 1,017 | 1,025 |
-| `cargar_indice_de_disco` | 12,5 a 24,6 | 1,022 | 1,076 |
-| `consulta_con_cache_caliente` | 0,0013 a 0,0025 | 1,029 | 1,037 |
-| `consulta_de_un_termino` | 0,18 a 0,37 | 1,027 | 1,115 |
-| `consulta_de_varios_terminos` | 0,45 a 0,91 | 1,030 | 1,038 |
-| `contar_terminos` | 0,029 a 0,059 | 1,028 | 1,053 |
-| `indexar_en_paralelo` | 102 a 200 | 1,020 | 1,036 |
+| `api_buscar` | 0,46 a 1,15 | 1,038 | 1,168 |
+| `busqueda_secuencial` | 14,2 a 33,5 | 1,019 | 1,036 |
+| `cargar_indice_de_disco` | 12,5 a 24,8 | 1,028 | 1,076 |
+| `consulta_con_cache_caliente` | 0,0013 a 0,0025 | 1,033 | 1,048 |
+| `consulta_de_un_termino` | 0,17 a 0,37 | 1,027 | 1,115 |
+| `consulta_de_varios_terminos` | 0,43 a 0,91 | 1,035 | 1,058 |
+| `contar_terminos` | 0,029 a 0,061 | 1,028 | 1,053 |
+| `indexar_en_paralelo` | 102 a 200 | 1,027 | 1,047 |
 | `indexar_secuencial` | 125 a 252 | 1,024 | 1,035 |
-| `tokenizar` | 0,020 a 0,038 | 1,038 | 1,056 |
+| `tokenizar` | 0,020 a 0,038 | 1,052 | 1,059 |
 
-En 560 comparaciones, la regla pareja llegó como máximo a 3,8 % y un solo estadístico a 16,8 %, así que ninguna superó su umbral. La tabla también justifica comparar en el mismo job: entre corridas, el mismo benchmark llegó a tardar 2,33 veces más según el runner, y ningún límite fijo en milisegundos serviría.
+En 860 comparaciones, la regla pareja llegó como máximo a 5,2 % y un solo estadístico a 16,8 %, así que ninguna superó su umbral. La tabla también justifica comparar en el mismo job: entre corridas, el mismo benchmark llegó a tardar 2,50 veces más según el runner, y ningún límite fijo en milisegundos serviría.
 
 **Cómo se llegó a esta regla.** Las dos versiones anteriores fallaron con datos reales:
 
@@ -445,39 +446,44 @@ En 560 comparaciones, la regla pareja llegó como máximo a 3,8 % y un solo esta
 
 El mínimo es sensible a iteraciones aisladas, y la mediana, al proceso: `api_buscar` da 0,65 o 0,75 ms según el proceso, en una misma corrida. Exigir los dos resuelve ambos casos:
 
-| Regla | Mayor diferencia | Casos sobre el 10 % |
-| :--- | ---: | ---: |
-| Mínimo de todas las rondas | 13,9 % | 3 |
-| Mediana de los mínimos | 11,5 % | 1 |
-| Mediana de las medianas | 16,8 % | 3 |
-| Mínimo y mediana a la vez | 3,8 % | 0 |
+| Regla | 28 corridas: mayor diferencia | Casos sobre el 10 % | 15 corridas nuevas: mayor diferencia | Casos sobre el 10 % |
+| :--- | ---: | ---: | ---: | ---: |
+| Mínimo de todas las rondas | 13,9 % | 3 | 6,2 % | 0 |
+| Mediana de los mínimos | 11,5 % | 1 | 5,9 % | 0 |
+| Mediana de las medianas | 16,8 % | 3 | 9,4 % | 0 |
+| Mínimo y mediana a la vez | 3,8 % | 0 | 5,2 % | 0 |
 
-La regla se eligió mirando las primeras 28 corridas. Un rechazo aislado y por poco todavía puede ser ruido: se relanza el job, y una regresión real vuelve a rechazar.
+La regla se eligió mirando las primeras 28 corridas, así que se validó con 15 nuevas, que no intervinieron en la elección: no hubo ningún falso rechazo. La confirmación se sumó después, por lo que observé con regresiones provocadas en una laptop ocupada: 6 benchmarks sin relación con el cambio superaron la tolerancia. Solo puede evitar rechazos, así que estas cifras siguen valiendo como cota.
 
-**Qué detecta.** Regresiones provocadas en un árbol aparte y medidas en macOS. La razón es la del benchmark más afectado:
+**Qué detecta.** Regresiones provocadas en un árbol aparte y medidas en macOS, con las razones del benchmark más afectado:
 
-| Regresión provocada | Benchmark | Razón | Resultado |
-| :--- | :--- | ---: | :--- |
-| Trabajo extra grande en `rankear()` | `consulta_de_un_termino` | 156,27 | Rechazada |
-| `GET /buscar` con 1 ms más | `api_buscar` | 2,49 | Rechazada |
-| Perder el `lru_cache` de `normalize()` | `tokenizar`, y cuatro más | 2,33 | Rechazada |
-| Perder el *heap*: `sorted()` completo | `consulta_de_un_termino` | 2,09 | Rechazada |
-| Trabajo extra mediano en `rankear()` | `consulta_de_un_termino` | 1,76 | Rechazada |
-| Cargar el índice con 10 ms más | `cargar_indice_de_disco` | 1,54 | Rechazada |
-| Trabajo extra en `QueryCache.get()` | `consulta_con_cache_caliente` | 1,42 | Rechazada |
-| Trabajo extra chico en `rankear()` | `consulta_de_un_termino` | 1,34 | Rechazada |
-| Indexar en secuencia con 100 ms más | `indexar_secuencial` | 1,33 | Rechazada |
-| Indexar en paralelo con 100 ms más | `indexar_en_paralelo` | 1,32 | Rechazada |
-| Búsqueda secuencial con 20 ms más | `busqueda_secuencial` | 1,31 | Rechazada |
-| Trabajo extra mínimo en `rankear()` | `consulta_de_un_termino` | 1,16 | Rechazada |
-| Perder el `lru_cache` de `stem()` | `tokenizar` | 1,13 | Rechazada |
-| Trabajo extra ínfimo en `rankear()` | `consulta_de_un_termino` | 1,07 | Aprobada: está por debajo de la tolerancia |
+| Regresión provocada | Benchmark | Mínimos | Medianas | Medias | Resultado |
+| :--- | :--- | ---: | ---: | ---: | :--- |
+| Trabajo extra grande en `rankear()` | `consulta_de_un_termino` | 155,72 | 156,67 | 154,46 | Rechazada |
+| Perder el `lru_cache` de `normalize()` | `tokenizar`, y tres más | 2,42 | 2,42 | 2,83 | Rechazada |
+| `GET /buscar` con 1 ms más | `api_buscar` | 2,40 | 2,38 | 2,28 | Rechazada |
+| Perder el *heap*: `sorted()` completo | `consulta_de_un_termino` | 2,08 | 2,07 | 2,07 | Rechazada |
+| Trabajo extra mediano en `rankear()` | `consulta_de_un_termino` | 1,75 | 1,75 | 1,75 | Rechazada |
+| Cargar el índice con 10 ms más | `cargar_indice_de_disco` | 1,37 | 1,44 | 1,44 | Rechazada |
+| Trabajo extra en `QueryCache.get()` | `consulta_con_cache_caliente` | 1,43 | 1,40 | 1,41 | Rechazada |
+| Indexar en secuencia con 100 ms más | `indexar_secuencial` | 1,33 | 1,36 | 1,34 | Rechazada |
+| Trabajo extra chico en `rankear()` | `consulta_de_un_termino` | 1,34 | 1,35 | 1,35 | Rechazada |
+| Indexar en paralelo con 100 ms más | `indexar_en_paralelo` | 1,24 | 1,13 | 1,12 | Rechazada |
+| Búsqueda secuencial con 20 ms más | `busqueda_secuencial` | 1,21 | 1,23 | 1,24 | Rechazada |
+| Trabajo extra mínimo en `rankear()` | `consulta_de_un_termino` | 1,16 | 1,16 | 1,17 | Rechazada |
+| Perder el `lru_cache` de `stem()` | `tokenizar` | 1,15 | 1,15 | 1,18 | Rechazada |
+| Trabajo extra ínfimo en `rankear()` | `consulta_de_un_termino` | 1,08 | 1,08 | 1,09 | Aprobada: por debajo de los umbrales |
+| **Intermitentes** | | | | | |
+| 100 veces más en el 60 % de las iteraciones | `consulta_de_un_termino` | 1,00 | 154,58 | 90,47 | Rechazada |
+| 100 veces más en el 5 % de las iteraciones | `consulta_de_un_termino` | 1,00 | 1,00 | 9,65 | Rechazada |
+| El doble en el 60 % de las iteraciones | `consulta_de_un_termino` | 1,01 | 2,53 | 1,98 | Rechazada |
+| 20 % más en el 30 % de las iteraciones | `consulta_de_un_termino` | 1,00 | 1,01 | 1,10 | Aprobada: por debajo de los umbrales |
 
-Cada falla movió solo los benchmarks que pasan por ese código. Si los dos lados miden el mismo código por error, o si la referencia no existe, el control también rechaza.
+Ningún benchmark sin relación con la falla quedó marcado. Si los dos lados miden el mismo código por error, o si la referencia no existe, el control también rechaza.
 
 **Límites del control:**
 
-- **Regresiones intermitentes moderadas:** si pocas iteraciones tardan un poco más, ningún estadístico llega a su umbral.
+- **Regresiones intermitentes moderadas:** si pocas iteraciones tardan un poco más, ningún estadístico llega a su umbral, como en la última fila de la tabla.
 - **Regresiones acumuladas:** cada pull request se compara contra su rama base, así que varias regresiones menores al 10 % pasan una por una. Por eso sigue el [Performance Gate](matriz-controles.md#performance-gate), con un límite fijo y la comparación contra la línea base.
 - **Mide el código, no las dependencias:** los dos lados corren en el mismo entorno, así que la actualización de un paquete no aparece como regresión.
 - **Interfaz de los benchmarks:** si un cambio renombra una función que usa la suite, la rama base no la puede correr y el control rechaza. Hay que separar el cambio en dos pull requests, o dejar un alias mientras tanto.
@@ -494,13 +500,13 @@ line_profiler no cruza el límite de proceso, así que en `concurrencia` y `fina
 
 | Versión | GitHub Actions (MB) | macOS (MB) | Límite (MB) |
 | :--- | ---: | ---: | ---: |
-| `inicial` | 0,53 | 0,53 a 0,54 | 0,60 |
+| `inicial` | 0,53 a 0,54 | 0,53 a 0,54 | 0,60 |
 | `estructura` | 4,42 | 4,42 | 4,87 |
 | `algoritmo` | 4,11 | 4,12 | 4,53 |
 | `concurrencia` | 9,29 | 9,03 | 10,21 |
 | `final` | 9,29 | 9,03 | 10,21 |
 
-**Cómo se fijó el límite.** Es el mayor pico medido, más un 10 %, con Python 3.14. El pico casi no varía: en 5 corridas de GitHub Actions, cuatro versiones dieron lo mismo a tres decimales, e `inicial`, la más chica, varió menos de un 1 %. Las rutas del corpus son relativas al repositorio porque el índice guarda una por documento: con rutas absolutas, macOS daba un 9 % más que Linux solo por el largo de su carpeta temporal. Si un cambio necesita más memoria con un motivo válido, se sube `LIMITES_MB` en ese mismo pull request, y queda a la vista en la revisión. Lo mismo hay que revisar al cambiar la versión de Python.
+**Cómo se fijó el límite.** Es el mayor pico medido, más un 10 %, con Python 3.14. El pico casi no varía: en 20 corridas de GitHub Actions, cuatro versiones variaron como máximo 0,001 MB, e `inicial`, la más chica, un 3 %. Las rutas del corpus son relativas al repositorio porque el índice guarda una por documento: con rutas absolutas, macOS daba un 9 % más que Linux solo por el largo de su carpeta temporal. Si un cambio necesita más memoria con un motivo válido, se sube `LIMITES_MB` en ese mismo pull request, y queda a la vista en la revisión. Lo mismo hay que revisar al cambiar la versión de Python.
 
 Se probó con fallas provocadas: copiar el índice, materializar la lista de rutas en la línea base y reservar un 12 % más en el índice se rechazan, y un 5 % más pasa.
 
