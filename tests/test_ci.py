@@ -103,3 +103,13 @@ def test_el_tipado_exige_anotar_el_motor_y_la_api():
     assert set(mypy["files"]) == {"src/core", "src/optimizado.py", "src/api.py"}
     # Una dependencia sin instalar dejaría de verificarse sin avisar.
     assert "ignore_missing_imports" not in mypy
+
+
+def test_el_benchmark_compara_contra_el_primer_padre():
+    # En un PR, HEAD es el merge: su primer padre es la rama base. Sin ese commit
+    # no hay contra qué comparar.
+    pasos = WORKFLOW["jobs"]["benchmark"]["steps"]
+    benchmark = next(paso for paso in pasos if paso.get("run") == "make benchmark")
+
+    assert benchmark["env"]["BENCHMARK_BASE"] == "HEAD^1"
+    assert pasos[0]["with"]["fetch-depth"] >= 2

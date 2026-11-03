@@ -25,10 +25,11 @@ make seguridad     # Bandit, pip-audit sobre todos los locks y npm audit; report
 make secretos      # gitleaks sobre todo el historial; baja la versión fijada y verifica su hash
 make tests         # tests con cobertura mínima del 80 %; reporte en htmlcov/
 make rendimiento   # Performance Gate
+make benchmark     # tiempos contra BENCHMARK_BASE (por defecto, origin/master); reporte en reportes/
 make docs          # sitio con Sphinx, sin advertencias, y markdownlint
 make enlaces       # enlaces externos; informa, pero no bloquea el CI
 make diagrama      # regenera el diagrama de arquitectura; requiere Graphviz
-make controles     # lint, complejidad, tipado, seguridad, secretos, tests, rendimiento y docs
+make controles     # todos los anteriores, salvo instalar, lock, enlaces y diagrama
 ```
 
 `make resultado-final` lo corre solo el CI: decide a partir de los resultados de los demás jobs, y sin ellos rechaza. SonarCloud también corre solo en el CI, porque necesita el token del proyecto.
@@ -48,6 +49,7 @@ Corre en cada pull request y en cada push a `master`. Los jobs de lint, compleji
 | Secretos (gitleaks) | `make secretos` sobre todo el historial, y guarda el reporte, con los valores ocultos, como artefacto. |
 | Documentación (Sphinx y enlaces) | `make docs`, guarda el sitio como artefacto y `make enlaces`, que informa sin bloquear. |
 | Tests, cobertura y Performance Gate | `make tests`, guarda la cobertura como artefacto, envía el análisis a SonarCloud y corre `make rendimiento`. Los pull requests de Dependabot omiten SonarCloud, porque no reciben su token y no tocan el código que analiza. |
+| Rendimiento (benchmark, profiling y memoria) | Solo si pasan los tests: `make benchmark`, y guarda los reportes como artefacto. |
 | Resultado final | Rechaza el cambio si algún job anterior no terminó bien, y deja la tabla de controles en el resumen de la corrida. |
 | Publicar la documentación | Solo en `master` y si "Resultado final" aprueba: publica el sitio en GitHub Pages. |
 

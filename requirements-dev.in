@@ -10,6 +10,8 @@ lizard==1.25.0
 mypy==2.4.1
 pytest==9.1.1
 pytest-cov==7.1.0
+# Tiempo de las operaciones representativas (make benchmark).
+pytest-benchmark==5.3.1
 sphinx==9.1.0
 # Markdown para Sphinx y el tema del sitio.
 myst-parser==5.1.0

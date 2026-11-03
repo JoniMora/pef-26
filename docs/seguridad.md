@@ -42,6 +42,7 @@ Pillow, re2js y KaTeX aparecieron al ampliar la auditoría a todos los locks: an
 | :--- | :--- | :--- | :--- |
 | Bandit, SonarCloud | B311, S2245 (generador pseudoaleatorio) | `baseline.py`, `generar_trafico.py` y `perfilar_api.py` | Azar sin uso criptográfico: texto ficticio y selección de consultas de carga. |
 | Bandit, SonarCloud | B404, B603, S8705 (subprocesos) | `perfilado.py` | Subprocesos con lista de argumentos, sin shell, que ejecutan herramientas de perfilado o el mismo arnés. El directorio lo elige quien corre el script. |
+| Bandit | B404, B603, B607 (subprocesos) | `scripts/control_rendimiento.py` | Subprocesos con lista de argumentos, sin shell: `git archive` y pytest, con la referencia que indica quien corre el control. En el CI es un valor fijo. |
 | SonarCloud | S8707 (ruta recibida por línea de comandos) | `baseline.py`, `servidor.cargar_variables()`, `generar_trafico.main()` y `perfilar_api.main()` | Herramientas locales: quien las ejecuta elige sus propias rutas (el directorio del corpus, `--env-file`, `--salida` y `--cprofile`), sin cruzar límites de permisos. |
 | gitleaks | `generic-api-key` | `sonar-project.properties`, línea 3 | `sonar.projectKey` es el identificador público del proyecto en SonarCloud, no una clave. |
 
