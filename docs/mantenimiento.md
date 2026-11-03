@@ -18,13 +18,15 @@ Con el entorno virtual activado, estos son los mismos comandos que corre el CI: 
 ```bash
 make instalar      # herramientas del pipeline, en las versiones del CI
 make lint          # Ruff: PEP 8, pyflakes, nombres, docstrings, complejidad y formato
-make seguridad     # Bandit sobre el código y pip-audit sobre las dependencias
+make lock          # regenera los requirements*.txt, con hashes, a partir de los .in
+make seguridad     # Bandit, pip-audit sobre todos los locks y npm audit; reportes en reportes/
+make secretos      # gitleaks sobre todo el historial; baja la versión fijada y verifica su hash
 make tests         # tests con cobertura mínima del 80 %; reporte en htmlcov/
 make rendimiento   # Performance Gate
 make docs          # sitio con Sphinx, sin advertencias, y markdownlint
 make enlaces       # enlaces externos; informa, pero no bloquea el CI
 make diagrama      # regenera el diagrama de arquitectura; requiere Graphviz
-make controles     # lint, seguridad, tests, rendimiento y docs, en ese orden
+make controles     # lint, seguridad, secretos, tests, rendimiento y docs, en ese orden
 ```
 
 `make resultado-final` lo corre solo el CI: decide a partir de los resultados de los demás jobs, y sin ellos rechaza. SonarCloud también corre solo en el CI, porque necesita el token del proyecto.
@@ -33,14 +35,15 @@ make controles     # lint, seguridad, tests, rendimiento y docs, en ese orden
 
 ## Pipeline de CI
 
-Corre en cada pull request y en cada push a `master`. Los jobs de lint, seguridad y documentación corren en paralelo, y los tests solo si los dos primeros pasan.
+Corre en cada pull request y en cada push a `master`. Los jobs de lint, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan los tres primeros.
 
 | Job | Qué hace |
 | :--- | :--- |
 | Lint (Ruff) | `make lint`. |
-| Seguridad (Bandit y pip-audit) | `make seguridad`. |
+| Seguridad (Bandit, pip-audit y npm audit) | `make seguridad`, y guarda los reportes en JSON como artefacto. |
+| Secretos (gitleaks) | `make secretos` sobre todo el historial, y guarda el reporte, con los valores ocultos, como artefacto. |
 | Documentación (Sphinx y enlaces) | `make docs`, guarda el sitio como artefacto y `make enlaces`, que informa sin bloquear. |
-| Tests, cobertura y Performance Gate | `make tests`, guarda la cobertura como artefacto, envía el análisis a SonarCloud y corre `make rendimiento`. |
+| Tests, cobertura y Performance Gate | `make tests`, guarda la cobertura como artefacto, envía el análisis a SonarCloud y corre `make rendimiento`. Los pull requests de Dependabot omiten SonarCloud, porque no reciben su token y no tocan el código que analiza. |
 | Resultado final | Rechaza el cambio si algún job anterior no terminó bien, y deja la tabla de controles en el resumen de la corrida. |
 | Publicar la documentación | Solo en `master` y si "Resultado final" aprueba: publica el sitio en GitHub Pages. |
 
@@ -60,7 +63,10 @@ gh run download <id-de-la-corrida> -n cobertura
 | `ruff check` | `make lint` | Corregir el hallazgo; `ruff check . --fix` resuelve los automáticos. Si es C901, extraer funciones hasta bajar de 10. |
 | `ruff format --check` | `make lint` | Correr `ruff format .`. |
 | Bandit | `make seguridad` | Corregir el código. Si es un falso positivo, marcarlo con `# nosec <regla>` y agregarlo a [Falsos positivos y excepciones](seguridad.md#falsos-positivos-y-excepciones). |
-| pip-audit | `make seguridad` | Subir la versión en el `requirements` que corresponda. Sin versión corregida, registrar una excepción con `--ignore-vuln` en el `Makefile`, con su motivo. |
+| pip-audit | `make seguridad` | Subir la versión en el `.in` que corresponda y correr `make lock`. Si viene de una dependencia transitiva, `make lock` no la sube sola: fijarla en el `.in`. Sin versión corregida, registrar una excepción con `--ignore-vuln` en el `Makefile`, con su motivo. |
+| `npm audit` | `make seguridad` | Subir la versión en `package.json` o forzarla con `overrides`, regenerar el lock con `npm install --package-lock-only` y comprobar que `make docs` siga funcionando. |
+| gitleaks | `make secretos` | Si es un secreto real, **revocarlo primero**: borrarlo del código no alcanza, porque sigue en el historial. Si es un falso positivo, agregar su huella a `.gitleaksignore` y a [Falsos positivos y excepciones](seguridad.md#falsos-positivos-y-excepciones). |
+| `make instalar`, hashes | `make instalar` | Un hash que no coincide indica un archivo alterado o un lock viejo. Regenerar con `make lock`; si sigue fallando, investigar antes de instalar. |
 | Tests | `make tests` | `pytest <archivo>::<test> -x` para aislar la falla. Si pasa en local, revisar si depende del orden o de la velocidad. |
 | Cobertura | `make tests` | Ver qué líneas faltan en la salida o en `htmlcov/index.html`, que en el CI es el artefacto `cobertura`. |
 | SonarCloud | Solo en el CI | Abrir el [panel](https://sonarcloud.io/dashboard?id=JoniMora_pef-26) y corregir lo que tiró el quality gate. Si el error es de autenticación, revisar el secreto `SONAR_TOKEN`. |
@@ -70,12 +76,22 @@ gh run download <id-de-la-corrida> -n cobertura
 | Enlaces externos | `make enlaces` | No bloquea. Revisar el artefacto `enlaces` y corregir el enlace si el problema no es una caída temporal del sitio. |
 | `tests/test_ci.py` | `pytest tests/test_ci.py` | Sumar el job nuevo a los `needs` de "Resultado final", o mover el comando suelto a un objetivo del `Makefile`. |
 | `tests/test_docs.py` | `pytest tests/test_docs.py` | Corregir el enlace al repositorio, o documentar el módulo o el objetivo nuevo. |
+| `tests/test_dependencias.py` | `pytest tests/test_dependencias.py` | Casi siempre falta `make lock` después de editar un `.in`. |
+| markdownlint, `Invalid regular expression flags` | `node --version` | `markdownlint-cli2` requiere Node.js 22 o superior. |
 | Resultado final, sin otro job en rojo | `gh run view <id-de-la-corrida>` | Un job omitido o cancelado también rechaza: volver a correr la corrida. |
+
+## Actualizar dependencias
+
+Las versiones se editan en los `requirements*.in`, y `make lock` genera los `requirements*.txt` con `uv pip compile`: fijan también las dependencias transitivas, con sus hashes, para Linux, macOS y Windows. Los `.txt` no se editan a mano. En Node.js pasa lo mismo con `package.json` y `package-lock.json`.
+
+Dependabot revisa cada semana Python, Node.js y las acciones de GitHub, y abre un pull request con el `.in` y su `.txt` ya regenerados. Pasa por los mismos controles que cualquier otro cambio, salvo SonarCloud. `make lock` conserva lo que ya está fijado: no sube versiones por su cuenta.
+
+gitleaks es un binario, no un paquete de Python: para actualizarlo hay que cambiar `GITLEAKS_VERSION` en el `Makefile` y copiar a `scripts/gitleaks.sha256` los hashes de esa versión, desde el archivo `checksums` de su publicación en GitHub.
 
 ## Agregar un control
 
 1. Definirlo en la [matriz de controles](matriz-controles.md): herramienta, comando, reporte y criterio de rechazo.
-2. Agregar el objetivo en el [`Makefile`](https://github.com/JoniMora/pef-26/blob/master/Makefile) y su versión fijada en [`requirements-dev.txt`](https://github.com/JoniMora/pef-26/blob/master/requirements-dev.txt).
+2. Agregar el objetivo en el [`Makefile`](https://github.com/JoniMora/pef-26/blob/master/Makefile) y su versión fijada en `requirements-dev.in`, y correr `make lock`.
 3. Llamarlo desde [`ci.yml`](https://github.com/JoniMora/pef-26/blob/master/.github/workflows/ci.yml). Si es un job nuevo, sumarlo a los `needs` de "Resultado final".
 4. Documentar en esta página cómo correrlo y cómo resolver sus fallos, y comprobar que rechaza provocando la falla.
 

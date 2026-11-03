@@ -11,17 +11,17 @@ Contrato de calidad del proyecto: qué se verifica, con qué, cómo se reproduce
 | Análisis estático | Ruff, SonarCloud | `make lint` (Sonar solo corre en el CI) | Anotaciones en el pull request y panel de SonarCloud | Algún hallazgo de Ruff, un archivo sin formatear o el quality gate caído | Activo |
 | Complejidad | Ruff C901, Lizard | `make lint`, `make complejidad` | Salida del job | Complejidad mayor a 10 (Ruff); más de 50 líneas de código o complejidad mayor a 15 (Lizard) | C901 activo; Lizard pendiente |
 | Tipado | mypy | `make tipado` | Salida del job | Algún error en `core/`, `optimizado.py` o `api.py`, con `disallow_untyped_defs` | Pendiente |
-| Vulnerabilidades del código | Bandit, SonarCloud | `make seguridad` | Salida del job; JSON pendiente | Algún hallazgo sin excepción documentada | Activo; reporte JSON pendiente |
-| Vulnerabilidades de dependencias | pip-audit | `make seguridad` | Salida del job; JSON pendiente | Alguna vulnerabilidad sin excepción documentada | Activo sobre `requirements-dev.txt`; el resto de los `requirements`, pendiente |
-| Secretos | gitleaks | `make secretos` | Artefacto JSON | Algún hallazgo sin excepción documentada | Pendiente |
-| Dependencias | Lock con hashes, Dependabot | `make instalar` | Pull requests de Dependabot | La instalación no coincide con los hashes del lock | Versiones directas fijadas; lock pendiente |
+| Vulnerabilidades del código | Bandit, SonarCloud | `make seguridad` | Salida del job y artefacto `seguridad` (`bandit.json`) | Algún hallazgo sin excepción documentada | Activo |
+| Vulnerabilidades de dependencias | pip-audit, `npm audit` | `make seguridad` | Salida del job y artefacto `seguridad` (`pip-audit-*.json` y `npm-audit.json`) | Alguna vulnerabilidad sin excepción documentada, en cualquier lock | Activo |
+| Secretos | gitleaks | `make secretos` | Salida del job y artefacto `secretos` (`gitleaks.json`), con los valores ocultos | Algún hallazgo en todo el historial, sin excepción documentada | Activo |
+| Dependencias | `uv pip compile` con hashes, `package-lock.json`, Dependabot | `make instalar`, `make lock`, `make tests` | Pull requests de Dependabot | La instalación no coincide con los hashes del lock, o una versión pedida en un `.in` no está en su lock (`tests/test_dependencias.py`) | Activo; Dependabot corre desde `master` |
 | Documentación | Sphinx con MyST, markdownlint, `tests/test_docs.py` | `make docs`, `make tests` | Artefacto `github-pages` con el sitio | Una advertencia de Sphinx, incluido un enlace interno roto; un error de markdownlint; un enlace a un archivo del repositorio que no existe, o una sección, módulo u objetivo de `make` sin documentar | Activo |
 | Enlaces externos | Sphinx `linkcheck` | `make enlaces` | Artefacto `enlaces` | No rechaza: informa, porque la caída de un sitio ajeno no debe frenar un cambio | Activo |
 | Benchmark | pytest-benchmark | `make benchmark` | Artefacto JSON | Regresión mayor a la tolerancia (a medir) frente a la rama base, medida en el mismo job | Pendiente; hoy `make rendimiento` (ver abajo) |
 | Profiling de CPU | cProfile | `make profiling` | Artefacto `.prof` y ranking de funciones | El perfil no se puede generar | Pendiente |
 | Memoria | tracemalloc | `make memoria` | Artefacto JSON | El pico supera el límite (a medir) | Pendiente |
 
-`make controles` corre en orden lint, seguridad, tests, rendimiento y documentación: los mismos comandos que el CI, salvo SonarCloud, que necesita el token del proyecto. Cómo correr cada uno y cómo resolver sus fallos está en [Mantenimiento](mantenimiento.md).
+`make controles` corre en orden lint, seguridad, secretos, tests, rendimiento y documentación: los mismos comandos que el CI, salvo SonarCloud, que necesita el token del proyecto. Cómo correr cada uno y cómo resolver sus fallos está en [Mantenimiento](mantenimiento.md).
 
 ## Resultado final
 
@@ -33,4 +33,4 @@ El job **Resultado final** es el único check obligatorio para integrar en `mast
 
 ## Política de bloqueo de seguridad
 
-**Tolerancia cero con excepciones documentadas:** cualquier hallazgo de Bandit, pip-audit o gitleaks rechaza el cambio, sea cual sea su severidad. El motivo, cómo se registra una excepción y las excepciones vigentes están en [Seguridad](seguridad.md#política-de-bloqueo).
+**Tolerancia cero con excepciones documentadas:** cualquier hallazgo de Bandit, pip-audit, `npm audit` o gitleaks rechaza el cambio, sea cual sea su severidad. El motivo, cómo se registra una excepción y las excepciones vigentes están en [Seguridad](seguridad.md#política-de-bloqueo).
