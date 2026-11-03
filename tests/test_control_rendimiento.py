@@ -30,6 +30,7 @@ TOLERANCIA = control.TOLERANCIA
 @pytest.fixture
 def reportes(monkeypatch, tmp_path):
     monkeypatch.setattr(control, "REPORTES", tmp_path)
+    monkeypatch.setattr(control, "RAIZ", tmp_path)
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "resumen.md"))
 
     return tmp_path
@@ -283,7 +284,13 @@ def test_memoria_rechaza_solo_por_encima_del_limite(pico, excedidas):
 
 def test_memoria_dentro_del_limite_deja_su_reporte(monkeypatch, reportes):
     monkeypatch.setattr(control, "generar_corpus", lambda _directorio: None)
-    monkeypatch.setattr(control, "medir_picos", lambda _c: _picos(final=1.0))
+    rutas = []
+
+    def medir(corpus):
+        rutas.append(corpus)
+        return _picos(final=1.0)
+
+    monkeypatch.setattr(control, "medir_picos", medir)
     monkeypatch.setattr(
         control, "asignaciones_relevantes", lambda _c: [{"linea": "x.py:1"}]
     )
@@ -295,6 +302,8 @@ def test_memoria_dentro_del_limite_deja_su_reporte(monkeypatch, reportes):
     assert reporte["picos"]["final"]["tracemalloc_mb"] == 1.0
     assert reporte["limites_mb"] == {"final": 2.0}
     assert reporte["asignaciones"] == [{"linea": "x.py:1"}]
+    # Con una ruta absoluta, el pico dependería de dónde esté el repositorio.
+    assert not rutas[0].is_absolute()
 
 
 def test_memoria_sobre_el_limite_rechaza_y_deja_el_reporte(monkeypatch, reportes):

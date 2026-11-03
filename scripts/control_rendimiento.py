@@ -42,7 +42,9 @@ DOCUMENTOS = 2000
 SEMILLA = 2026
 
 RONDAS = 3
-TOLERANCIA = 0.25
+# En 9 corridas del CI comparando el código contra sí mismo, la mayor diferencia
+# fue de 2,6 %. Más abajo empezaría a rechazar por ruido.
+TOLERANCIA = 0.10
 
 LIMITES_MB = {
     "inicial": 100.0,
@@ -480,11 +482,16 @@ def tabla_memoria(picos, limites):
 
 def control_memoria():
     """Mide el pico de cada versión y rechaza si alguna supera su límite."""
-    with tempfile.TemporaryDirectory() as temporal:
+    REPORTES.mkdir(exist_ok=True)
+
+    with tempfile.TemporaryDirectory(dir=REPORTES) as temporal:
         corpus = Path(temporal)
         generar_corpus(corpus)
 
-        picos = medir_picos(corpus)
+        # Relativa a la raíz, donde corre la medición: el índice guarda una ruta
+        # por documento, y con rutas absolutas el pico dependería de dónde esté
+        # el repositorio y de la carpeta temporal del sistema.
+        picos = medir_picos(corpus.relative_to(RAIZ))
         asignaciones = asignaciones_relevantes(corpus)
 
     guardar_reporte(
