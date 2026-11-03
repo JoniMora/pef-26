@@ -1297,15 +1297,18 @@ pytest tests/test_equivalencia.py -v
 
 ### Calidad y tests
 
-Los mismos controles que corre el CI:
+Los mismos controles que corre el CI, con el entorno virtual activado:
 
 ```bash
-ruff format --check .                 # formato PEP 8
-ruff check .                          # PEP 8, pyflakes, nombres y docstrings
-bandit -c pyproject.toml -r .         # análisis de seguridad
-pytest -m "not rendimiento" --cov     # tests con cobertura mínima del 80 %
-pytest -m rendimiento --no-cov -v     # Performance Gate
+make instalar      # herramientas del pipeline, en las versiones del CI
+make lint          # Ruff: PEP 8, pyflakes, nombres, docstrings, complejidad y formato
+make seguridad     # Bandit sobre el código y pip-audit sobre las dependencias
+make tests         # tests con cobertura mínima del 80 %
+make rendimiento   # Performance Gate
+make controles     # lint, seguridad, tests y rendimiento, en ese orden
 ```
+
+> SonarCloud es el único control que corre solo en el CI, porque necesita el token del proyecto.
 
 > Los tests generan su propio corpus en un directorio temporal, así que no necesitan `data/corpus`. `ruff format .` (sin `--check`) aplica el formato en lugar de solo verificarlo.
 
