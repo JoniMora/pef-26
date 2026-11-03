@@ -52,7 +52,7 @@ def _archivo_de_lote(numero):
     return f"lote_{int(numero):03}.json"
 
 
-def directorio_indice_para(corpus_dir):
+def directorio_indice_para(corpus_dir: str | Path) -> Path:
     """
     Devuelve dónde se guarda por defecto el índice de un corpus.
 
@@ -198,7 +198,9 @@ def cargar_indice(corpus_dir, directorio):
     return indice, [corpus / nombre for nombre in manifiesto["archivos"]]
 
 
-def obtener_indice(corpus_dir, directorio, forzar=False):
+def obtener_indice(
+    corpus_dir: str | Path, directorio: str | Path, forzar: bool = False
+) -> tuple[dict[str, dict[int, int]], list[Path], bool]:
     """
     Carga el índice guardado o, si no sirve, lo construye y lo guarda.
 

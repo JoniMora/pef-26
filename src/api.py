@@ -24,7 +24,7 @@ import os
 import time
 from pathlib import Path
 from threading import Lock
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -61,7 +61,9 @@ class RespuestaReindexado(BaseModel):
 
 
 # Respuesta de error documentada en Swagger para los dos endpoints.
-SIN_CORPUS = {503: {"description": "No existe el directorio del corpus."}}
+SIN_CORPUS: dict[int | str, dict[str, Any]] = {
+    503: {"description": "No existe el directorio del corpus."}
+}
 
 
 class ServicioDeBusqueda:
@@ -72,7 +74,9 @@ class ServicioDeBusqueda:
     a la vez: la segunda espera y reutiliza el de la primera.
     """
 
-    def __init__(self, directorio, directorio_indice=None):
+    def __init__(
+        self, directorio: str | Path, directorio_indice: str | Path | None = None
+    ) -> None:
         """
         Crea el servicio sin indexar: el índice se arma en la primera consulta.
 
@@ -86,11 +90,11 @@ class ServicioDeBusqueda:
         self.directorio_indice = Path(
             directorio_indice or indice_en_disco.directorio_indice_para(directorio)
         )
-        self._buscador = None
-        self._version = None
+        self._buscador: Buscador | None = None
+        self._version: int | None = None
         self._bloqueo = Lock()
 
-    def version_corpus(self):
+    def version_corpus(self) -> int | None:
         """
         Devuelve la fecha de modificación del directorio del corpus.
 
@@ -106,7 +110,7 @@ class ServicioDeBusqueda:
         except OSError:
             return None
 
-    def obtener_buscador(self):
+    def obtener_buscador(self) -> Buscador:
         """
         Devuelve el buscador vigente y lo reconstruye si el corpus cambió.
 
@@ -124,7 +128,7 @@ class ServicioDeBusqueda:
 
             return self._indexar(version)
 
-    def reindexar(self):
+    def reindexar(self) -> Buscador:
         """
         Reconstruye el índice aunque el directorio no haya cambiado.
 
@@ -135,7 +139,7 @@ class ServicioDeBusqueda:
         with self._bloqueo:
             return self._indexar(self.version_corpus(), forzar=True)
 
-    def _indexar(self, version, forzar=False):
+    def _indexar(self, version: int | None, forzar: bool = False) -> Buscador:
         """
         Carga o construye el índice y lo deja en uso. Requiere el bloqueo.
 
@@ -163,7 +167,9 @@ class ServicioDeBusqueda:
         return self._buscador
 
 
-def create_app(corpus_dir=None, indice_dir=None):
+def create_app(
+    corpus_dir: str | Path | None = None, indice_dir: str | Path | None = None
+) -> FastAPI:
     """
     Crea la aplicación HTTP para un directorio de corpus.
 
