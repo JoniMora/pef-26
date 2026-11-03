@@ -224,6 +224,139 @@ def _rankear_sorted(indice, terminos, candidatos, top_k, total_docs):
 # ============================================================
 
 
+def _medir_sin_indice(corpus_dir, repeticiones):
+    """
+    Cronometra la línea base: cada consulta relee el corpus completo.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :return: Tupla ``(tiempos, coincidencias, documentos)``, con los tiempos en ms.
+    :rtype: tuple[list[float], int, int]
+    """
+    tiempos = []
+
+    for _ in range(repeticiones):
+        inicio = time.perf_counter()
+        resultados = baseline.busqueda_secuencial(str(corpus_dir), CONSULTA)
+        tiempos.append((time.perf_counter() - inicio) * 1000)
+
+    coincidencias = len(resultados)
+
+    # Generador, no lista: materializar 50.000 Path solo para
+    # contarlos agregaba decenas de MB al pico que se reporta.
+    documentos = sum(1 for _ in corpus_dir.glob("*.txt"))
+
+    return tiempos, coincidencias, documentos
+
+
+def _medir_consultas_sorted(indice, archivos, terminos, repeticiones):
+    """
+    Cronometra la etapa "estructura": intersección más ranking con ``sorted()``.
+
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param archivos: Rutas del corpus.
+    :type archivos: list[pathlib.Path]
+    :param terminos: Términos normalizados de la consulta.
+    :type terminos: tuple[str, ...]
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :return: Tupla ``(tiempos, coincidencias)``, con los tiempos en ms.
+    :rtype: tuple[list[float], int]
+    """
+    tiempos = []
+
+    for _ in range(repeticiones):
+        inicio = time.perf_counter()
+        candidatos = optimizado.buscar(indice, terminos)
+        # En una variable, como `resultados` en las demás versiones: el ranking
+        # se libera al reemplazarlo y no al terminar cada consulta.
+        _ranking = _rankear_sorted(indice, terminos, candidatos, TOP_K, len(archivos))
+        tiempos.append((time.perf_counter() - inicio) * 1000)
+
+    return tiempos, len(candidatos)
+
+
+def _medir_consultas_buscador(version, indice, archivos, repeticiones):
+    """
+    Cronometra las versiones que resuelven con :class:`optimizado.Buscador`.
+
+    :param version: Versión a medir: ``final`` usa la caché caliente, y las demás la
+        fuerzan a fallar.
+    :type version: str
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param archivos: Rutas del corpus.
+    :type archivos: list[pathlib.Path]
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :return: Tupla ``(tiempos, coincidencias)``, con los tiempos en ms.
+    :rtype: tuple[list[float], int]
+    """
+    tiempos = []
+
+    buscador = optimizado.Buscador(indice, archivos)
+
+    if version == "final":
+        # Caché caliente: la primera consulta la puebla y no se mide.
+        buscador.buscar(CONSULTA, TOP_K)
+
+    for _ in range(repeticiones):
+        if version != "final":
+            # Caché forzada a fallo: mide el costo real de resolver.
+            buscador.cache = optimizado.QueryCache(1024)
+
+        inicio = time.perf_counter()
+        coincidencias, resultados = buscador.buscar(CONSULTA, TOP_K)
+        tiempos.append((time.perf_counter() - inicio) * 1000)
+
+    return tiempos, coincidencias
+
+
+def _medir_con_indice(version, corpus_dir, repeticiones):
+    """
+    Cronometra la construcción del índice y las consultas de una versión.
+
+    :param version: Versión a medir, una de ``CON_INDICE``.
+    :type version: str
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :return: Tupla ``(indexacion_ms, tiempos, coincidencias, documentos)``, con los
+        tiempos en ms.
+    :rtype: tuple[float, list[float], int, int]
+    """
+    constructor = (
+        concurrente.construir_indice
+        if version in ("concurrencia", "final")
+        else optimizado.construir_indice
+    )
+
+    inicio = time.perf_counter()
+    indice, archivos = constructor(corpus_dir)
+    indexacion_ms = (time.perf_counter() - inicio) * 1000
+
+    # Solo `estructura` usa los términos, pero va en todas: calienta el
+    # lru_cache de normalize y stem en este proceso. El índice paralelo se
+    # construye en otros procesos, y sin esta llamada la primera consulta
+    # cronometrada pagaría esos fallos.
+    terminos = optimizado.normalizar_consulta(CONSULTA)
+
+    if version == "estructura":
+        tiempos, coincidencias = _medir_consultas_sorted(
+            indice, archivos, terminos, repeticiones
+        )
+    else:
+        tiempos, coincidencias = _medir_consultas_buscador(
+            version, indice, archivos, repeticiones
+        )
+
+    return indexacion_ms, tiempos, coincidencias, len(archivos)
+
+
 def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     """
     Mide una versión y devuelve sus métricas.
@@ -250,63 +383,13 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     if con_tracemalloc:
         tracemalloc.start()
 
-    indexacion_ms = None
-    tiempos = []
-
     if version == "inicial":
-        # Sin índice: cada consulta relee el corpus completo.
-        for _ in range(repeticiones):
-            inicio = time.perf_counter()
-            resultados = baseline.busqueda_secuencial(str(corpus_dir), CONSULTA)
-            tiempos.append((time.perf_counter() - inicio) * 1000)
-
-        coincidencias = len(resultados)
-
-        # Generador, no lista: materializar 50.000 Path solo para
-        # contarlos agregaba decenas de MB al pico que se reporta.
-        documentos = sum(1 for _ in corpus_dir.glob("*.txt"))
-
+        indexacion_ms = None
+        tiempos, coincidencias, documentos = _medir_sin_indice(corpus_dir, repeticiones)
     else:
-        constructor = (
-            concurrente.construir_indice
-            if version in ("concurrencia", "final")
-            else optimizado.construir_indice
+        indexacion_ms, tiempos, coincidencias, documentos = _medir_con_indice(
+            version, corpus_dir, repeticiones
         )
-
-        inicio = time.perf_counter()
-        indice, archivos = constructor(corpus_dir)
-        indexacion_ms = (time.perf_counter() - inicio) * 1000
-
-        documentos = len(archivos)
-
-        terminos = optimizado.normalizar_consulta(CONSULTA)
-
-        if version == "estructura":
-            for _ in range(repeticiones):
-                inicio = time.perf_counter()
-                candidatos = optimizado.buscar(indice, terminos)
-                resultados = _rankear_sorted(
-                    indice, terminos, candidatos, TOP_K, len(archivos)
-                )
-                tiempos.append((time.perf_counter() - inicio) * 1000)
-
-            coincidencias = len(candidatos)
-
-        else:
-            buscador = optimizado.Buscador(indice, archivos)
-
-            if version == "final":
-                # Caché caliente: la primera consulta la puebla y no se mide.
-                buscador.buscar(CONSULTA, TOP_K)
-
-            for _ in range(repeticiones):
-                if version != "final":
-                    # Caché forzada a fallo: mide el costo real de resolver.
-                    buscador.cache = optimizado.QueryCache(1024)
-
-                inicio = time.perf_counter()
-                coincidencias, resultados = buscador.buscar(CONSULTA, TOP_K)
-                tiempos.append((time.perf_counter() - inicio) * 1000)
 
     if con_tracemalloc:
         _, pico_tracemalloc = tracemalloc.get_traced_memory()
