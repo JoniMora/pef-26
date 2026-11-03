@@ -42,16 +42,17 @@ DOCUMENTOS = 2000
 SEMILLA = 2026
 
 RONDAS = 3
-# En 9 corridas del CI comparando el código contra sí mismo, la mayor diferencia
-# fue de 2,6 %. Más abajo empezaría a rechazar por ruido.
+# En 14 corridas del CI comparando el código contra sí mismo, la mayor diferencia
+# fue de 4,9 %: la tolerancia es el doble, para no rechazar por ruido.
 TOLERANCIA = 0.10
 
+# El mayor pico medido en el CI y en macOS, con Python 3.14, más un 10 %.
 LIMITES_MB = {
-    "inicial": 100.0,
-    "estructura": 100.0,
-    "algoritmo": 100.0,
-    "concurrencia": 100.0,
-    "final": 100.0,
+    "inicial": 0.60,
+    "estructura": 4.87,
+    "algoritmo": 4.53,
+    "concurrencia": 10.21,
+    "final": 10.21,
 }
 
 MB = 1024 * 1024
@@ -116,16 +117,18 @@ def extraer_src(referencia, destino):
     :type destino: pathlib.Path
     :return: El ``src/`` extraído.
     :rtype: pathlib.Path
-    :raises subprocess.CalledProcessError: Si la referencia no existe.
     """
-    archivo = subprocess.run(  # nosec B603 B607
+    proceso = subprocess.run(  # nosec B603 B607
         ["git", "archive", referencia, "src"],
         cwd=RAIZ,
         capture_output=True,
-        check=True,
-    ).stdout
+        check=False,
+    )
 
-    with tarfile.open(fileobj=io.BytesIO(archivo)) as tar:
+    if proceso.returncode != 0:
+        sys.exit(f"No se pudo leer {referencia}: {proceso.stderr.decode()[-500:]}")
+
+    with tarfile.open(fileobj=io.BytesIO(proceso.stdout)) as tar:
         tar.extractall(destino, filter="data")
 
     return destino / "src"
@@ -473,7 +476,7 @@ def tabla_memoria(picos, limites):
             "| --- | ---: | ---: | ---: |",
             *(
                 f"| {version} | {pico['tracemalloc_mb']:.3f} "
-                f"| {limites[version]:.3f} | {pico['rss_mb']:.1f} |"
+                f"| {limites[version]:.2f} | {pico['rss_mb']:.1f} |"
                 for version, pico in picos.items()
             ),
         ]

@@ -173,8 +173,8 @@ def test_la_suite_falla_si_mide_otro_codigo(tmp_path, corpus_chico):
     assert "codigo_medido" in proceso.stdout
 
 
-def test_extraer_src_falla_si_no_existe_la_referencia(tmp_path):
-    with pytest.raises(subprocess.CalledProcessError):
+def test_extraer_src_explica_si_no_existe_la_referencia(tmp_path):
+    with pytest.raises(SystemExit, match="no-existe-esta-rama"):
         control.extraer_src("no-existe-esta-rama", tmp_path)
 
 
@@ -410,6 +410,20 @@ def test_profiling_propaga_un_perfil_que_no_se_pudo_generar(monkeypatch, reporte
 
     with pytest.raises(subprocess.CalledProcessError):
         control.control_profiling()
+
+
+# ---- documentación
+
+
+def test_la_documentacion_tiene_los_valores_vigentes():
+    # Son decisiones justificadas con mediciones: no pueden cambiar sin que la
+    # documentación lo cuente.
+    texto = (RAIZ / "docs" / "rendimiento.md").read_text(encoding="utf-8")
+
+    assert f"**{TOLERANCIA:.0%}**".replace("%", " %") in texto
+
+    for limite in control.LIMITES_MB.values():
+        assert f"{limite:.2f} |".replace(".", ",") in texto
 
 
 # ---- línea de comandos

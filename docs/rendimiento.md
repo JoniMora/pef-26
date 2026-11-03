@@ -402,6 +402,90 @@ Construir `src/perfilado.py` expuso cuatro defectos en **cómo se medía**, no e
 
 > Salvo aclaración expresa, **todas las cifras del documento provienen de este equipo**. La única excepción es [Escalabilidad por hardware](#escalabilidad-por-hardware), que contrasta contra un AMD Ryzen 9 9900X de 12 núcleos bajo Windows.
 
+## Controles en el CI
+
+Las mediciones de esta página son campañas manuales sobre 50.000 documentos. Además, en cada pull request corren tres controles más chicos, sobre 2.000 documentos generados con semilla fija. Están en [`scripts/control_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/scripts/control_rendimiento.py), corren en el job "Rendimiento", solo si pasan los tests, y dejan sus reportes en el artefacto `rendimiento`.
+
+### Benchmark
+
+[`benchmarks/test_motor.py`](https://github.com/JoniMora/pef-26/blob/master/benchmarks/test_motor.py) mide con pytest-benchmark diez operaciones: tokenizar, contar términos, indexar en secuencia y en paralelo, cargar el índice de disco, la búsqueda secuencial, la consulta de uno y de varios términos, la consulta con caché caliente y `GET /buscar`.
+
+`make benchmark` las compara contra la rama base **en el mismo job** y rechaza si alguna tarda más de un **10 %** por encima:
+
+- **Mismo código de medición:** los dos lados corren la suite de la rama actual, porque la rama base puede no tenerla. La suite verifica de dónde importó el motor: si los dos lados midieran lo mismo, el control nunca rechazaría.
+- **Mismos datos:** el corpus se genera una sola vez y lo usan los dos.
+- **Corridas alternadas:** 3 rondas por lado, en orden alternado, para repartir la deriva de la máquina. De cada benchmark se conserva el mejor tiempo, porque en un runner compartido el ruido solo suma.
+
+**Por qué 10 %.** Como la rama que agregó este control no cambia `src/`, cada corrida del job compara el código contra sí mismo. En 14 corridas de GitHub Actions:
+
+| Benchmark | Tiempo en la rama base (ms) | Razón actual/base |
+| :--- | ---: | ---: |
+| `api_buscar` | 0,60 a 0,99 | 0,978 a 1,018 |
+| `busqueda_secuencial` | 19,4 a 32,7 | 0,983 a 1,018 |
+| `cargar_indice_de_disco` | 17,5 a 23,5 | 0,965 a 1,005 |
+| `consulta_con_cache_caliente` | 0,0017 a 0,0023 | 0,983 a 1,022 |
+| `consulta_de_un_termino` | 0,28 a 0,36 | 0,987 a 1,026 |
+| `consulta_de_varios_terminos` | 0,63 a 0,88 | 0,995 a 1,047 |
+| `contar_terminos` | 0,038 a 0,056 | 0,982 a 1,030 |
+| `indexar_en_paralelo` | 138 a 191 | 0,996 a 1,014 |
+| `indexar_secuencial` | 177 a 248 | 0,995 a 1,024 |
+| `tokenizar` | 0,025 a 0,037 | 0,993 a 1,049 |
+
+En 140 comparaciones, la mayor diferencia fue de **4,9 %**, y ninguna llegó a 5 %. La tolerancia es el doble, para no rechazar un cambio sano si toca un runner más ruidoso. La tabla también justifica el método: entre corridas, el mismo benchmark llegó a tardar 1,69 veces más según el runner, así que ningún límite fijo en milisegundos serviría.
+
+**Qué detecta.** Regresiones provocadas en un árbol aparte y medidas en macOS. La razón es la del benchmark más afectado:
+
+| Regresión provocada | Benchmark | Razón | Resultado |
+| :--- | :--- | ---: | :--- |
+| Trabajo extra grande en `rankear()` | `consulta_de_un_termino` | 156,14 | Rechazada |
+| Perder el *heap*: `sorted()` completo | `consulta_de_un_termino` | 2,09 | Rechazada |
+| Perder el `lru_cache` de `normalize()` | `tokenizar`, y cuatro más | 2,27 | Rechazada |
+| `GET /buscar` con 1 ms más | `api_buscar` | 2,39 | Rechazada |
+| Trabajo extra mediano en `rankear()` | `consulta_de_un_termino` | 1,76 | Rechazada |
+| Cargar el índice con 10 ms más | `cargar_indice_de_disco` | 1,49 | Rechazada |
+| Trabajo extra en `QueryCache.get()` | `consulta_con_cache_caliente` | 1,44 | Rechazada |
+| Trabajo extra chico en `rankear()` | `consulta_de_un_termino` | 1,34 | Rechazada |
+| Indexar en secuencia con 100 ms más | `indexar_secuencial` | 1,32 | Rechazada |
+| Indexar en paralelo con 100 ms más | `indexar_en_paralelo` | 1,32 | Rechazada |
+| Búsqueda secuencial con 20 ms más | `busqueda_secuencial` | 1,30 | Rechazada |
+| Trabajo extra mínimo en `rankear()` | `consulta_de_un_termino` | 1,18 | Rechazada |
+| Perder el `lru_cache` de `stem()` | `tokenizar` | 1,13 | Rechazada |
+| Trabajo extra ínfimo en `rankear()` | `consulta_de_un_termino` | 1,07 | Aprobada: está por debajo de la tolerancia |
+
+Cada falla movió solo los benchmarks que pasan por ese código. Si los dos lados miden el mismo código por error, o si la referencia no existe, el control también rechaza.
+
+**Límites del control:**
+
+- **Regresiones acumuladas:** cada pull request se compara contra su rama base, así que varias regresiones menores al 10 % pasan una por una. Por eso sigue el [Performance Gate](matriz-controles.md#performance-gate), con un límite fijo y la comparación contra la línea base.
+- **Mide el código, no las dependencias:** los dos lados corren en el mismo entorno, así que la actualización de un paquete no aparece como regresión.
+- **Interfaz de los benchmarks:** si un cambio renombra una función que usa la suite, la rama base no la puede correr y el control rechaza. Hay que separar el cambio en dos pull requests, o dejar un alias mientras tanto.
+
+### Profiling
+
+`make profiling` perfila cada versión con cProfile, por función, y con line_profiler, por línea, reutilizando los perfiladores de `src/perfilado.py`. Deja los `.prof`, los reportes por línea y `ranking.json` en `reportes/profiling/`, y muestra el ranking de la versión `algoritmo` en el resumen de la corrida. Rechaza solo si un perfil no se puede generar o queda vacío: un perfil diagnostica, no aprueba. Corre también cuando el benchmark rechaza, que es cuando más sirve.
+
+line_profiler no cruza el límite de proceso, así que en `concurrencia` y `final` queda registrado como omitido.
+
+### Memoria
+
+`make memoria` mide el pico de `tracemalloc` de cada versión, en un proceso limpio y en su propio paso, porque `tracemalloc` encarece lo que mide. Rechaza si alguna supera su límite:
+
+| Versión | GitHub Actions (MB) | macOS (MB) | Límite (MB) |
+| :--- | ---: | ---: | ---: |
+| `inicial` | 0,53 | 0,53 a 0,54 | 0,60 |
+| `estructura` | 4,42 | 4,42 | 4,87 |
+| `algoritmo` | 4,11 | 4,12 | 4,53 |
+| `concurrencia` | 9,29 | 9,03 | 10,21 |
+| `final` | 9,29 | 9,03 | 10,21 |
+
+**Cómo se fijó el límite.** Es el mayor pico medido, más un 10 %, con Python 3.14. El pico casi no varía: en 5 corridas de GitHub Actions, cuatro versiones dieron lo mismo a tres decimales, e `inicial`, la más chica, varió menos de un 1 %. Las rutas del corpus son relativas al repositorio porque el índice guarda una por documento: con rutas absolutas, macOS daba un 9 % más que Linux solo por el largo de su carpeta temporal. Si un cambio necesita más memoria con un motivo válido, se sube `LIMITES_MB` en ese mismo pull request, y queda a la vista en la revisión. Lo mismo hay que revisar al cambiar la versión de Python.
+
+Se probó con fallas provocadas: copiar el índice, materializar la lista de rutas en la línea base y reservar un 12 % más en el índice se rechazan, y un 5 % más pasa.
+
+**Asignaciones relevantes.** El reporte `memoria.json` lista además las líneas que retienen más memoria al indexar y consultar. La primera es la que guarda las *postings* en `construir_indice()`.
+
+`tracemalloc` no ve los procesos hijos, así que en `concurrencia` y `final` el pico es el del proceso padre. El reporte incluye también el RSS, pero no se usa como criterio: varía más entre máquinas (de 39 a 47 MB en `final`).
+
 ## Cómo reproducir las mediciones
 
 ### Comparativa automatizada
