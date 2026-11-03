@@ -244,14 +244,12 @@ def construir_indice(
 # ============================================================
 
 
-def main():
+def _crear_parser():
     """
-    Ejecuta el buscador concurrente desde la línea de comandos.
+    Define las opciones de la línea de comandos.
 
-    Construye el índice en paralelo. Con ``--comparar`` también lo
-    construye en forma secuencial para informar el speedup y verificar
-    que los dos índices sean idénticos. Si se pasa ``--query``, resuelve
-    la consulta y muestra el ranking.
+    :return: El parser de :func:`main`.
+    :rtype: argparse.ArgumentParser
     """
     parser = argparse.ArgumentParser(
         description="Buscador con indexación paralela (MapReduce)"
@@ -288,7 +286,19 @@ def main():
         help="Mide también la indexación secuencial y el speedup",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    """
+    Ejecuta el buscador concurrente desde la línea de comandos.
+
+    Construye el índice en paralelo. Con ``--comparar`` también lo
+    construye en forma secuencial para informar el speedup y verificar
+    que los dos índices sean idénticos. Si se pasa ``--query``, resuelve
+    la consulta y muestra el ranking.
+    """
+    args = _crear_parser().parse_args()
 
     corpus_dir = Path(args.directorio)
 
