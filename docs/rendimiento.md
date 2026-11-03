@@ -414,24 +414,36 @@ Las mediciones de esta página son campañas manuales sobre 50.000 documentos. A
 
 - **Mismo código de medición:** los dos lados corren la suite de la rama actual, porque la rama base puede no tenerla. La suite verifica de dónde importó el motor: si los dos lados midieran lo mismo, el control nunca rechazaría.
 - **Mismos datos:** el corpus se genera una sola vez y lo usan los dos.
-- **Corridas alternadas:** 3 rondas por lado, en orden alternado, para repartir la deriva de la máquina. De cada benchmark se conserva el mejor tiempo, porque en un runner compartido el ruido solo suma.
+- **Corridas alternadas:** 3 rondas por lado, en orden alternado, para repartir la deriva de la máquina.
+- **Mediana de los mínimos:** de cada ronda se toma el mejor tiempo, que descarta las iteraciones lentas, y entre rondas, la mediana, que descarta una ronda anómala.
 
-**Por qué 10 %.** Como la rama que agregó este control no cambia `src/`, cada corrida del job compara el código contra sí mismo. En 14 corridas de GitHub Actions:
+**Por qué 10 %.** Como la rama que agregó este control no cambia `src/`, cada corrida del job compara el código contra sí mismo. En 15 corridas de GitHub Actions:
 
 | Benchmark | Tiempo en la rama base (ms) | Razón actual/base |
 | :--- | ---: | ---: |
-| `api_buscar` | 0,60 a 0,99 | 0,978 a 1,018 |
-| `busqueda_secuencial` | 19,4 a 32,7 | 0,983 a 1,018 |
-| `cargar_indice_de_disco` | 17,5 a 23,5 | 0,965 a 1,005 |
-| `consulta_con_cache_caliente` | 0,0017 a 0,0023 | 0,983 a 1,022 |
-| `consulta_de_un_termino` | 0,28 a 0,36 | 0,987 a 1,026 |
-| `consulta_de_varios_terminos` | 0,63 a 0,88 | 0,995 a 1,047 |
-| `contar_terminos` | 0,038 a 0,056 | 0,982 a 1,030 |
-| `indexar_en_paralelo` | 138 a 191 | 0,996 a 1,014 |
-| `indexar_secuencial` | 177 a 248 | 0,995 a 1,024 |
-| `tokenizar` | 0,025 a 0,037 | 0,993 a 1,049 |
+| `api_buscar` | 0,60 a 1,02 | 0,955 a 1,023 |
+| `busqueda_secuencial` | 19,9 a 32,8 | 0,975 a 1,025 |
+| `cargar_indice_de_disco` | 17,5 a 23,5 | 0,978 a 1,011 |
+| `consulta_con_cache_caliente` | 0,0017 a 0,0024 | 0,972 a 1,022 |
+| `consulta_de_un_termino` | 0,28 a 0,37 | 0,986 a 1,022 |
+| `consulta_de_varios_terminos` | 0,65 a 0,88 | 0,987 a 1,022 |
+| `contar_terminos` | 0,038 a 0,057 | 0,992 a 1,028 |
+| `indexar_en_paralelo` | 138 a 192 | 0,991 a 1,020 |
+| `indexar_secuencial` | 179 a 250 | 0,989 a 1,031 |
+| `tokenizar` | 0,025 a 0,038 | 0,969 a 1,053 |
 
-En 140 comparaciones, la mayor diferencia fue de **4,9 %**, y ninguna llegó a 5 %. La tolerancia es el doble, para no rechazar un cambio sano si toca un runner más ruidoso. La tabla también justifica el método: entre corridas, el mismo benchmark llegó a tardar 1,69 veces más según el runner, así que ningún límite fijo en milisegundos serviría.
+En 150 comparaciones, la mayor diferencia fue de 5,3 %. La tolerancia es casi el doble, para no rechazar un cambio sano si toca un runner más ruidoso. La tabla también justifica el método: entre corridas, el mismo benchmark llegó a tardar 1,69 veces más según el runner, así que ningún límite fijo en milisegundos serviría.
+
+**Por qué no el mínimo de todas las rondas.** Fue la primera versión, con el argumento de que el ruido solo suma tiempo, y es falso. En la corrida 15 rechazó un cambio sano: una sola iteración de 2.714 dio 0,2499 ms, con una mediana de 0,2868 ms en esa misma ronda, y la razón fue de 1,117. Con los datos crudos de las 15 corridas se compararon cuatro formas de resumir:
+
+| Estadístico | Mayor diferencia | Casos sobre el 10 % |
+| :--- | ---: | ---: |
+| Mínimo de todas las rondas | 11,7 % | 1 |
+| Mediana de los mínimos de cada ronda | 5,3 % | 0 |
+| Mínimo de las medianas de cada ronda | 13,8 % | 2 |
+| Mediana de las medianas de cada ronda | 16,8 % | 2 |
+
+Las medianas por ronda salen peor porque `api_buscar` es bimodal entre procesos: en una misma corrida da 0,65 o 0,75 ms según el proceso. El mínimo de la ronda evita eso, y la mediana entre rondas evita que una sola muestra decida.
 
 **Qué detecta.** Regresiones provocadas en un árbol aparte y medidas en macOS. La razón es la del benchmark más afectado:
 

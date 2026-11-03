@@ -79,7 +79,44 @@ def test_comparar_informa_cada_benchmark():
 # ---- medir_alternado
 
 
-def test_mide_alternado_y_conserva_el_mejor_tiempo(monkeypatch, tmp_path):
+def _medir_con_tiempos(monkeypatch, tmp_path, tiempos):
+    tiempos = iter(tiempos)
+
+    monkeypatch.setattr(
+        control,
+        "correr_benchmarks",
+        lambda _src, _corpus, _salida: {"consulta": next(tiempos)},
+    )
+
+    return control.medir_alternado("B", "A", "corpus", tmp_path, rondas=3)
+
+
+def test_una_iteracion_anomala_no_rechaza_un_cambio_sano(monkeypatch, tmp_path):
+    # Tiempos reales de una corrida del CI que comparaba el código contra sí mismo:
+    # una sola iteración de la ronda 2 de la base dio 0,2499 ms, con una mediana de
+    # 0,2868 ms. El mínimo de todas las rondas daba una razón de 1,117.
+    base, actual = _medir_con_tiempos(
+        monkeypatch,
+        tmp_path,
+        # Orden en que se miden: base, actual, actual, base, base, actual.
+        [0.2823, 0.2867, 0.2791, 0.2499, 0.2854, 0.2862],
+    )
+
+    fila = control.comparar(base, actual, TOLERANCIA)[0]
+
+    assert fila["razon"] == pytest.approx(0.2862 / 0.2823)
+    assert fila["regresion"] is False
+
+
+def test_una_regresion_real_rechaza_aunque_una_ronda_salga_bien(monkeypatch, tmp_path):
+    base, actual = _medir_con_tiempos(
+        monkeypatch, tmp_path, [1.0, 1.5, 1.0, 1.0, 1.0, 1.5]
+    )
+
+    assert control.comparar(base, actual, TOLERANCIA)[0]["regresion"] is True
+
+
+def test_mide_alternado_y_resume_con_la_mediana(monkeypatch, tmp_path):
     corridas = []
     tiempos = iter([5.0, 7.0, 6.0, 4.0, 9.0, 8.0])
 
@@ -101,8 +138,8 @@ def test_mide_alternado_y_conserva_el_mejor_tiempo(monkeypatch, tmp_path):
         ("B", "base-3.json"),
         ("A", "actual-3.json"),
     ]
-    assert base == {"consulta": 4.0}
-    assert actual == {"consulta": 6.0}
+    assert base == {"consulta": 5.0}
+    assert actual == {"consulta": 7.0}
 
 
 # ---- correr_benchmarks

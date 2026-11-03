@@ -17,6 +17,7 @@ import io
 import json
 import os
 import random
+import statistics
 import subprocess  # nosec B404
 import sys
 import tarfile
@@ -42,8 +43,8 @@ DOCUMENTOS = 2000
 SEMILLA = 2026
 
 RONDAS = 3
-# En 14 corridas del CI comparando el código contra sí mismo, la mayor diferencia
-# fue de 4,9 %: la tolerancia es el doble, para no rechazar por ruido.
+# El ruido medido en el CI, comparando el código contra sí mismo, y por qué se
+# resume así, están en docs/rendimiento.md.
 TOLERANCIA = 0.10
 
 # El mayor pico medido en el CI y en macOS, con Python 3.14, más un 10 %.
@@ -190,10 +191,13 @@ def correr_benchmarks(src, corpus, salida):
 
 def medir_alternado(src_base, src_actual, corpus, destino, rondas=RONDAS):
     """
-    Mide los dos lados alternados y conserva el mejor tiempo de cada benchmark.
+    Mide los dos lados alternados y resume cada benchmark en un solo tiempo.
 
-    Alternar reparte la deriva de la máquina entre los dos lados. El mínimo es
-    la estimación más estable en un runner compartido: el ruido solo suma tiempo.
+    Alternar reparte la deriva de la máquina entre los dos lados. De cada ronda
+    se toma el mejor tiempo, que descarta las iteraciones lentas y los procesos
+    que quedaron en un modo más lento. Entre rondas se toma la mediana, que
+    descarta una ronda anómala: el ruido también resta, y una sola iteración más
+    rápida de lo normal bastó para que el mínimo de todas rechazara un cambio sano.
 
     :param src_base: Código de la rama base.
     :type src_base: pathlib.Path
@@ -203,9 +207,10 @@ def medir_alternado(src_base, src_actual, corpus, destino, rondas=RONDAS):
     :type corpus: pathlib.Path
     :param destino: Dónde guardar los JSON de cada corrida.
     :type destino: pathlib.Path
-    :param rondas: Veces que se mide cada lado.
+    :param rondas: Veces que se mide cada lado; impar, para que la mediana sea una
+        medición real.
     :type rondas: int
-    :return: Tupla ``(base, actual)``: por benchmark, su mejor tiempo en segundos.
+    :return: Tupla ``(base, actual)``: por benchmark, su tiempo en segundos.
     :rtype: tuple[dict[str, float], dict[str, float]]
     """
     lados = {"base": (src_base, {}), "actual": (src_actual, {})}
@@ -214,15 +219,20 @@ def medir_alternado(src_base, src_actual, corpus, destino, rondas=RONDAS):
         orden = ("base", "actual") if ronda % 2 == 0 else ("actual", "base")
 
         for lado in orden:
-            src, mejores = lados[lado]
+            src, tiempos = lados[lado]
             salida = destino / f"{lado}-{ronda + 1}.json"
 
             for nombre, tiempo in correr_benchmarks(src, corpus, salida).items():
-                mejores[nombre] = min(tiempo, mejores.get(nombre, tiempo))
+                tiempos.setdefault(nombre, []).append(tiempo)
 
             print(f"  ronda {ronda + 1}/{rondas}: {lado}", flush=True)
 
-    return lados["base"][1], lados["actual"][1]
+    base, actual = (
+        {nombre: statistics.median(valores) for nombre, valores in tiempos.items()}
+        for _, tiempos in lados.values()
+    )
+
+    return base, actual
 
 
 def comparar(base, actual, tolerancia):
