@@ -1,0 +1,105 @@
+{
+ "comparativa": {
+  "inicial": {
+   "consulta_ms": 2305.5685629988147,
+   "indexacion_ms": null,
+   "rss_mb": 38.57421875
+  },
+  "estructura": {
+   "consulta_ms": 100.86820400010765,
+   "indexacion_ms": 8614.473102001284,
+   "rss_mb": 192.4765625
+  },
+  "algoritmo": {
+   "consulta_ms": 8.313284499308793,
+   "indexacion_ms": 8507.402379998894,
+   "rss_mb": 184.453125
+  },
+  "concurrencia": {
+   "consulta_ms": 8.057727000050363,
+   "indexacion_ms": 4677.489355999569,
+   "rss_mb": 331.7734375
+  },
+  "final": {
+   "consulta_ms": 0.002181000127166044,
+   "indexacion_ms": 4651.036442999612,
+   "rss_mb": 331.28125
+  }
+ },
+ "escalabilidad": {
+  "5000": {
+   "inicial": {
+    "consulta_ms": 211.76985499914736,
+    "indexacion_ms": null
+   },
+   "estructura": {
+    "consulta_ms": 3.805372250099026,
+    "indexacion_ms": 811.8519419995209
+   },
+   "algoritmo": {
+    "consulta_ms": 0.8163667498592986,
+    "indexacion_ms": 816.6025195005204
+   },
+   "concurrencia": {
+    "consulta_ms": 0.8270074995380128,
+    "indexacion_ms": 661.6497214999981
+   },
+   "final": {
+    "consulta_ms": 0.0021104992811160628,
+    "indexacion_ms": 661.1605855005109
+   }
+  },
+  "50000": {
+   "inicial": {
+    "consulta_ms": 2294.2268154993144,
+    "indexacion_ms": null
+   },
+   "estructura": {
+    "consulta_ms": 99.96297599991522,
+    "indexacion_ms": 8521.184823000112
+   },
+   "algoritmo": {
+    "consulta_ms": 8.276716499949544,
+    "indexacion_ms": 8520.580743999744
+   },
+   "concurrencia": {
+    "consulta_ms": 7.826024499081541,
+    "indexacion_ms": 4711.038370000097
+   },
+   "final": {
+    "consulta_ms": 0.002134750047844136,
+    "indexacion_ms": 4659.236669000165
+   }
+  }
+ },
+ "cprofile": {
+  "algoritmo": {
+   "top": [
+    {
+     "funcion": "perfilado.py:191(medir_version)",
+     "llamadas": 1,
+     "tottime": 9.0679e-05,
+     "cumtime": 1.393403988
+    },
+    {
+     "funcion": "optimizado.py:146(construir_indice)",
+     "llamadas": 1,
+     "tottime": 0.067407059,
+     "cumtime": 1.389687157
+    },
+    {
+     "funcion": "optimizado.py:115(tokenizar)",
+     "llamadas": 5002,
+     "tottime": 0.48985072100000004,
+     "cumtime": 0.85690898
+    },
+    {
+     "funcion": "__init__.py:785(read_text)",
+     "llamadas": 5000,
+     "tottime": 0.011422493,
+     "cumtime": 0.277197446
+    }
+   ]
+  }
+ }
+}

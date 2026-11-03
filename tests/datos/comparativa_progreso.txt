@@ -1,0 +1,13 @@
+  ronda 1/2 (descartada)
+    Implementación inicial       consulta  1001.000 ms   índice      0.0 ms   RSS 3001.0 MB
+    Estructura optimizada        consulta  1004.000 ms   índice   2004.0 ms   RSS 3004.0 MB
+    Algoritmo optimizado         consulta  1009.000 ms   índice   2009.0 ms   RSS 3009.0 MB
+    Concurrencia/paralelismo     consulta  1016.000 ms   índice   2016.0 ms   RSS 3016.0 MB
+    Versión final                consulta  1025.000 ms   índice   2025.0 ms   RSS 3025.0 MB
+  ronda 2/2 (medida)
+    Implementación inicial       consulta  1036.000 ms   índice      0.0 ms   RSS 3036.0 MB
+    Estructura optimizada        consulta  1049.000 ms   índice   2049.0 ms   RSS 3049.0 MB
+    Algoritmo optimizado         consulta  1064.000 ms   índice   2064.0 ms   RSS 3064.0 MB
+    Concurrencia/paralelismo     consulta  1081.000 ms   índice   2081.0 ms   RSS 3081.0 MB
+    Versión final                consulta  1100.000 ms   índice   2100.0 ms   RSS 3100.0 MB
+  pasada de memoria (tracemalloc, sin cronometrar)
