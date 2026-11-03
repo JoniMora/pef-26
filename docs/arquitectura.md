@@ -24,6 +24,8 @@ Las flechas continuas son las dependencias principales y las llamadas HTTP; la l
 | [`generar_trafico.py`](https://github.com/JoniMora/pef-26/blob/master/src/generar_trafico.py) | Medición | Generador de carga para la API, con p50, p95 y p99 por tipo de consulta. |
 | [`perfilar_api.py`](https://github.com/JoniMora/pef-26/blob/master/src/perfilar_api.py) | Medición | Hace en un solo proceso el trabajo de la API bajo carga, para perfilarlo con cProfile y Scalene. |
 | [`scripts/medir_recarga.py`](https://github.com/JoniMora/pef-26/blob/master/scripts/medir_recarga.py) | Medición | Mide de qué se compone una recarga del índice. |
+| [`scripts/control_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/scripts/control_rendimiento.py) | Medición | Los controles de benchmark, profiling y memoria del CI. |
+| [`benchmarks/`](https://github.com/JoniMora/pef-26/tree/master/benchmarks) | Medición | Las operaciones que mide el benchmark. |
 
 La referencia de cada función, generada desde los docstrings, está en [Módulos](api/modules).
 
@@ -78,6 +80,7 @@ Las dependencias van en un solo sentido, de la API hacia el procesamiento de tex
 | `data/corpus/` | Documentos `.txt` del corpus sintético. | No: se genera con `baseline.py --generar`. |
 | `data/indice_corpus/` | Índice guardado: `manifiesto.json` y un `lote_NNN.json` por lote. | No: se reconstruye. |
 | `profiles/` | Salidas de los perfiladores. | No: se regeneran. |
+| `reportes/` | Reportes de los controles: seguridad, secretos y rendimiento. | No: se regeneran, y el CI los guarda como artefacto. |
 | `docs/perfilado-capturas/`, `docs/newrelic-capturas/` | Capturas e informes que se entregan. | Sí. |
 
 El MapReduce de la indexación y el formato del índice guardado se explican en [Diseño técnico](diseno-tecnico.md#arquitectura-mapreduce-sobre-particiones-del-corpus).

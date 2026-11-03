@@ -10,6 +10,7 @@ La suite usa **pytest** y corre en el CI en cada pull request. Genera su propio 
 | Integración | La API con `TestClient`, el índice en disco, la línea de comandos y el generador de carga, sin abrir puertos. | Respuestas y errores documentados. |
 | Equivalencia | Que todas las versiones devuelvan los mismos resultados. | Los mismos documentos, no solo la misma cantidad. |
 | Caracterización | El arnés de medición, con un reloj falso y sin procesos reales. | Qué queda adentro de cada ventana cronometrada, el orden de las mediciones y el texto que sale de cada número. |
+| Benchmark | Diez operaciones contra la rama base, en el mismo job. | No aprueba por sí solo: `make benchmark` compara y rechaza con una tolerancia ([Controles en el CI](rendimiento.md#controles-en-el-ci)). |
 | Rendimiento | La consulta optimizada contra un límite fijo y contra la línea base. | Corre aparte y sin cobertura, porque el *tracing* distorsiona los tiempos. |
 | Pipeline | Las reglas del CI, el veredicto de "Resultado final", los locks de dependencias y los enlaces de la documentación. | Fallan si un cambio deja de cumplir la [matriz de controles](matriz-controles.md). |
 
@@ -41,7 +42,8 @@ CORPUS_DOCS=20000 pytest -m rendimiento --no-cov   # con más volumen
 | [`test_perfilar_api.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_perfilar_api.py) | 4 | La cantidad y la mezcla de búsquedas, que la semilla repite la secuencia, que la recarga reconstruye el índice y que se guarda un perfil legible por `pstats`. |
 | [`test_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_rendimiento.py) | 2 | *Performance Gate*: la consulta optimizada responde en menos de 0,5 s y le gana a la línea base. |
 | [`test_perfilado.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_perfilado.py) | 31 | Qué queda adentro de cada ventana cronometrada de `medir_version()`, el orden y el resumen de `comparativa()`, el texto de `responder_preguntas()`, cómo se lanza Scalene y qué se informa en cada resultado, y el ranking de cProfile. |
-| [`test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) | 25 | Todo job se suma a "Resultado final", ningún paso ejecuta un comando sin pasar por `make`, ningún control ignora sus fallos, los secretos se buscan en todo el historial, con los valores ocultos, y no se relajan los límites de complejidad ni el alcance del tipado. |
+| [`test_control_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_control_rendimiento.py) | 31 | El benchmark rechaza solo por encima de la tolerancia, alterna los lados y mide de verdad el código extraído; la memoria rechaza solo por encima del límite; un perfil vacío rechaza, y los valores vigentes están documentados. |
+| [`test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) | 32 | Todo job se suma a "Resultado final", ningún paso ejecuta un comando sin pasar por `make`, ningún control ignora sus fallos, los secretos se buscan en todo el historial, con los valores ocultos, no se relajan los límites de complejidad ni el alcance del tipado, y el benchmark compara contra el commit correcto. |
 | [`test_resultado_final.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_resultado_final.py) | 9 | "Resultado final" rechaza si un job falló, se canceló o se omitió, y también si no recibe resultados. |
 | [`test_docs.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_docs.py) | 24 | Están las 9 secciones de la documentación, los enlaces al repositorio apuntan a archivos que existen y todo módulo y objetivo de `make` está documentado. |
 | [`test_dependencias.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_dependencias.py) | 16 | Cada versión pedida en un `.in` está en su lock, con hash; la instalación exige los hashes; la auditoría cubre todos los locks, y Dependabot, todos los ecosistemas. |
@@ -91,7 +93,7 @@ pytest tests/test_equivalencia.py -v
 
 | Métrica | Resultado |
 | :--- | ---: |
-| Tests | **227** pasan, ninguno falla |
+| Tests | **265** pasan, ninguno falla |
 | Tests de rendimiento | **2** pasan |
 | Cobertura | **99,57 %** (mínimo exigido: 80 %) |
 

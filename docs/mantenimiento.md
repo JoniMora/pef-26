@@ -40,7 +40,7 @@ make controles     # todos los anteriores, salvo instalar, lock, enlaces y diagr
 
 ## Pipeline de CI
 
-Corre en cada pull request y en cada push a `master`. Los jobs de lint, complejidad, tipado, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan todos menos el de documentación.
+Corre en cada pull request y en cada push a `master`. Los jobs de lint, complejidad, tipado, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan todos menos el de documentación, y las mediciones de rendimiento, que son las más costosas, solo si pasan los tests.
 
 | Job | Qué hace |
 | :--- | :--- |
@@ -81,6 +81,9 @@ gh run download <id-de-la-corrida> -n cobertura
 | Cobertura | `make tests` | Ver qué líneas faltan en la salida o en `htmlcov/index.html`, que en el CI es el artefacto `cobertura`. |
 | SonarCloud | Solo en el CI | Abrir el [panel](https://sonarcloud.io/dashboard?id=JoniMora_pef-26) y corregir lo que tiró el quality gate. Si el error es de autenticación, revisar el secreto `SONAR_TOKEN`. |
 | Performance Gate | `make rendimiento` | Una regresión real se confirma con `CORPUS_DOCS=20000 pytest -m rendimiento --no-cov`. Perfilar con [estos comandos](rendimiento.md#cómo-reproducir-las-mediciones). |
+| Benchmark | `make benchmark` | Mirar qué operación superó la tolerancia en el resumen de la corrida y abrir su perfil en el artefacto `rendimiento`. En local, `make benchmark BENCHMARK_BASE=<rama>` repite la comparación. Si la mejora de otra parte justifica la regresión, hay que explicarlo en el pull request. Si la rama base no puede correr la suite, ver los [límites del control](rendimiento.md#benchmark). |
+| Profiling | `make profiling` | El error dice qué versión falló. Suele ser un cambio en `medir_version()` o en los perfiladores de `src/perfilado.py`. |
+| Memoria | `make memoria` | `memoria.json` lista las líneas que retienen más memoria. Corregir el aumento o, si tiene un motivo válido, subir `LIMITES_MB` en `scripts/control_rendimiento.py` y actualizar la [tabla de límites](rendimiento.md#memoria). |
 | Sphinx | `make docs` | Corregir la advertencia que imprime. Un enlace interno roto aparece como `myst.xref_missing`; un docstring mal formado, con la ruta del módulo. |
 | markdownlint | `make docs` | `npx markdownlint-cli2 --fix README.md "docs/**/*.md" "#docs/_build"` resuelve los automáticos. La configuración está en [`.markdownlint-cli2.jsonc`](https://github.com/JoniMora/pef-26/blob/master/.markdownlint-cli2.jsonc). |
 | Enlaces externos | `make enlaces` | No bloquea. Revisar el artefacto `enlaces` y corregir el enlace si el problema no es una caída temporal del sitio. |
