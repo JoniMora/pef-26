@@ -84,3 +84,11 @@ def test_solo_los_pr_de_dependabot_omiten_sonarcloud():
     sonar = next(paso for paso in pasos if paso.get("name") == "SonarCloud")
 
     assert sonar["if"] == "github.event.pull_request.user.login != 'dependabot[bot]'"
+
+
+def test_la_complejidad_usa_los_limites_de_la_matriz():
+    lineas = (RAIZ / "Makefile").read_text("utf-8").splitlines()
+    comando = next(linea for linea in lineas if linea.startswith("\tlizard"))
+
+    assert "-T nloc=50 -C 15" in comando
+    assert "-w" in comando.split()

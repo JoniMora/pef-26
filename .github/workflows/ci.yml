@@ -41,6 +41,22 @@ jobs:
           # Anota cada hallazgo en la línea del PR.
           RUFF_OUTPUT_FORMAT: github
 
+  complejidad:
+    name: Complejidad (Lizard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: make instalar
+
+      - run: make complejidad
+
   seguridad:
     name: Seguridad (Bandit, pip-audit y npm audit)
     runs-on: ubuntu-latest
@@ -118,7 +134,7 @@ jobs:
 
   tests:
     name: Tests, cobertura y Performance Gate
-    needs: [lint, seguridad, secretos]
+    needs: [lint, complejidad, seguridad, secretos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -167,7 +183,7 @@ jobs:
   # toma un check omitido como aprobado.
   resultado-final:
     name: Resultado final
-    needs: [lint, seguridad, secretos, documentacion, tests]
+    needs: [lint, complejidad, seguridad, secretos, documentacion, tests]
     if: always()
     runs-on: ubuntu-latest
     steps:

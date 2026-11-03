@@ -421,6 +421,10 @@ license-expression==30.4.4 \
     --hash=sha256:421788fdcadb41f049d2dc934ce666626265aeccefddd25e162a26f23bcbf8a4 \
     --hash=sha256:73448f0aacd8d0808895bdc4b2c8e01a8d67646e4188f887375398c761f340fd
     # via cyclonedx-python-lib
+lizard==1.25.0 \
+    --hash=sha256:e37e0da72be4fd4a254f511470af2b2f6800128879844b2844695641baa83112 \
+    --hash=sha256:e82fc8ad93a4c9025f7dad9428bdcfaa8caedfb4358a8ea5860de35a3794626f
+    # via -r requirements-dev.in
 markdown-it-py==4.2.0 \
     --hash=sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49 \
     --hash=sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a
@@ -702,6 +706,10 @@ packaging==26.3 \
     #   pip-requirements-parser
     #   pytest
     #   sphinx
+pathspec==1.1.1 \
+    --hash=sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a \
+    --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189
+    # via lizard
 pip==26.3 \
     --hash=sha256:6c36ae7da8695be67e3cd9f7d87919667ced53f57ce2ede75d89b5912ed2bc4c \
     --hash=sha256:f3b60b20ffaadd4415ed7957212a38ac63fa4c5fa375bd0f4a797777940fad13
@@ -885,6 +893,7 @@ pygments==2.21.0 \
     # via
     #   accessible-pygments
     #   furo
+    #   lizard
     #   pytest
     #   rich
     #   sphinx
