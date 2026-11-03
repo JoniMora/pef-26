@@ -42,3 +42,11 @@ def test_los_pasos_delegan_en_un_objetivo_de_make(paso):
     assert comando[0] == "make"
     assert len(comando) == 2
     assert comando[1] in OBJETIVOS
+
+
+def test_ningun_control_ignora_sus_fallos():
+    # Solo los enlaces externos informan sin bloquear (docs/matriz-controles.md).
+    ignoran = [paso["run"] for paso in PASOS if paso.get("continue-on-error")]
+
+    assert ignoran == ["make enlaces"]
+    assert not any(job.get("continue-on-error") for job in WORKFLOW["jobs"].values())

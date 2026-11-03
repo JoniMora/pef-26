@@ -1,0 +1,15 @@
+{
+  // Reglas de markdownlint para README.md y docs/. Los archivos se indican en
+  // el Makefile (make docs).
+  "config": {
+    "default": true,
+    // Los párrafos y las tablas van en una sola línea.
+    "MD013": false,
+    // La documentación usa negrita para rotular párrafos y tablas.
+    "MD036": false,
+    // Los títulos pueden repetirse si no son hermanos ("Resultados").
+    "MD024": { "siblings_only": true },
+    // Notas consecutivas en bloques de cita separados.
+    "MD028": false
+  }
+}
