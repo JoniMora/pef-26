@@ -950,6 +950,85 @@ def perfilar_memoria(corpus_dir, versiones):
 # ============================================================
 
 
+def _ubicar_scalene():
+    """
+    Ruta del ejecutable de Scalene: junto al intérprete o en el venv del proyecto.
+
+    :return: La ruta donde debería estar; puede no existir.
+    :rtype: pathlib.Path
+    """
+    en_windows = sys.platform.startswith("win")
+
+    nombre_ejecutable = "scalene.exe" if en_windows else "scalene"
+    scalene = Path(sys.executable).parent / nombre_ejecutable
+
+    if scalene.exists():
+        return scalene
+
+    return BASE_DIR / ".venv" / ("Scripts" if en_windows else "bin") / nombre_ejecutable
+
+
+def _correr_scalene(scalene, version, corpus_dir, limite_s):
+    """
+    Perfila una versión con Scalene.
+
+    :param scalene: Ruta del ejecutable.
+    :type scalene: pathlib.Path
+    :param version: Versión a perfilar, una de ``VERSIONES``.
+    :type version: str
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param limite_s: Segundos máximos antes de abortar Scalene.
+    :type limite_s: int
+    :return: El JSON de Scalene y su resumen, el error o el motivo de la omisión.
+    :rtype: dict
+    """
+    destino = DIR_PERFILES / f"scalene-{version}.json"
+
+    print(f"  scalene: {version}", flush=True)
+
+    try:
+        proceso = subprocess.run(  # nosec B603
+            [
+                str(scalene),
+                "run",
+                "-o",
+                str(destino),
+                str(SRC_DIR / "perfilado.py"),
+                "---",
+                "--medir",
+                version,
+                "--directorio",
+                str(corpus_dir),
+                "--repeticiones",
+                "1",
+            ],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            timeout=limite_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # Scalene instrumenta el intérprete entero; con los procesos
+        # hijos de `spawn` de la versión concurrente se queda colgado.
+        destino.unlink(missing_ok=True)
+        return {
+            "omitido": f"Scalene excedió {limite_s}s sobre esta versión: su "
+            "instrumentación no acompaña a los procesos hijos "
+            "creados por spawn"
+        }
+
+    if proceso.returncode != 0 or not destino.exists():
+        return {"error": (proceso.stderr or proceso.stdout)[-400:]}
+
+    return {
+        "archivo": str(destino.relative_to(BASE_DIR)),
+        "ver_con": f"{scalene} view {destino.relative_to(BASE_DIR)}",
+        "resumen": _resumir_scalene(destino),
+    }
+
+
 def perfilar_scalene(corpus_dir, versiones, limite_s=150):
     """
     Perfila CPU y memoria línea a línea con Scalene.
@@ -967,73 +1046,15 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
         omisión. Si Scalene no está instalado, ``{"omitido": ...}``.
     :rtype: dict
     """
-    en_windows = sys.platform.startswith("win")
-
-    nombre_ejecutable = "scalene.exe" if en_windows else "scalene"
-    scalene = Path(sys.executable).parent / nombre_ejecutable
-
-    if not scalene.exists():
-        scalene = (
-            BASE_DIR
-            / ".venv"
-            / ("Scripts" if en_windows else "bin")
-            / nombre_ejecutable
-        )
+    scalene = _ubicar_scalene()
 
     if not scalene.exists():
         return {"omitido": f"scalene no está instalado en {scalene.parent}"}
 
-    hallazgos = {}
-
-    for version in versiones:
-        destino = DIR_PERFILES / f"scalene-{version}.json"
-
-        print(f"  scalene: {version}", flush=True)
-
-        try:
-            proceso = subprocess.run(  # nosec B603
-                [
-                    str(scalene),
-                    "run",
-                    "-o",
-                    str(destino),
-                    str(SRC_DIR / "perfilado.py"),
-                    "---",
-                    "--medir",
-                    version,
-                    "--directorio",
-                    str(corpus_dir),
-                    "--repeticiones",
-                    "1",
-                ],
-                cwd=str(BASE_DIR),
-                capture_output=True,
-                text=True,
-                timeout=limite_s,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            # Scalene instrumenta el intérprete entero; con los procesos
-            # hijos de `spawn` de la versión concurrente se queda colgado.
-            destino.unlink(missing_ok=True)
-            hallazgos[version] = {
-                "omitido": f"Scalene excedió {limite_s}s sobre esta versión: su "
-                "instrumentación no acompaña a los procesos hijos "
-                "creados por spawn"
-            }
-            continue
-
-        if proceso.returncode != 0 or not destino.exists():
-            hallazgos[version] = {"error": (proceso.stderr or proceso.stdout)[-400:]}
-            continue
-
-        hallazgos[version] = {
-            "archivo": str(destino.relative_to(BASE_DIR)),
-            "ver_con": f"{scalene} view {destino.relative_to(BASE_DIR)}",
-            "resumen": _resumir_scalene(destino),
-        }
-
-    return hallazgos
+    return {
+        version: _correr_scalene(scalene, version, corpus_dir, limite_s)
+        for version in versiones
+    }
 
 
 def _resumir_scalene(archivo):
