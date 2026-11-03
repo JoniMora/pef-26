@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -70,6 +71,18 @@ def test_la_auditoria_cubre_todos_los_locks():
     auditados = re.search(r"^REQUIREMENTS = (.*)$", makefile, flags=re.MULTILINE)
 
     assert sorted(auditados[1].split()) == [ruta.name for ruta in LOCKS]
+
+
+def test_dependabot_cubre_todos_los_ecosistemas():
+    config = yaml.safe_load((RAIZ / ".github/dependabot.yml").read_text("utf-8"))
+
+    assert {
+        actualizacion["package-ecosystem"] for actualizacion in config["updates"]
+    } == {
+        "uv",
+        "npm",
+        "github-actions",
+    }
 
 
 def test_el_lock_de_node_fija_lo_que_pide_package_json():

@@ -77,3 +77,10 @@ def test_el_reporte_de_secretos_oculta_los_valores():
     comando = next(linea for linea in lineas if linea.startswith("\t$(GITLEAKS) git"))
 
     assert "--redact" in comando
+
+
+def test_solo_los_pr_de_dependabot_omiten_sonarcloud():
+    pasos = WORKFLOW["jobs"]["tests"]["steps"]
+    sonar = next(paso for paso in pasos if paso.get("name") == "SonarCloud")
+
+    assert sonar["if"] == "github.event.pull_request.user.login != 'dependabot[bot]'"

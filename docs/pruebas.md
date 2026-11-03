@@ -10,7 +10,7 @@ La suite usa **pytest** y corre en el CI en cada pull request. Genera su propio 
 | Integración | La API con `TestClient`, el índice en disco, la línea de comandos y el generador de carga, sin abrir puertos. | Respuestas y errores documentados. |
 | Equivalencia | Que todas las versiones devuelvan los mismos resultados. | Los mismos documentos, no solo la misma cantidad. |
 | Rendimiento | La consulta optimizada contra un límite fijo y contra la línea base. | Corre aparte y sin cobertura, porque el *tracing* distorsiona los tiempos. |
-| Pipeline | Las reglas del CI, el veredicto de "Resultado final" y los enlaces de la documentación. | Fallan si un cambio deja de cumplir la [matriz de controles](matriz-controles.md). |
+| Pipeline | Las reglas del CI, el veredicto de "Resultado final", los locks de dependencias y los enlaces de la documentación. | Fallan si un cambio deja de cumplir la [matriz de controles](matriz-controles.md). |
 
 `src/perfilado.py` queda fuera de la cobertura: es el arnés de medición, lanza subprocesos y Scalene, y no forma parte del motor. Su refactorización se verificó comparando salidas ([Refactorización](mantenimiento.md#refactorización)).
 
@@ -39,9 +39,10 @@ CORPUS_DOCS=20000 pytest -m rendimiento --no-cov   # con más volumen
 | [`test_generar_trafico.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_generar_trafico.py) | 9 | Contra la app en el mismo proceso, sin abrir puertos: la cantidad pedida de búsquedas, la mezcla y la semilla reproducibles, las recargas periódicas, los percentiles, y que un servidor caído cuenta como error. |
 | [`test_perfilar_api.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_perfilar_api.py) | 4 | La cantidad y la mezcla de búsquedas, que la semilla repite la secuencia, que la recarga reconstruye el índice y que se guarda un perfil legible por `pstats`. |
 | [`test_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_rendimiento.py) | 2 | *Performance Gate*: la consulta optimizada responde en menos de 0,5 s y le gana a la línea base. |
-| [`test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) | 15 | Todo job se suma a "Resultado final", ningún paso ejecuta un comando sin pasar por `make` y ningún control ignora sus fallos. |
+| [`test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) | 19 | Todo job se suma a "Resultado final", ningún paso ejecuta un comando sin pasar por `make`, ningún control ignora sus fallos y los secretos se buscan en todo el historial, con los valores ocultos. |
 | [`test_resultado_final.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_resultado_final.py) | 9 | "Resultado final" rechaza si un job falló, se canceló o se omitió, y también si no recibe resultados. |
 | [`test_docs.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_docs.py) | 24 | Están las 9 secciones de la documentación, los enlaces al repositorio apuntan a archivos que existen y todo módulo y objetivo de `make` está documentado. |
+| [`test_dependencias.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_dependencias.py) | 16 | Cada versión pedida en un `.in` está en su lock, con hash; la instalación exige los hashes; la auditoría cubre todos los locks, y Dependabot, todos los ecosistemas. |
 
 ## Validación de equivalencia
 
@@ -88,7 +89,7 @@ pytest tests/test_equivalencia.py -v
 
 | Métrica | Resultado |
 | :--- | ---: |
-| Tests | **170** pasan, ninguno falla |
+| Tests | **190** pasan, ninguno falla |
 | Tests de rendimiento | **2** pasan |
 | Cobertura | **99,56 %** (mínimo exigido: 80 %) |
 

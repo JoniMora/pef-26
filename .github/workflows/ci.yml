@@ -150,7 +150,9 @@ jobs:
 
       # Lee sonar-project.properties y el coverage.xml del paso anterior.
       # Falla si cae el quality gate (sonar.qualitygate.wait).
+      # Los PR de Dependabot no reciben SONAR_TOKEN y no tocan el código que analiza.
       - name: SonarCloud
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
         uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
