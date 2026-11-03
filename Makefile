@@ -4,7 +4,7 @@
 
 PYTHON ?= python3
 
-.PHONY: instalar lint seguridad tests rendimiento controles
+.PHONY: instalar lint seguridad tests rendimiento controles resultado-final
 
 instalar:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -28,3 +28,7 @@ rendimiento:
 	pytest -m rendimiento --no-cov -v
 
 controles: lint seguridad tests rendimiento
+
+# Solo tiene sentido en el CI: lee los resultados de los jobs de RESULTADOS.
+resultado-final:
+	$(PYTHON) scripts/resultado_final.py

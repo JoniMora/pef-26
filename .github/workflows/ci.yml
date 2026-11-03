@@ -18,8 +18,9 @@ concurrency:
 env:
   PYTHON_VERSION: "3.14"
 
-# Cada comando vive en el Makefile, para que en local dé el mismo resultado.
-# Los criterios de rechazo de cada control están en docs/matriz-controles.md.
+# Cada comando vive en el Makefile, para que en local dé el mismo resultado
+# (tests/test_ci.py lo verifica). Los criterios de rechazo de cada control
+# están en docs/matriz-controles.md.
 jobs:
   lint:
     name: Lint (Ruff)
@@ -87,3 +88,19 @@ jobs:
       # Paso separado y sin cobertura: el tracing distorsiona los tiempos.
       - name: Performance Gate
         run: make rendimiento
+
+  # Único check obligatorio para integrar en master: así la protección de
+  # rama no se rompe al agregar o renombrar jobs. Todo job nuevo se suma a
+  # `needs`. Sin always() quedaría omitido si falla un job, y la protección
+  # toma un check omitido como aprobado.
+  resultado-final:
+    name: Resultado final
+    needs: [lint, seguridad, tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - run: make resultado-final
+        env:
+          RESULTADOS: ${{ toJSON(needs) }}
