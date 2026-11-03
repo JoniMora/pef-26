@@ -5,6 +5,7 @@ o un comando suelto en el YAML que deja de coincidir con el local.
 """
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -92,3 +93,13 @@ def test_la_complejidad_usa_los_limites_de_la_matriz():
 
     assert "-T nloc=50 -C 15" in comando
     assert "-w" in comando.split()
+
+
+def test_el_tipado_exige_anotar_el_motor_y_la_api():
+    configuracion = tomllib.loads((RAIZ / "pyproject.toml").read_text("utf-8"))
+    mypy = configuracion["tool"]["mypy"]
+
+    assert mypy["disallow_untyped_defs"] is True
+    assert set(mypy["files"]) == {"src/core", "src/optimizado.py", "src/api.py"}
+    # Una dependencia sin instalar dejaría de verificarse sin avisar.
+    assert "ignore_missing_imports" not in mypy

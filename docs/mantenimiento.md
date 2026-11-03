@@ -19,6 +19,7 @@ Con el entorno virtual activado, estos son los mismos comandos que corre el CI: 
 make instalar      # herramientas del pipeline, en las versiones del CI
 make lint          # Ruff: PEP 8, pyflakes, nombres, docstrings, complejidad y formato
 make complejidad   # Lizard: funciones de hasta 50 líneas de código y complejidad 15
+make tipado        # mypy sobre core/, optimizado.py y api.py
 make lock          # regenera los requirements*.txt, con hashes, a partir de los .in
 make seguridad     # Bandit, pip-audit sobre todos los locks y npm audit; reportes en reportes/
 make secretos      # gitleaks sobre todo el historial; baja la versión fijada y verifica su hash
@@ -27,7 +28,7 @@ make rendimiento   # Performance Gate
 make docs          # sitio con Sphinx, sin advertencias, y markdownlint
 make enlaces       # enlaces externos; informa, pero no bloquea el CI
 make diagrama      # regenera el diagrama de arquitectura; requiere Graphviz
-make controles     # lint, complejidad, seguridad, secretos, tests, rendimiento y docs
+make controles     # lint, complejidad, tipado, seguridad, secretos, tests, rendimiento y docs
 ```
 
 `make resultado-final` lo corre solo el CI: decide a partir de los resultados de los demás jobs, y sin ellos rechaza. SonarCloud también corre solo en el CI, porque necesita el token del proyecto.
@@ -36,12 +37,13 @@ make controles     # lint, complejidad, seguridad, secretos, tests, rendimiento 
 
 ## Pipeline de CI
 
-Corre en cada pull request y en cada push a `master`. Los jobs de lint, complejidad, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan todos menos el de documentación.
+Corre en cada pull request y en cada push a `master`. Los jobs de lint, complejidad, tipado, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan todos menos el de documentación.
 
 | Job | Qué hace |
 | :--- | :--- |
 | Lint (Ruff) | `make lint`. |
 | Complejidad (Lizard) | `make complejidad`. |
+| Tipado (mypy) | `make tipado`. |
 | Seguridad (Bandit, pip-audit y npm audit) | `make seguridad`, y guarda los reportes en JSON como artefacto. |
 | Secretos (gitleaks) | `make secretos` sobre todo el historial, y guarda el reporte, con los valores ocultos, como artefacto. |
 | Documentación (Sphinx y enlaces) | `make docs`, guarda el sitio como artefacto y `make enlaces`, que informa sin bloquear. |
@@ -65,6 +67,7 @@ gh run download <id-de-la-corrida> -n cobertura
 | `ruff check` | `make lint` | Corregir el hallazgo; `ruff check . --fix` resuelve los automáticos. Si es C901, extraer funciones hasta bajar de 10. |
 | `ruff format --check` | `make lint` | Correr `ruff format .`. |
 | Lizard | `make complejidad` | Dividir la función: en el mensaje, `NLOC` son las líneas de código y `CCN` la complejidad. Si mide tiempos, leer antes [cómo se dividió el arnés](#división-de-las-funciones-largas). |
+| mypy | `make tipado` | Corregir el tipo. En `core/`, `optimizado.py` y `api.py`, toda función anota sus parámetros y su retorno. |
 | Bandit | `make seguridad` | Corregir el código. Si es un falso positivo, marcarlo con `# nosec <regla>` y agregarlo a [Falsos positivos y excepciones](seguridad.md#falsos-positivos-y-excepciones). |
 | pip-audit | `make seguridad` | Subir la versión en el `.in` que corresponda y correr `make lock`. Si viene de una dependencia transitiva, `make lock` no la sube sola: fijarla en el `.in`. Sin versión corregida, registrar una excepción con `--ignore-vuln` en el `Makefile`, con su motivo. |
 | `npm audit` | `make seguridad` | Subir la versión en `package.json` o forzarla con `overrides`, regenerar el lock con `npm install --package-lock-only` y comprobar que `make docs` siga funcionando. |
@@ -143,6 +146,12 @@ def buscar(indice, terminos):
     :rtype: set[int]
     """
 ```
+
+## Tipado
+
+mypy verifica `core/`, `optimizado.py` y `api.py`, con `disallow_untyped_defs`: toda función de esos módulos anota sus parámetros y su retorno. Es el código que resuelve las consultas; el arnés de medición y las herramientas de carga quedan afuera. De `indice_en_disco.py` se anotan las dos funciones que llama la API, para que los tipos lleguen sin cortarse hasta `Buscador`.
+
+Las anotaciones no cambian la medición: comparadas contra el mismo código sin anotar, con el método de la [división de las funciones largas](#división-de-las-funciones-largas), sobre 5.000 documentos y con Python 3.14, no hay diferencias sistemáticas.
 
 ## Análisis estático con SonarCloud
 

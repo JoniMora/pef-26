@@ -57,6 +57,22 @@ jobs:
 
       - run: make complejidad
 
+  tipado:
+    name: Tipado (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: make instalar
+
+      - run: make tipado
+
   seguridad:
     name: Seguridad (Bandit, pip-audit y npm audit)
     runs-on: ubuntu-latest
@@ -134,7 +150,7 @@ jobs:
 
   tests:
     name: Tests, cobertura y Performance Gate
-    needs: [lint, complejidad, seguridad, secretos]
+    needs: [lint, complejidad, tipado, seguridad, secretos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -183,7 +199,7 @@ jobs:
   # toma un check omitido como aprobado.
   resultado-final:
     name: Resultado final
-    needs: [lint, complejidad, seguridad, secretos, documentacion, tests]
+    needs: [lint, complejidad, tipado, seguridad, secretos, documentacion, tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
