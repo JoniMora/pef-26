@@ -135,7 +135,7 @@ def extraer_src(referencia, destino):
     return destino / "src"
 
 
-def correr_benchmarks(src, corpus, salida):
+def correr_benchmarks(src, corpus, salida, solo=None):
     """
     Corre la suite de ``benchmarks/`` contra un ``src/``.
 
@@ -148,6 +148,8 @@ def correr_benchmarks(src, corpus, salida):
     :type corpus: pathlib.Path
     :param salida: Dónde guardar el JSON de pytest-benchmark.
     :type salida: pathlib.Path
+    :param solo: Nombres de los benchmarks a correr; por defecto, todos.
+    :type solo: list[str] | None
     :return: Por benchmark, sus estadísticos en segundos.
     :rtype: dict[str, dict[str, float]]
     """
@@ -164,6 +166,7 @@ def correr_benchmarks(src, corpus, salida):
             "-p",
             "no:cacheprovider",
             "-q",
+            *(["-k", " or ".join(solo)] if solo else []),
         ],
         cwd=RAIZ,
         env={
@@ -213,7 +216,7 @@ def resumir_rondas(rondas):
     }
 
 
-def medir_alternado(src_base, src_actual, corpus, destino, rondas=RONDAS):
+def medir_alternado(src_base, src_actual, corpus, destino, solo=None, rondas=RONDAS):
     """
     Mide los dos lados alternados, para repartir la deriva de la máquina.
 
@@ -225,6 +228,8 @@ def medir_alternado(src_base, src_actual, corpus, destino, rondas=RONDAS):
     :type corpus: pathlib.Path
     :param destino: Dónde guardar los JSON de cada corrida.
     :type destino: pathlib.Path
+    :param solo: Nombres de los benchmarks a correr; por defecto, todos.
+    :type solo: list[str] | None
     :param rondas: Veces que se mide cada lado; impar, para que la mediana sea una
         medición real.
     :type rondas: int
@@ -239,7 +244,7 @@ def medir_alternado(src_base, src_actual, corpus, destino, rondas=RONDAS):
         for lado in orden:
             src, medidas = lados[lado]
             salida = destino / f"{lado}-{ronda + 1}.json"
-            medidas.append(correr_benchmarks(src, corpus, salida))
+            medidas.append(correr_benchmarks(src, corpus, salida, solo))
 
             print(f"  ronda {ronda + 1}/{rondas}: {lado}", flush=True)
 
@@ -291,24 +296,67 @@ def comparar(base, actual):
     return filas
 
 
-def tabla_benchmark(filas):
+def medir_y_confirmar(src_base, corpus, destino):
+    """
+    Mide los dos lados y repite lo que parezca una regresión antes de decidir.
+
+    Un período lento de la máquina que cae más sobre un lado mueve todos los
+    estadísticos, igual que una regresión. Lo que los distingue es que la regresión
+    persiste, así que decide la segunda medición.
+
+    :param src_base: Código de la rama base.
+    :type src_base: pathlib.Path
+    :param corpus: Directorio del corpus.
+    :type corpus: pathlib.Path
+    :param destino: Dónde guardar los JSON de cada corrida.
+    :type destino: pathlib.Path
+    :return: Tupla ``(filas, sospechas)``: el resultado de :func:`comparar`, con la
+        segunda medición donde la hubo, y las filas de la primera que se repitieron.
+    :rtype: tuple[list[dict], list[dict]]
+    """
+    filas = comparar(*medir_alternado(src_base, SRC, corpus, destino))
+    sospechas = [fila for fila in filas if fila["regresion"]]
+
+    if not sospechas:
+        return filas, []
+
+    nombres = [fila["benchmark"] for fila in sospechas]
+    print(f"  se repite para confirmar: {', '.join(nombres)}", flush=True)
+
+    confirmacion = destino / "confirmacion"
+    confirmacion.mkdir(exist_ok=True)
+    repetidas = {
+        fila["benchmark"]: fila
+        for fila in comparar(
+            *medir_alternado(src_base, SRC, corpus, confirmacion, solo=nombres)
+        )
+    }
+
+    return [repetidas.get(fila["benchmark"], fila) for fila in filas], sospechas
+
+
+def tabla_benchmark(filas, sospechas):
     """
     Arma la tabla de resultados del benchmark en Markdown.
 
-    :param filas: Resultado de :func:`comparar`.
+    :param filas: Resultado de :func:`medir_y_confirmar`.
     :type filas: list[dict]
+    :param sospechas: Filas de la primera medición que se repitieron.
+    :type sospechas: list[dict]
     :return: El veredicto y un benchmark por fila.
     :rtype: str
     """
     rechazado = any(fila["regresion"] for fila in filas)
     veredicto = "Rechazado" if rechazado else "Aprobado"
+    repetidos = ", ".join(fila["benchmark"] for fila in sospechas) or "ninguno"
 
     return "\n".join(
         [
             f"## Benchmark contra la rama base: {veredicto}",
             "",
             f"Regresión: mínimo y mediana por encima de {TOLERANCIA:.0%}, o cualquier "
-            f"estadístico por encima de {TOLERANCIA_INTERMITENTE:.0%}.",
+            f"estadístico por encima de {TOLERANCIA_INTERMITENTE:.0%}. Lo sospechoso "
+            f"se repite y decide la repetición; se repitió: {repetidos}.",
             "",
             "| Benchmark | Base (ms) | Actual (ms) | Mínimos | Medianas | Medias "
             "| Resultado |",
@@ -334,14 +382,16 @@ def control_benchmark(referencia):
     destino = REPORTES / "benchmark"
     destino.mkdir(parents=True, exist_ok=True)
 
+    # Una laptop ocupada puede mover los tiempos de los dos lados.
+    perfilado._avisar_sobrecarga(perfilado._carga_del_sistema(), os.cpu_count() or 1)
+
     with tempfile.TemporaryDirectory() as temporal:
         src_base = extraer_src(referencia, Path(temporal))
         corpus = Path(temporal) / "corpus"
         generar_corpus(corpus)
 
-        base, actual = medir_alternado(src_base, SRC, corpus, destino)
+        filas, sospechas = medir_y_confirmar(src_base, corpus, destino)
 
-    filas = comparar(base, actual)
     guardar_reporte(
         "benchmark.json",
         {
@@ -350,9 +400,10 @@ def control_benchmark(referencia):
             "tolerancia_intermitente": TOLERANCIA_INTERMITENTE,
             "rondas": RONDAS,
             "benchmarks": filas,
+            "sospechas": sospechas,
         },
     )
-    agregar_al_resumen(tabla_benchmark(filas))
+    agregar_al_resumen(tabla_benchmark(filas, sospechas))
 
     if any(fila["regresion"] for fila in filas):
         sys.exit("El benchmark detectó una regresión frente a la rama base.")

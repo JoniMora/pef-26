@@ -166,6 +166,60 @@ def test_una_regresion_real_rechaza_aunque_una_ronda_salga_bien():
     assert fila["regresion"] is True
 
 
+# ---- medir_y_confirmar
+
+
+REGRESION = (
+    {"a": _tiempo(1.0), "b": _tiempo(1.0)},
+    {"a": _tiempo(2.0), "b": _tiempo(1.0)},
+)
+SANO = ({"a": _tiempo(1.0)}, {"a": _tiempo(1.0)})
+
+
+def _simular_rondas(monkeypatch, *mediciones):
+    llamadas = []
+    pendientes = iter(mediciones)
+
+    def falso(_src_base, _src, _corpus, destino, solo=None):
+        llamadas.append((destino.name, solo))
+        return next(pendientes)
+
+    monkeypatch.setattr(control, "medir_alternado", falso)
+
+    return llamadas
+
+
+def test_sin_sospechas_no_se_repite_nada(monkeypatch, tmp_path):
+    llamadas = _simular_rondas(monkeypatch, SANO)
+
+    filas, sospechas = control.medir_y_confirmar("B", "corpus", tmp_path)
+
+    assert llamadas == [(tmp_path.name, None)]
+    assert sospechas == []
+    assert filas[0]["regresion"] is False
+
+
+def test_una_sospecha_que_no_se_repite_no_rechaza(monkeypatch, tmp_path):
+    # Un período lento de la máquina que cayó sobre un lado.
+    llamadas = _simular_rondas(monkeypatch, REGRESION, SANO)
+
+    filas, sospechas = control.medir_y_confirmar("B", "corpus", tmp_path)
+
+    # Se repite solo lo sospechoso, y en otra carpeta, para no pisar lo medido.
+    assert llamadas == [(tmp_path.name, None), ("confirmacion", ["a"])]
+    assert [fila["benchmark"] for fila in sospechas] == ["a"]
+    assert [fila["regresion"] for fila in filas] == [False, False]
+
+
+def test_una_regresion_que_se_repite_rechaza(monkeypatch, tmp_path):
+    _simular_rondas(monkeypatch, REGRESION, ({"a": _tiempo(1.0)}, {"a": _tiempo(2.0)}))
+
+    filas, sospechas = control.medir_y_confirmar("B", "corpus", tmp_path)
+
+    assert [fila["regresion"] for fila in filas] == [True, False]
+    assert len(sospechas) == 1
+
+
 # ---- medir_alternado
 
 
@@ -173,14 +227,15 @@ def test_mide_alternado_y_resume_cada_lado(monkeypatch, tmp_path):
     corridas = []
     tiempos = iter([5.0, 7.0, 6.0, 4.0, 9.0, 8.0])
 
-    def falso(src, corpus, salida):
+    def falso(src, corpus, salida, solo):
         assert corpus == "corpus"
+        assert solo is None
         corridas.append((src, salida.name))
         return {"consulta": _tiempo(next(tiempos))}
 
     monkeypatch.setattr(control, "correr_benchmarks", falso)
 
-    base, actual = control.medir_alternado("B", "A", "corpus", tmp_path, rondas=3)
+    base, actual = control.medir_alternado("B", "A", "corpus", tmp_path)
 
     # Alternar el orden reparte entre los dos lados la deriva de la máquina.
     assert corridas == [
@@ -280,6 +335,25 @@ def test_si_falla_la_suite_el_control_rechaza(monkeypatch, tmp_path):
         control.correr_benchmarks(tmp_path, tmp_path, tmp_path / "salida.json")
 
 
+def test_se_puede_correr_solo_una_parte_de_la_suite(monkeypatch, tmp_path):
+    ordenes = []
+
+    def falso(orden, **_opciones):
+        ordenes.append(orden)
+        (tmp_path / "salida.json").write_text('{"benchmarks": []}', encoding="utf-8")
+        return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+    monkeypatch.setattr(control.subprocess, "run", falso)
+
+    control.correr_benchmarks(tmp_path, tmp_path, tmp_path / "salida.json")
+    control.correr_benchmarks(
+        tmp_path, tmp_path, tmp_path / "salida.json", ["test_a", "test_b"]
+    )
+
+    assert "-k" not in ordenes[0]
+    assert ordenes[1][-2:] == ["-k", "test_a or test_b"]
+
+
 def test_correr_benchmarks_devuelve_el_minimo_y_la_mediana(monkeypatch, tmp_path):
     salida = tmp_path / "salida.json"
 
@@ -315,6 +389,7 @@ def _simular_medicion(monkeypatch, base, actual):
     monkeypatch.setattr(
         control, "medir_alternado", lambda *_args, **_kwargs: (base, actual)
     )
+    monkeypatch.setattr(control.perfilado, "_carga_del_sistema", lambda: None)
 
 
 def test_benchmark_aprobado_deja_sus_reportes(monkeypatch, reportes, capsys):
@@ -329,6 +404,7 @@ def test_benchmark_aprobado_deja_sus_reportes(monkeypatch, reportes, capsys):
     assert reporte["tolerancia"] == TOLERANCIA
     assert reporte["tolerancia_intermitente"] == INTERMITENTE
     assert reporte["benchmarks"][0]["regresion"] is False
+    assert reporte["sospechas"] == []
     assert "Aprobado" in capsys.readouterr().out
     assert "Aprobado" in (reportes / "resumen.md").read_text(encoding="utf-8")
 
