@@ -149,3 +149,19 @@ jobs:
       - run: make resultado-final
         env:
           RESULTADOS: ${{ toJSON(needs) }}
+
+  # Solo cuando el cambio ya se integró y "Resultado final" aprobó.
+  publicar-docs:
+    name: Publicar la documentación
+    needs: [resultado-final]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v5
