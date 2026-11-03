@@ -62,3 +62,18 @@ def test_la_documentacion_solo_se_publica_desde_master_si_todo_aprueba():
     assert publicar["needs"] == [JOB_FINAL]
     assert "refs/heads/master" in publicar["if"]
     assert "always()" not in publicar["if"]
+
+
+def test_los_secretos_se_buscan_en_todo_el_historial():
+    # Un clon superficial revisaría un solo commit, y el control pasaría igual.
+    checkout = WORKFLOW["jobs"]["secretos"]["steps"][0]
+
+    assert checkout["with"]["fetch-depth"] == 0
+
+
+def test_el_reporte_de_secretos_oculta_los_valores():
+    # El reporte se publica como artefacto.
+    lineas = (RAIZ / "Makefile").read_text("utf-8").splitlines()
+    comando = next(linea for linea in lineas if linea.startswith("\t$(GITLEAKS) git"))
+
+    assert "--redact" in comando

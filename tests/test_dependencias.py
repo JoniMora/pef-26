@@ -78,3 +78,12 @@ def test_el_lock_de_node_fija_lo_que_pide_package_json():
 
     for paquete, version in pedidos["devDependencies"].items():
         assert lock["packages"][f"node_modules/{paquete}"]["version"] == version
+
+
+def test_los_hashes_de_gitleaks_son_de_la_version_fijada():
+    makefile = (RAIZ / "Makefile").read_text("utf-8")
+    version = re.search(r"^GITLEAKS_VERSION = (.*)$", makefile, flags=re.MULTILINE)[1]
+    hashes = (RAIZ / "scripts/gitleaks.sha256").read_text("utf-8").splitlines()
+
+    assert hashes
+    assert all(f"gitleaks_{version}_" in linea for linea in hashes)

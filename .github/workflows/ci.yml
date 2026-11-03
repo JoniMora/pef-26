@@ -64,6 +64,24 @@ jobs:
           name: seguridad
           path: reportes/
 
+  secretos:
+    name: Secretos (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Historial completo: un secreto en un commit viejo sigue expuesto.
+          fetch-depth: 0
+
+      - run: make secretos
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: secretos
+          path: reportes/gitleaks.json
+
   documentacion:
     name: Documentación (Sphinx y enlaces)
     runs-on: ubuntu-latest
@@ -100,7 +118,7 @@ jobs:
 
   tests:
     name: Tests, cobertura y Performance Gate
-    needs: [lint, seguridad]
+    needs: [lint, seguridad, secretos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -147,7 +165,7 @@ jobs:
   # toma un check omitido como aprobado.
   resultado-final:
     name: Resultado final
-    needs: [lint, seguridad, documentacion, tests]
+    needs: [lint, seguridad, secretos, documentacion, tests]
     if: always()
     runs-on: ubuntu-latest
     steps:

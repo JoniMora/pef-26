@@ -7,7 +7,13 @@ PYTHON ?= python3
 REQUIREMENTS = requirements.txt requirements-dev.txt requirements-perfilado.txt requirements-apm.txt requirements-informes.txt
 PIP_AUDIT = pip-audit --require-hashes --disable-pip --progress-spinner off
 
-.PHONY: instalar lock lint seguridad tests rendimiento docs enlaces diagrama controles resultado-final
+# Se baja la versión fijada y se verifica contra scripts/gitleaks.sha256.
+GITLEAKS_VERSION = 8.30.1
+GITLEAKS_SISTEMA := $(shell uname -s | tr '[:upper:]' '[:lower:]')_$(shell uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')
+GITLEAKS_ARCHIVO = gitleaks_$(GITLEAKS_VERSION)_$(GITLEAKS_SISTEMA).tar.gz
+GITLEAKS = .herramientas/gitleaks
+
+.PHONY: instalar lock lint seguridad secretos tests rendimiento docs enlaces diagrama controles resultado-final
 
 instalar:
 	$(PYTHON) -m pip install --require-hashes -r requirements-dev.txt
@@ -38,6 +44,18 @@ seguridad:
 	@estado=0; for lock in $(REQUIREMENTS); do echo "pip-audit $$lock"; $(PIP_AUDIT) -r $$lock || estado=1; done; exit $$estado
 	npm audit
 
+$(GITLEAKS):
+	mkdir -p .herramientas
+	curl -fsSL -o .herramientas/$(GITLEAKS_ARCHIVO) https://github.com/gitleaks/gitleaks/releases/download/v$(GITLEAKS_VERSION)/$(GITLEAKS_ARCHIVO)
+	cd .herramientas && grep $(GITLEAKS_ARCHIVO) ../scripts/gitleaks.sha256 | shasum -a 256 -c -
+	tar -xzf .herramientas/$(GITLEAKS_ARCHIVO) -C .herramientas gitleaks
+
+# Todo el historial: un secreto en un commit viejo sigue expuesto. --redact oculta
+# los valores en la salida y en el reporte, que se publica como artefacto.
+secretos: $(GITLEAKS)
+	mkdir -p reportes
+	$(GITLEAKS) git --redact --no-banner --verbose --report-format json --report-path reportes/gitleaks.json .
+
 # El umbral de cobertura (fail_under) está en pyproject.toml.
 tests:
 	pytest -m "not rendimiento" --cov --cov-report=term-missing --cov-report=xml --cov-report=html
@@ -65,7 +83,7 @@ enlaces:
 diagrama:
 	dot -Tsvg docs/diagramas/arquitectura.dot -o docs/diagramas/arquitectura.svg
 
-controles: lint seguridad tests rendimiento docs
+controles: lint seguridad secretos tests rendimiento docs
 
 # Solo tiene sentido en el CI: lee los resultados de los jobs de RESULTADOS.
 resultado-final:
