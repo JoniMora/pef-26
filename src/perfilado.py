@@ -1740,35 +1740,33 @@ def generar_graficos(resultados):
 # ============================================================
 
 
-def responder_preguntas(resultados):
+RESPUESTA_OPTIMIZACION = (
+    "Cuatro incrementos acumulativos: <strong>(1)</strong> índice invertido con "
+    "<code>dict</code> más intersección de <code>set</code>, que cambia el escaneo "
+    "O(n·m) por "
+    "resolución O(1) promedio; <strong>(2)</strong> ranking top-k con "
+    "<code>heapq.nlargest</code> "
+    "en O(r·log k) y memoria auxiliar O(k), más caché LRU de consultas; "
+    "<strong>(3)</strong> indexación MapReduce sobre "
+    "<code>ProcessPoolExecutor</code> para evadir "
+    "el GIL en la fase CPU-bound; <strong>(4)</strong> la combinación de ambas."
+)
+
+
+def _respuesta_cuello(comparativa_, cprofile_):
     """
-    Deriva las respuestas de los números medidos, no de la prosa.
+    Responde cuál es el cuello de botella.
 
-    Si una medición falta, la respuesta lo dice en lugar de inventar
-    un valor.
-
-    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
-    :type resultados: dict
-    :return: Una respuesta en HTML por pregunta (``cuello``, ``optimizacion``,
-        ``impacto``, ``escalabilidad`` y ``tradeoff``). Vacío si falta la comparativa.
-    :rtype: dict[str, str]
+    :param comparativa_: Tabla comparativa, por versión.
+    :type comparativa_: dict[str, dict]
+    :param cprofile_: Perfiles de cProfile, por versión.
+    :type cprofile_: dict[str, dict]
+    :return: La respuesta en HTML.
+    :rtype: str
     """
-    comparativa_ = resultados.get("comparativa")
-    escalabilidad_ = resultados.get("escalabilidad")
-    cprofile_ = resultados.get("cprofile") or {}
-
-    if not comparativa_:
-        return {}
-
     inicial = comparativa_["inicial"]
-    estructura = comparativa_["estructura"]
     algoritmo = comparativa_["algoritmo"]
-    concurrencia = comparativa_["concurrencia"]
-    final = comparativa_["final"]
 
-    respuestas = {}
-
-    # ---- 1. cuello de botella
     top_indexacion = ""
     perfil = cprofile_.get("algoritmo", {}).get("top") or []
 
@@ -1781,7 +1779,7 @@ def responder_preguntas(resultados):
             )
             break
 
-    respuestas["cuello"] = (
+    return (
         "En la línea base, releer y escanear el corpus completo en "
         "<strong>cada</strong> "
         f"consulta: {_ms(inicial['consulta_ms'])} ms por búsqueda, con E/S "
@@ -1793,26 +1791,28 @@ def responder_preguntas(resultados):
         f"tokenización.{top_indexacion}"
     )
 
-    # ---- 2. qué optimización
-    respuestas["optimizacion"] = (
-        "Cuatro incrementos acumulativos: <strong>(1)</strong> índice invertido con "
-        "<code>dict</code> más intersección de <code>set</code>, que cambia el escaneo "
-        "O(n·m) por "
-        "resolución O(1) promedio; <strong>(2)</strong> ranking top-k con "
-        "<code>heapq.nlargest</code> "
-        "en O(r·log k) y memoria auxiliar O(k), más caché LRU de consultas; "
-        "<strong>(3)</strong> indexación MapReduce sobre "
-        "<code>ProcessPoolExecutor</code> para evadir "
-        "el GIL en la fase CPU-bound; <strong>(4)</strong> la combinación de ambas."
-    )
 
-    # ---- 3. impacto
+def _respuesta_impacto(comparativa_):
+    """
+    Responde cuánto mejoró cada optimización.
+
+    :param comparativa_: Tabla comparativa, por versión.
+    :type comparativa_: dict[str, dict]
+    :return: La respuesta en HTML.
+    :rtype: str
+    """
+    inicial = comparativa_["inicial"]
+    estructura = comparativa_["estructura"]
+    algoritmo = comparativa_["algoritmo"]
+    concurrencia = comparativa_["concurrencia"]
+    final = comparativa_["final"]
+
     mejora_consulta = inicial["consulta_ms"] / algoritmo["consulta_ms"]
     mejora_cache = inicial["consulta_ms"] / final["consulta_ms"]
     mejora_heap = estructura["consulta_ms"] / algoritmo["consulta_ms"]
     mejora_indexacion = algoritmo["indexacion_ms"] / concurrencia["indexacion_ms"]
 
-    respuestas["impacto"] = (
+    return (
         f"La consulta pasa de {_ms(inicial['consulta_ms'])} ms a "
         f"{_ms(algoritmo['consulta_ms'])} ms "
         f"(<strong>{_num(mejora_consulta)}×</strong>) y a "
@@ -1827,54 +1827,75 @@ def responder_preguntas(resultados):
         f"(<strong>{_num(mejora_indexacion, 2)}×</strong>)."
     )
 
-    # ---- 4. escalabilidad
-    if escalabilidad_:
-        tamanos = sorted(int(tamano) for tamano in escalabilidad_)
-        menor, mayor = tamanos[0], tamanos[-1]
 
-        ratio_menor = (
-            escalabilidad_[str(menor)]["inicial"]["consulta_ms"]
-            / escalabilidad_[str(menor)]["algoritmo"]["consulta_ms"]
-        )
-        ratio_mayor = (
-            escalabilidad_[str(mayor)]["inicial"]["consulta_ms"]
-            / escalabilidad_[str(mayor)]["algoritmo"]["consulta_ms"]
-        )
-        speedup_menor = (
-            escalabilidad_[str(menor)]["algoritmo"]["indexacion_ms"]
-            / escalabilidad_[str(menor)]["concurrencia"]["indexacion_ms"]
-        )
-        speedup_mayor = (
-            escalabilidad_[str(mayor)]["algoritmo"]["indexacion_ms"]
-            / escalabilidad_[str(mayor)]["concurrencia"]["indexacion_ms"]
-        )
+def _respuesta_escalabilidad(escalabilidad_):
+    """
+    Responde si la mejora se sostiene al crecer el corpus.
 
-        respuestas["escalabilidad"] = (
-            "Sí, y se <strong>amplifica</strong>. La ventaja de la consulta indexada "
-            "sobre la línea "
-            f"base crece de <strong>{_num(ratio_menor)}×</strong> con {_num(menor)} "
-            "documentos a "
-            f"<strong>{_num(ratio_mayor)}×</strong> con {_num(mayor)}: la búsqueda "
-            "secuencial crece "
-            "con el corpus mientras la indexada depende de los documentos candidatos, "
-            "no del total. "
-            f"El paralelismo se comporta distinto: su ventaja va de "
-            f"<strong>{_num(speedup_menor, 2)}×</strong> a "
-            f"<strong>{_num(speedup_mayor, 2)}×</strong>, "
-            "porque el costo fijo de levantar los procesos solo se amortiza con "
-            "volumen."
-        )
-    else:
-        respuestas["escalabilidad"] = (
-            "No medido en esta corrida — ejecutar con <code>--escalabilidad</code>."
-        )
+    :param escalabilidad_: Barrido por tamaño de corpus, si se midió.
+    :type escalabilidad_: dict[str, dict] | None
+    :return: La respuesta en HTML, o el aviso de que no se midió.
+    :rtype: str
+    """
+    if not escalabilidad_:
+        return "No medido en esta corrida — ejecutar con <code>--escalabilidad</code>."
 
-    # ---- 5. trade-off
+    tamanos = sorted(int(tamano) for tamano in escalabilidad_)
+    menor, mayor = tamanos[0], tamanos[-1]
+
+    ratio_menor = (
+        escalabilidad_[str(menor)]["inicial"]["consulta_ms"]
+        / escalabilidad_[str(menor)]["algoritmo"]["consulta_ms"]
+    )
+    ratio_mayor = (
+        escalabilidad_[str(mayor)]["inicial"]["consulta_ms"]
+        / escalabilidad_[str(mayor)]["algoritmo"]["consulta_ms"]
+    )
+    speedup_menor = (
+        escalabilidad_[str(menor)]["algoritmo"]["indexacion_ms"]
+        / escalabilidad_[str(menor)]["concurrencia"]["indexacion_ms"]
+    )
+    speedup_mayor = (
+        escalabilidad_[str(mayor)]["algoritmo"]["indexacion_ms"]
+        / escalabilidad_[str(mayor)]["concurrencia"]["indexacion_ms"]
+    )
+
+    return (
+        "Sí, y se <strong>amplifica</strong>. La ventaja de la consulta indexada "
+        "sobre la línea "
+        f"base crece de <strong>{_num(ratio_menor)}×</strong> con {_num(menor)} "
+        "documentos a "
+        f"<strong>{_num(ratio_mayor)}×</strong> con {_num(mayor)}: la búsqueda "
+        "secuencial crece "
+        "con el corpus mientras la indexada depende de los documentos candidatos, "
+        "no del total. "
+        f"El paralelismo se comporta distinto: su ventaja va de "
+        f"<strong>{_num(speedup_menor, 2)}×</strong> a "
+        f"<strong>{_num(speedup_mayor, 2)}×</strong>, "
+        "porque el costo fijo de levantar los procesos solo se amortiza con "
+        "volumen."
+    )
+
+
+def _respuesta_tradeoff(comparativa_):
+    """
+    Responde qué se paga a cambio de la mejora.
+
+    :param comparativa_: Tabla comparativa, por versión.
+    :type comparativa_: dict[str, dict]
+    :return: La respuesta en HTML.
+    :rtype: str
+    """
+    inicial = comparativa_["inicial"]
+    algoritmo = comparativa_["algoritmo"]
+    concurrencia = comparativa_["concurrencia"]
+    final = comparativa_["final"]
+
     equilibrio = final["indexacion_ms"] / (
         inicial["consulta_ms"] - final["consulta_ms"]
     )
 
-    respuestas["tradeoff"] = (
+    return (
         "<strong>Memoria y arranque a cambio de latencia.</strong> El pico de RSS "
         "sube de "
         f"{_mb(inicial['rss_mb'])} MB a {_mb(algoritmo['rss_mb'])} MB con el índice "
@@ -1889,7 +1910,32 @@ def responder_preguntas(resultados):
         "línea base gana."
     )
 
-    return respuestas
+
+def responder_preguntas(resultados):
+    """
+    Deriva las respuestas de los números medidos, no de la prosa.
+
+    Si una medición falta, la respuesta lo dice en lugar de inventar
+    un valor.
+
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    :return: Una respuesta en HTML por pregunta (``cuello``, ``optimizacion``,
+        ``impacto``, ``escalabilidad`` y ``tradeoff``). Vacío si falta la comparativa.
+    :rtype: dict[str, str]
+    """
+    comparativa_ = resultados.get("comparativa")
+
+    if not comparativa_:
+        return {}
+
+    return {
+        "cuello": _respuesta_cuello(comparativa_, resultados.get("cprofile") or {}),
+        "optimizacion": RESPUESTA_OPTIMIZACION,
+        "impacto": _respuesta_impacto(comparativa_),
+        "escalabilidad": _respuesta_escalabilidad(resultados.get("escalabilidad")),
+        "tradeoff": _respuesta_tradeoff(comparativa_),
+    }
 
 
 # ============================================================
