@@ -480,33 +480,19 @@ def _medir_en_subproceso(
     )
 
 
-def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
+def _avisar_sobrecarga(carga, nucleos):
     """
-    Mide las cinco versiones alternándolas dentro de cada ronda.
+    Advierte si la máquina tiene más carga que núcleos.
 
-    Se descartan las primeras `descartar` rondas —el page cache no
-    está en régimen estacionario— y se reporta la mediana del resto.
+    Una máquina sobresuscripta invalida la medición sin avisar: los tiempos salen
+    inflados de forma despareja y aparecen resultados imposibles, como que la
+    versión paralela tarde más que la secuencial usando el mismo código.
 
-    :param corpus_dir: Directorio del corpus.
-    :type corpus_dir: pathlib.Path
-    :param rondas: Rondas que se resumen, sin contar las descartadas.
-    :type rondas: int
-    :param repeticiones: Consultas cronometradas por versión y ronda. La línea base usa
-        3, porque relee el corpus completo en cada una.
-    :type repeticiones: int
-    :param descartar: Rondas iniciales de calentamiento que se descartan.
-    :type descartar: int
-    :return: ``{"resumen": ..., "crudo": ...}``: la mediana de cada versión y todas las
-        mediciones individuales.
-    :rtype: dict
+    :param carga: Carga promedio del último minuto, o ``None`` si no se conoce.
+    :type carga: float | None
+    :param nucleos: Cantidad de núcleos de la máquina.
+    :type nucleos: int
     """
-    # Una máquina sobresuscripta invalida la medición sin avisar: los
-    # tiempos salen inflados de forma despareja y aparecen resultados
-    # imposibles, como que la versión paralela tarde más que la
-    # secuencial usando el mismo código.
-    carga = _carga_del_sistema()
-    nucleos = os.cpu_count() or 1
-
     if carga is not None and carga > nucleos:
         print(
             f"  ⚠ ADVERTENCIA: carga del sistema {carga:.1f} sobre {nucleos} "
@@ -516,6 +502,22 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
             flush=True,
         )
 
+
+def _medir_rondas(corpus_dir, rondas, repeticiones, descartar):
+    """
+    Mide todas las versiones por ronda, cada una en un proceso limpio.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param rondas: Rondas que se resumen, sin contar las descartadas.
+    :type rondas: int
+    :param repeticiones: Consultas cronometradas por versión y ronda.
+    :type repeticiones: int
+    :param descartar: Rondas iniciales de calentamiento.
+    :type descartar: int
+    :return: Por versión, todas sus mediciones, con su ronda y si se descarta.
+    :rtype: dict[str, list[dict]]
+    """
     crudo = {version: [] for version in VERSIONES}
 
     for ronda in range(rondas + descartar):
@@ -540,8 +542,21 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
                 flush=True,
             )
 
-    # La atribución de memoria va en su propia pasada: activar
-    # tracemalloc durante el cronometrado contaminaría los tiempos.
+    return crudo
+
+
+def _medir_picos_de_memoria(corpus_dir):
+    """
+    Mide el pico de ``tracemalloc`` de cada versión, sin cronometrar.
+
+    Va en su propia pasada: activar tracemalloc durante el cronometrado
+    contaminaría los tiempos.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :return: Pico en MB por versión.
+    :rtype: dict[str, float]
+    """
     print("  pasada de memoria (tracemalloc, sin cronometrar)", flush=True)
 
     picos = {}
@@ -550,40 +565,89 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
         medicion = _medir_en_subproceso(version, corpus_dir, 1, con_tracemalloc=True)
         picos[version] = medicion["tracemalloc_mb"]
 
-    resumen = {}
+    return picos
 
-    for version in VERSIONES:
-        utiles = [medicion for medicion in crudo[version] if not medicion["descartada"]]
 
-        indexaciones = [
-            medicion["indexacion_ms"]
-            for medicion in utiles
-            if medicion["indexacion_ms"] is not None
-        ]
+def _resumir_version(version, mediciones, pico, carga, nucleos):
+    """
+    Resume una versión con la mediana de sus rondas no descartadas.
 
-        # En Windows sin psutil no hay lectura de RSS: la mediana se
-        # calcula solo sobre las muestras que existen.
-        rss = [
-            medicion["rss_mb"] for medicion in utiles if medicion["rss_mb"] is not None
-        ]
+    :param version: Versión a resumir, una de ``VERSIONES``.
+    :type version: str
+    :param mediciones: Todas las mediciones de la versión.
+    :type mediciones: list[dict]
+    :param pico: Pico de ``tracemalloc`` en MB.
+    :type pico: float
+    :param carga: Carga del sistema al empezar a medir.
+    :type carga: float | None
+    :param nucleos: Cantidad de núcleos de la máquina.
+    :type nucleos: int
+    :return: La fila de la versión en la tabla comparativa.
+    :rtype: dict
+    """
+    utiles = [medicion for medicion in mediciones if not medicion["descartada"]]
 
-        resumen[version] = {
-            "etiqueta": ETIQUETAS[version],
-            "observacion": OBSERVACIONES[version],
-            "documentos": utiles[0]["documentos"],
-            "consulta_ms": statistics.median(
-                medicion["consulta_ms"] for medicion in utiles
-            ),
-            "indexacion_ms": statistics.median(indexaciones) if indexaciones else None,
-            "rss_mb": statistics.median(rss) if rss else None,
-            "tracemalloc_mb": picos[version],
-            "coincidencias": utiles[0]["coincidencias"],
-            "rondas": len(utiles),
-        }
+    indexaciones = [
+        medicion["indexacion_ms"]
+        for medicion in utiles
+        if medicion["indexacion_ms"] is not None
+    ]
 
-    for version in VERSIONES:
-        resumen[version]["carga_al_medir"] = carga
-        resumen[version]["nucleos"] = nucleos
+    # En Windows sin psutil no hay lectura de RSS: la mediana se
+    # calcula solo sobre las muestras que existen.
+    rss = [medicion["rss_mb"] for medicion in utiles if medicion["rss_mb"] is not None]
+
+    return {
+        "etiqueta": ETIQUETAS[version],
+        "observacion": OBSERVACIONES[version],
+        "documentos": utiles[0]["documentos"],
+        "consulta_ms": statistics.median(
+            medicion["consulta_ms"] for medicion in utiles
+        ),
+        "indexacion_ms": statistics.median(indexaciones) if indexaciones else None,
+        "rss_mb": statistics.median(rss) if rss else None,
+        "tracemalloc_mb": pico,
+        "coincidencias": utiles[0]["coincidencias"],
+        "rondas": len(utiles),
+        "carga_al_medir": carga,
+        "nucleos": nucleos,
+    }
+
+
+def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
+    """
+    Mide las cinco versiones alternándolas dentro de cada ronda.
+
+    Se descartan las primeras `descartar` rondas —el page cache no
+    está en régimen estacionario— y se reporta la mediana del resto.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param rondas: Rondas que se resumen, sin contar las descartadas.
+    :type rondas: int
+    :param repeticiones: Consultas cronometradas por versión y ronda. La línea base usa
+        3, porque relee el corpus completo en cada una.
+    :type repeticiones: int
+    :param descartar: Rondas iniciales de calentamiento que se descartan.
+    :type descartar: int
+    :return: ``{"resumen": ..., "crudo": ...}``: la mediana de cada versión y todas las
+        mediciones individuales.
+    :rtype: dict
+    """
+    carga = _carga_del_sistema()
+    nucleos = os.cpu_count() or 1
+
+    _avisar_sobrecarga(carga, nucleos)
+
+    crudo = _medir_rondas(corpus_dir, rondas, repeticiones, descartar)
+    picos = _medir_picos_de_memoria(corpus_dir)
+
+    resumen = {
+        version: _resumir_version(
+            version, crudo[version], picos[version], carga, nucleos
+        )
+        for version in VERSIONES
+    }
 
     return {"resumen": resumen, "crudo": crudo}
 
