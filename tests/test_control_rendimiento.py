@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+import perfilado
+
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -257,6 +259,75 @@ def test_el_corpus_siempre_tiene_los_mismos_documentos(monkeypatch, tmp_path):
     assert uno == dos
 
 
+# ---- profiling
+
+
+def _simular_perfiles(monkeypatch, top):
+    monkeypatch.setattr(control, "generar_corpus", lambda _directorio: None)
+    monkeypatch.setattr(
+        control.perfilado,
+        "perfilar_cprofile",
+        lambda _c, versiones: {
+            version: {
+                "archivo": "x.prof",
+                "total_s": 1.0,
+                "top": top,
+            }
+            for version in versiones
+        },
+    )
+    monkeypatch.setattr(
+        control.perfilado,
+        "perfilar_line",
+        lambda _c, _v: {
+            "algoritmo": {"archivo": "x.txt", "texto": "muy largo"},
+            "final": {"omitido": "no cruza el límite de proceso"},
+        },
+    )
+
+
+FILA = {"funcion": "a.py:1(f)", "llamadas": 1, "tottime": 0.5, "cumtime": 1.0}
+
+
+def test_profiling_deja_el_ranking_y_escribe_donde_corresponde(monkeypatch, reportes):
+    monkeypatch.setattr(control.perfilado, "DIR_PERFILES", perfilado.DIR_PERFILES)
+    _simular_perfiles(monkeypatch, [FILA])
+
+    control.control_profiling()
+
+    assert control.perfilado.DIR_PERFILES == reportes / "profiling"
+    reporte = json.loads(
+        (reportes / "profiling" / "ranking.json").read_text(encoding="utf-8")
+    )
+    assert reporte["cprofile"]["algoritmo"]["top"] == [FILA]
+    assert reporte["line_profiler"] == {
+        "algoritmo": {"archivo": "x.txt"},
+        "final": {"omitido": "no cruza el límite de proceso"},
+    }
+    assert "a.py:1(f)" in (reportes / "resumen.md").read_text(encoding="utf-8")
+
+
+def test_profiling_rechaza_un_perfil_vacio(monkeypatch, reportes):
+    monkeypatch.setattr(control.perfilado, "DIR_PERFILES", perfilado.DIR_PERFILES)
+    _simular_perfiles(monkeypatch, [])
+
+    with pytest.raises(SystemExit, match="vacío"):
+        control.control_profiling()
+
+
+def test_profiling_propaga_un_perfil_que_no_se_pudo_generar(monkeypatch, reportes):
+    monkeypatch.setattr(control.perfilado, "DIR_PERFILES", perfilado.DIR_PERFILES)
+    monkeypatch.setattr(control, "generar_corpus", lambda _directorio: None)
+
+    def falla(_c, _v):
+        raise subprocess.CalledProcessError(1, "perfilado.py")
+
+    monkeypatch.setattr(control.perfilado, "perfilar_cprofile", falla)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        control.control_profiling()
+
+
 # ---- línea de comandos
 
 
@@ -273,6 +344,7 @@ def test_el_benchmark_exige_una_referencia(monkeypatch, capsys):
     "argumentos, funcion, esperado",
     [
         (["benchmark", "--base", "HEAD^1"], "control_benchmark", ("HEAD^1",)),
+        (["profiling"], "control_profiling", ()),
     ],
 )
 def test_cada_comando_corre_su_control(monkeypatch, argumentos, funcion, esperado):

@@ -219,6 +219,11 @@ jobs:
           # padre. En master, el commit anterior.
           BENCHMARK_BASE: HEAD^1
 
+      # También si el benchmark rechaza: es cuando más sirve el perfil.
+      - name: Perfil de CPU
+        if: ${{ !cancelled() }}
+        run: make profiling
+
       - name: Guardar los reportes
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

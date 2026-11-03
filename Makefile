@@ -16,7 +16,7 @@ GITLEAKS = .herramientas/gitleaks
 # Contra qué se compara el benchmark. En el CI, el primer padre del commit.
 BENCHMARK_BASE ?= origin/master
 
-.PHONY: instalar lock lint complejidad tipado seguridad secretos tests rendimiento benchmark docs enlaces diagrama controles resultado-final
+.PHONY: instalar lock lint complejidad tipado seguridad secretos tests rendimiento benchmark profiling docs enlaces diagrama controles resultado-final
 
 instalar:
 	$(PYTHON) -m pip install --require-hashes -r requirements-dev.txt
@@ -82,6 +82,9 @@ rendimiento:
 benchmark:
 	$(PYTHON) scripts/control_rendimiento.py benchmark --base $(BENCHMARK_BASE)
 
+profiling:
+	$(PYTHON) scripts/control_rendimiento.py profiling
+
 docs: node_modules
 	sphinx-build -W --keep-going -E -b html docs docs/_build/html
 	npx --no-install markdownlint-cli2 README.md "docs/**/*.md" "#docs/_build"
@@ -99,7 +102,7 @@ enlaces:
 diagrama:
 	dot -Tsvg docs/diagramas/arquitectura.dot -o docs/diagramas/arquitectura.svg
 
-controles: lint complejidad tipado seguridad secretos tests rendimiento docs benchmark
+controles: lint complejidad tipado seguridad secretos tests rendimiento docs benchmark profiling
 
 # Solo tiene sentido en el CI: lee los resultados de los jobs de RESULTADOS.
 resultado-final:

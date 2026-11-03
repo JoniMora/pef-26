@@ -1,12 +1,13 @@
 """
-Controles de rendimiento del CI.
+Controles de rendimiento del CI: benchmark, profiling y memoria.
 
-Miden sobre un corpus sintético, generado con semilla fija, y dejan sus reportes en
-``reportes/``. Los criterios de rechazo y cómo se fijaron
+Los tres miden sobre el mismo corpus sintético, generado con semilla fija, y
+dejan sus reportes en ``reportes/``. Los criterios de rechazo y cómo se fijaron
 la tolerancia y los límites están en ``docs/rendimiento.md``. Comandos (desde la
 raíz del repositorio)::
 
     python scripts/control_rendimiento.py benchmark --base origin/master
+    python scripts/control_rendimiento.py profiling
 """
 
 import argparse
@@ -30,6 +31,7 @@ sys.path.insert(0, str(SRC))
 
 # Estos imports van después del sys.path.insert: el script se ejecuta
 # directamente y necesita src/ en el path para encontrar los módulos.
+import perfilado  # noqa: E402
 from baseline import generar_corpus_prueba  # noqa: E402
 
 
@@ -296,6 +298,68 @@ def control_benchmark(referencia):
         sys.exit("El benchmark detectó una regresión frente a la rama base.")
 
 
+# ============================================================
+# PROFILING
+# ============================================================
+
+
+def control_profiling():
+    """Perfila cada versión por función y por línea, y guarda los reportes."""
+    destino = REPORTES / "profiling"
+    destino.mkdir(parents=True, exist_ok=True)
+    perfilado.DIR_PERFILES = destino
+
+    with tempfile.TemporaryDirectory() as corpus:
+        generar_corpus(Path(corpus))
+
+        funciones = perfilado.perfilar_cprofile(Path(corpus), perfilado.VERSIONES)
+        lineas = perfilado.perfilar_line(Path(corpus), perfilado.VERSIONES)
+
+    guardar_reporte(
+        "profiling/ranking.json",
+        {
+            "cprofile": funciones,
+            "line_profiler": {
+                version: {
+                    clave: dato for clave, dato in datos.items() if clave != "texto"
+                }
+                for version, datos in lineas.items()
+            },
+        },
+    )
+
+    agregar_al_resumen(tabla_ranking("algoritmo", funciones["algoritmo"]["top"]))
+
+    if not all(datos["top"] for datos in funciones.values()):
+        sys.exit("El perfil de alguna versión quedó vacío.")
+
+
+def tabla_ranking(version, filas):
+    """
+    Arma el ranking de funciones de una versión en Markdown.
+
+    :param version: Versión perfilada.
+    :type version: str
+    :param filas: Ranking de cProfile.
+    :type filas: list[dict]
+    :return: Una función por fila.
+    :rtype: str
+    """
+    return "\n".join(
+        [
+            f"## Funciones con más tiempo acumulado: {version}",
+            "",
+            "| Función | Llamadas | Propio (s) | Acumulado (s) |",
+            "| --- | ---: | ---: | ---: |",
+            *(
+                f"| `{fila['funcion']}` | {fila['llamadas']} "
+                f"| {fila['tottime']:.3f} | {fila['cumtime']:.3f} |"
+                for fila in filas
+            ),
+        ]
+    )
+
+
 def main():
     """Corre el control pedido por línea de comandos."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
@@ -303,11 +367,14 @@ def main():
 
     benchmark = controles.add_parser("benchmark", help="Compara contra la rama base")
     benchmark.add_argument("--base", required=True, help="Commit o rama de referencia")
+    controles.add_parser("profiling", help="Perfila por función y por línea")
 
     args = parser.parse_args()
 
     if args.control == "benchmark":
         control_benchmark(args.base)
+    else:
+        control_profiling()
 
 
 if __name__ == "__main__":
