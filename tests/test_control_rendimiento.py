@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tracemalloc
 from pathlib import Path
 
 import pytest
@@ -259,6 +260,80 @@ def test_el_corpus_siempre_tiene_los_mismos_documentos(monkeypatch, tmp_path):
     assert uno == dos
 
 
+# ---- memoria
+
+
+def _picos(**por_version):
+    return {
+        version: {"tracemalloc_mb": pico, "rss_mb": 30.0}
+        for version, pico in por_version.items()
+    }
+
+
+def test_hay_un_limite_de_memoria_por_version():
+    assert set(control.LIMITES_MB) == set(perfilado.VERSIONES)
+
+
+@pytest.mark.parametrize(
+    "pico, excedidas", [(9.0, []), (10.0, []), (10.001, ["final"])]
+)
+def test_memoria_rechaza_solo_por_encima_del_limite(pico, excedidas):
+    assert control.versiones_excedidas(_picos(final=pico), {"final": 10.0}) == excedidas
+
+
+def test_memoria_dentro_del_limite_deja_su_reporte(monkeypatch, reportes):
+    monkeypatch.setattr(control, "generar_corpus", lambda _directorio: None)
+    monkeypatch.setattr(control, "medir_picos", lambda _c: _picos(final=1.0))
+    monkeypatch.setattr(
+        control, "asignaciones_relevantes", lambda _c: [{"linea": "x.py:1"}]
+    )
+    monkeypatch.setattr(control, "LIMITES_MB", {"final": 2.0})
+
+    control.control_memoria()
+
+    reporte = json.loads((reportes / "memoria.json").read_text(encoding="utf-8"))
+    assert reporte["picos"]["final"]["tracemalloc_mb"] == 1.0
+    assert reporte["limites_mb"] == {"final": 2.0}
+    assert reporte["asignaciones"] == [{"linea": "x.py:1"}]
+
+
+def test_memoria_sobre_el_limite_rechaza_y_deja_el_reporte(monkeypatch, reportes):
+    excedido = {version: 1e9 for version in perfilado.VERSIONES}
+
+    monkeypatch.setattr(control, "generar_corpus", lambda _directorio: None)
+    monkeypatch.setattr(control, "medir_picos", lambda _c: _picos(**excedido))
+    monkeypatch.setattr(control, "asignaciones_relevantes", lambda _c: [])
+
+    with pytest.raises(SystemExit, match="límite de memoria"):
+        control.control_memoria()
+
+    assert (reportes / "memoria.json").is_file()
+
+
+def test_medir_picos_usa_un_proceso_limpio_con_tracemalloc(monkeypatch):
+    llamadas = []
+
+    def falso(version, corpus, repeticiones, con_tracemalloc=False):
+        llamadas.append((version, corpus, repeticiones, con_tracemalloc))
+        return {"tracemalloc_mb": 1.5, "rss_mb": 30.0, "consulta_ms": 9}
+
+    monkeypatch.setattr(control.perfilado, "_medir_en_subproceso", falso)
+
+    picos = control.medir_picos("corpus")
+
+    assert llamadas == [(v, "corpus", 1, True) for v in perfilado.VERSIONES]
+    assert picos["final"] == {"tracemalloc_mb": 1.5, "rss_mb": 30.0}
+
+
+def test_las_asignaciones_salen_del_indice_y_dejan_tracemalloc_apagado(corpus_chico):
+    asignaciones = control.asignaciones_relevantes(corpus_chico)
+
+    assert asignaciones
+    assert {"linea", "mb", "bloques"} == set(asignaciones[0])
+    assert any(fila["linea"].startswith("optimizado.py:") for fila in asignaciones)
+    assert not tracemalloc.is_tracing()
+
+
 # ---- profiling
 
 
@@ -345,6 +420,7 @@ def test_el_benchmark_exige_una_referencia(monkeypatch, capsys):
     [
         (["benchmark", "--base", "HEAD^1"], "control_benchmark", ("HEAD^1",)),
         (["profiling"], "control_profiling", ()),
+        (["memoria"], "control_memoria", ()),
     ],
 )
 def test_cada_comando_corre_su_control(monkeypatch, argumentos, funcion, esperado):

@@ -113,3 +113,22 @@ def test_el_benchmark_compara_contra_el_primer_padre():
 
     assert benchmark["env"]["BENCHMARK_BASE"] == "HEAD^1"
     assert pasos[0]["with"]["fetch-depth"] >= 2
+
+
+def test_la_memoria_se_mide_en_su_propio_paso_despues_del_benchmark():
+    # tracemalloc encarece lo que mide: no puede compartir paso con los tiempos.
+    comandos = [
+        paso["run"] for paso in WORKFLOW["jobs"]["benchmark"]["steps"] if "run" in paso
+    ]
+
+    assert comandos.index("make benchmark") < comandos.index("make memoria")
+
+
+def test_el_perfil_y_los_reportes_quedan_aunque_rechace_el_benchmark():
+    pasos = WORKFLOW["jobs"]["benchmark"]["steps"]
+    posteriores = pasos[
+        [paso.get("run") for paso in pasos].index("make benchmark") + 1 :
+    ]
+
+    assert len(posteriores) == 3
+    assert all("cancelled()" in paso["if"] for paso in posteriores)

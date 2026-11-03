@@ -8,6 +8,7 @@ raíz del repositorio)::
 
     python scripts/control_rendimiento.py benchmark --base origin/master
     python scripts/control_rendimiento.py profiling
+    python scripts/control_rendimiento.py memoria
 """
 
 import argparse
@@ -20,6 +21,7 @@ import subprocess  # nosec B404
 import sys
 import tarfile
 import tempfile
+import tracemalloc
 from pathlib import Path
 
 
@@ -31,6 +33,7 @@ sys.path.insert(0, str(SRC))
 
 # Estos imports van después del sys.path.insert: el script se ejecuta
 # directamente y necesita src/ en el path para encontrar los módulos.
+import optimizado  # noqa: E402
 import perfilado  # noqa: E402
 from baseline import generar_corpus_prueba  # noqa: E402
 
@@ -40,6 +43,16 @@ SEMILLA = 2026
 
 RONDAS = 3
 TOLERANCIA = 0.25
+
+LIMITES_MB = {
+    "inicial": 100.0,
+    "estructura": 100.0,
+    "algoritmo": 100.0,
+    "concurrencia": 100.0,
+    "final": 100.0,
+}
+
+MB = 1024 * 1024
 
 
 def generar_corpus(directorio):
@@ -360,6 +373,132 @@ def tabla_ranking(version, filas):
     )
 
 
+# ============================================================
+# MEMORIA
+# ============================================================
+
+
+def medir_picos(corpus):
+    """
+    Mide el pico de memoria de cada versión, en un proceso limpio.
+
+    :param corpus: Directorio del corpus.
+    :type corpus: pathlib.Path
+    :return: Por versión, su pico de ``tracemalloc`` y su RSS, en MB.
+    :rtype: dict[str, dict[str, float]]
+    """
+    picos = {}
+
+    for version in perfilado.VERSIONES:
+        medicion = perfilado._medir_en_subproceso(
+            version, corpus, 1, con_tracemalloc=True
+        )
+        picos[version] = {
+            "tracemalloc_mb": medicion["tracemalloc_mb"],
+            "rss_mb": medicion["rss_mb"],
+        }
+
+    return picos
+
+
+def asignaciones_relevantes(corpus, cantidad=10):
+    """
+    Lista las líneas que retienen más memoria al indexar y consultar.
+
+    :param corpus: Directorio del corpus.
+    :type corpus: pathlib.Path
+    :param cantidad: Cantidad de líneas.
+    :type cantidad: int
+    :return: Por línea, la memoria retenida en MB y la cantidad de bloques.
+    :rtype: list[dict]
+    """
+    tracemalloc.start()
+
+    indice, archivos = optimizado.construir_indice(corpus)
+    optimizado.Buscador(indice, archivos).buscar(perfilado.CONSULTA)
+    instantanea = tracemalloc.take_snapshot()
+
+    tracemalloc.stop()
+
+    return [
+        {
+            "linea": f"{Path(estadistica.traceback[0].filename).name}:"
+            f"{estadistica.traceback[0].lineno}",
+            "mb": estadistica.size / MB,
+            "bloques": estadistica.count,
+        }
+        for estadistica in instantanea.statistics("lineno")[:cantidad]
+    ]
+
+
+def versiones_excedidas(picos, limites):
+    """
+    Lista las versiones que superan su límite de memoria.
+
+    :param picos: Resultado de :func:`medir_picos`.
+    :type picos: dict[str, dict[str, float]]
+    :param limites: Límite en MB por versión.
+    :type limites: dict[str, float]
+    :return: Las versiones cuyo pico de ``tracemalloc`` supera el límite.
+    :rtype: list[str]
+    """
+    return [
+        version
+        for version, pico in picos.items()
+        if pico["tracemalloc_mb"] > limites[version]
+    ]
+
+
+def tabla_memoria(picos, limites):
+    """
+    Arma la tabla de resultados de memoria en Markdown.
+
+    :param picos: Resultado de :func:`medir_picos`.
+    :type picos: dict[str, dict[str, float]]
+    :param limites: Límite en MB por versión.
+    :type limites: dict[str, float]
+    :return: El veredicto y una versión por fila.
+    :rtype: str
+    """
+    excedidas = versiones_excedidas(picos, limites)
+    veredicto = "Rechazado" if excedidas else "Aprobado"
+
+    return "\n".join(
+        [
+            f"## Memoria: {veredicto}",
+            "",
+            "| Versión | Pico de tracemalloc (MB) | Límite (MB) | RSS (MB) |",
+            "| --- | ---: | ---: | ---: |",
+            *(
+                f"| {version} | {pico['tracemalloc_mb']:.3f} "
+                f"| {limites[version]:.3f} | {pico['rss_mb']:.1f} |"
+                for version, pico in picos.items()
+            ),
+        ]
+    )
+
+
+def control_memoria():
+    """Mide el pico de cada versión y rechaza si alguna supera su límite."""
+    with tempfile.TemporaryDirectory() as temporal:
+        corpus = Path(temporal)
+        generar_corpus(corpus)
+
+        picos = medir_picos(corpus)
+        asignaciones = asignaciones_relevantes(corpus)
+
+    guardar_reporte(
+        "memoria.json",
+        {"limites_mb": LIMITES_MB, "picos": picos, "asignaciones": asignaciones},
+    )
+    agregar_al_resumen(tabla_memoria(picos, LIMITES_MB))
+
+    excedidas = versiones_excedidas(picos, LIMITES_MB)
+
+    if excedidas:
+        sys.exit(f"Versiones sobre su límite de memoria: {', '.join(excedidas)}")
+
+
 def main():
     """Corre el control pedido por línea de comandos."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
@@ -368,13 +507,16 @@ def main():
     benchmark = controles.add_parser("benchmark", help="Compara contra la rama base")
     benchmark.add_argument("--base", required=True, help="Commit o rama de referencia")
     controles.add_parser("profiling", help="Perfila por función y por línea")
+    controles.add_parser("memoria", help="Controla el pico de memoria")
 
     args = parser.parse_args()
 
     if args.control == "benchmark":
         control_benchmark(args.base)
-    else:
+    elif args.control == "profiling":
         control_profiling()
+    else:
+        control_memoria()
 
 
 if __name__ == "__main__":

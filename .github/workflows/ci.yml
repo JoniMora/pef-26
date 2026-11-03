@@ -224,6 +224,11 @@ jobs:
         if: ${{ !cancelled() }}
         run: make profiling
 
+      # Paso separado: tracemalloc encarece lo que mide.
+      - name: Memoria
+        if: ${{ !cancelled() }}
+        run: make memoria
+
       - name: Guardar los reportes
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
