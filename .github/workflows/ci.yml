@@ -90,6 +90,7 @@ jobs:
             htmlcov/
 
       # Lee sonar-project.properties y el coverage.xml del paso anterior.
+      # Falla si cae el quality gate (sonar.qualitygate.wait).
       - name: SonarCloud
         uses: SonarSource/sonarqube-scan-action@v8
         env:
