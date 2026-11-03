@@ -42,7 +42,7 @@ jobs:
           RUFF_OUTPUT_FORMAT: github
 
   seguridad:
-    name: Seguridad (Bandit y pip-audit)
+    name: Seguridad (Bandit, pip-audit y npm audit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -56,6 +56,13 @@ jobs:
       - run: make instalar
 
       - run: make seguridad
+
+      - name: Guardar los reportes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: seguridad
+          path: reportes/
 
   documentacion:
     name: Documentación (Sphinx y enlaces)

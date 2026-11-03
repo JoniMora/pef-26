@@ -4,6 +4,9 @@
 
 PYTHON ?= python3
 
+REQUIREMENTS = requirements.txt requirements-dev.txt requirements-perfilado.txt requirements-apm.txt requirements-informes.txt
+PIP_AUDIT = pip-audit --require-hashes --disable-pip --progress-spinner off
+
 .PHONY: instalar lock lint seguridad tests rendimiento docs enlaces diagrama controles resultado-final
 
 instalar:
@@ -23,11 +26,17 @@ lint:
 	ruff check .
 	ruff format --check .
 
-# pip-audit también revisa las dependencias de la API, que
-# requirements-dev.in trae con -r requirements.in.
+# Primero los reportes en JSON, sin frenar si hay hallazgos, para que existan
+# aunque el control rechace. Después los mismos análisis, legibles, que deciden.
+# pip-audit va de a un lock: rechaza un mismo paquete repetido entre archivos.
 seguridad:
+	mkdir -p reportes
+	-bandit -c pyproject.toml -r . -q -f json -o reportes/bandit.json
+	-for lock in $(REQUIREMENTS); do $(PIP_AUDIT) -r $$lock -f json -o reportes/pip-audit-$${lock%.txt}.json; done
+	-npm audit --json > reportes/npm-audit.json
 	bandit -c pyproject.toml -r .
-	pip-audit -r requirements-dev.txt --require-hashes --disable-pip --progress-spinner off
+	@estado=0; for lock in $(REQUIREMENTS); do echo "pip-audit $$lock"; $(PIP_AUDIT) -r $$lock || estado=1; done; exit $$estado
+	npm audit
 
 # El umbral de cobertura (fail_under) está en pyproject.toml.
 tests:

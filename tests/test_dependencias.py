@@ -65,6 +65,13 @@ def test_la_instalacion_exige_los_hashes():
     assert "pip install --require-hashes -r requirements-dev.txt" in makefile
 
 
+def test_la_auditoria_cubre_todos_los_locks():
+    makefile = (RAIZ / "Makefile").read_text("utf-8")
+    auditados = re.search(r"^REQUIREMENTS = (.*)$", makefile, flags=re.MULTILINE)
+
+    assert sorted(auditados[1].split()) == [ruta.name for ruta in LOCKS]
+
+
 def test_el_lock_de_node_fija_lo_que_pide_package_json():
     pedidos = json.loads((RAIZ / "package.json").read_text("utf-8"))
     lock = json.loads((RAIZ / "package-lock.json").read_text("utf-8"))
