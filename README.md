@@ -695,7 +695,7 @@ El análisis marcó cinco vulnerabilidades, que se revisaron y se aceptaron:
 | :--- | :--- |
 | Lint (Ruff) | `ruff check` y `ruff format --check`. |
 | Seguridad (Bandit y pip-audit) | Análisis de seguridad del código (Bandit) y vulnerabilidades conocidas en las dependencias (pip-audit). |
-| Tests, cobertura y Performance Gate | Corre los tests con una cobertura mínima del 80 %, envía el análisis a SonarCloud y, aparte y sin cobertura, los 2 tests de rendimiento. Solo corre si los dos jobs anteriores pasan. |
+| Tests, cobertura y Performance Gate | Corre los tests con una cobertura mínima del 80 %, guarda el reporte como artefacto, envía el análisis a SonarCloud y, aparte y sin cobertura, los 2 tests de rendimiento. Solo corre si los dos jobs anteriores pasan. |
 | Resultado final | Rechaza el cambio si algún job anterior no terminó bien y deja la tabla de controles en el resumen de la corrida. Es el único check que hace falta exigir para integrar en `master`. |
 
 Cada paso llama a un objetivo del [`Makefile`](Makefile), y [`tests/test_ci.py`](tests/test_ci.py) lo verifica. La [matriz de controles](docs/matriz-controles.md) define qué rechaza cada control y qué controles faltan activar.
@@ -1306,7 +1306,7 @@ Los mismos controles que corre el CI, con el entorno virtual activado:
 make instalar      # herramientas del pipeline, en las versiones del CI
 make lint          # Ruff: PEP 8, pyflakes, nombres, docstrings, complejidad y formato
 make seguridad     # Bandit sobre el código y pip-audit sobre las dependencias
-make tests         # tests con cobertura mínima del 80 %
+make tests         # tests con cobertura mínima del 80 %; reporte en htmlcov/
 make rendimiento   # Performance Gate
 make controles     # lint, seguridad, tests y rendimiento, en ese orden
 ```

@@ -21,7 +21,7 @@ seguridad:
 
 # El umbral de cobertura (fail_under) está en pyproject.toml.
 tests:
-	pytest -m "not rendimiento" --cov --cov-report=term-missing --cov-report=xml
+	pytest -m "not rendimiento" --cov --cov-report=term-missing --cov-report=xml --cov-report=html
 
 # Aparte y sin cobertura: el tracing distorsiona los tiempos.
 rendimiento:
