@@ -25,6 +25,7 @@ control = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(control)
 
 TOLERANCIA = control.TOLERANCIA
+INTERMITENTE = control.TOLERANCIA_INTERMITENTE
 
 
 @pytest.fixture
@@ -48,6 +49,16 @@ def corpus_chico(monkeypatch, tmp_path):
 # ---- comparar
 
 
+def _tiempo(minimo, mediana=None, media=None):
+    mediana = minimo if mediana is None else mediana
+
+    return {
+        "minimo": minimo,
+        "mediana": mediana,
+        "media": mediana if media is None else media,
+    }
+
+
 @pytest.mark.parametrize(
     "razon, regresion",
     [
@@ -59,16 +70,20 @@ def corpus_chico(monkeypatch, tmp_path):
     ],
 )
 def test_comparar_rechaza_solo_por_encima_de_la_tolerancia(razon, regresion):
-    fila = control.comparar({"consulta": 1.0}, {"consulta": razon}, TOLERANCIA)[0]
+    fila = control.comparar({"consulta": _tiempo(1.0)}, {"consulta": _tiempo(razon)})[0]
 
     assert fila["regresion"] is regresion
-    assert fila["razon"] == pytest.approx(razon)
+    assert fila["razon_minimos"] == pytest.approx(razon)
+    assert fila["razon_medianas"] == pytest.approx(razon)
     assert fila["base_ms"] == 1000
     assert fila["actual_ms"] == pytest.approx(razon * 1000)
 
 
 def test_comparar_informa_cada_benchmark():
-    filas = control.comparar({"a": 1.0, "b": 1.0}, {"b": 1.0, "a": 9.0}, TOLERANCIA)
+    filas = control.comparar(
+        {"a": _tiempo(1.0), "b": _tiempo(1.0)},
+        {"b": _tiempo(1.0), "a": _tiempo(9.0)},
+    )
 
     assert [(f["benchmark"], f["regresion"]) for f in filas] == [
         ("a", True),
@@ -76,54 +91,92 @@ def test_comparar_informa_cada_benchmark():
     ]
 
 
-# ---- medir_alternado
+def _resumir_y_comparar(base, actual):
+    return control.comparar(
+        control.resumir_rondas(
+            [{"consulta": _tiempo(*ronda)} for ronda in base],
+        ),
+        control.resumir_rondas(
+            [{"consulta": _tiempo(*ronda)} for ronda in actual],
+        ),
+    )[0]
 
 
-def _medir_con_tiempos(monkeypatch, tmp_path, tiempos):
-    tiempos = iter(tiempos)
-
-    monkeypatch.setattr(
-        control,
-        "correr_benchmarks",
-        lambda _src, _corpus, _salida: {"consulta": next(tiempos)},
+def test_iteraciones_anomalas_no_rechazan_un_cambio_sano():
+    # Tiempos reales de una corrida del CI que comparaba el código contra sí mismo,
+    # con los lados invertidos: dos rondas tuvieron una iteración aislada un 13 % más
+    # rápida. Solo con los mínimos, la razón es 1,114 y rechaza.
+    fila = _resumir_y_comparar(
+        base=[(0.2825, 0.2875), (0.2478, 0.2844), (0.2442, 0.2813)],
+        actual=[(0.2813, 0.2862), (0.2712, 0.2825), (0.2761, 0.2827)],
     )
 
-    return control.medir_alternado("B", "A", "corpus", tmp_path, rondas=3)
-
-
-def test_una_iteracion_anomala_no_rechaza_un_cambio_sano(monkeypatch, tmp_path):
-    # Tiempos reales de una corrida del CI que comparaba el código contra sí mismo:
-    # una sola iteración de la ronda 2 de la base dio 0,2499 ms, con una mediana de
-    # 0,2868 ms. El mínimo de todas las rondas daba una razón de 1,117.
-    base, actual = _medir_con_tiempos(
-        monkeypatch,
-        tmp_path,
-        # Orden en que se miden: base, actual, actual, base, base, actual.
-        [0.2823, 0.2867, 0.2791, 0.2499, 0.2854, 0.2862],
-    )
-
-    fila = control.comparar(base, actual, TOLERANCIA)[0]
-
-    assert fila["razon"] == pytest.approx(0.2862 / 0.2823)
+    assert fila["razon_minimos"] > 1 + TOLERANCIA
     assert fila["regresion"] is False
 
 
-def test_una_regresion_real_rechaza_aunque_una_ronda_salga_bien(monkeypatch, tmp_path):
-    base, actual = _medir_con_tiempos(
-        monkeypatch, tmp_path, [1.0, 1.5, 1.0, 1.0, 1.0, 1.5]
+def test_un_proceso_en_modo_lento_no_rechaza_un_cambio_sano():
+    # api_buscar es bimodal entre procesos: su mediana salta entre 0,65 y 0,75 ms,
+    # y su mínimo casi no se mueve.
+    fila = _resumir_y_comparar(
+        base=[(0.60, 0.65), (0.59, 0.65), (0.63, 0.75)],
+        actual=[(0.59, 0.65), (0.63, 0.75), (0.60, 0.75)],
     )
 
-    assert control.comparar(base, actual, TOLERANCIA)[0]["regresion"] is True
+    assert fila["razon_medianas"] > 1 + TOLERANCIA
+    assert fila["regresion"] is False
 
 
-def test_mide_alternado_y_resume_con_la_mediana(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "actual",
+    [
+        pytest.param(_tiempo(1.0, INTERMITENTE + 1.01), id="solo la mediana"),
+        pytest.param(_tiempo(1.0, 1.0, INTERMITENTE + 1.01), id="solo la media"),
+        pytest.param(_tiempo(INTERMITENTE + 1.01, 1.0), id="solo el minimo"),
+    ],
+)
+def test_una_regresion_grande_rechaza_aunque_se_vea_en_un_solo_estadistico(actual):
+    # Si la mayoría de las iteraciones tarda 100 veces más y alguna no, el mínimo no
+    # se mueve. Si son pocas, tampoco la mediana: solo la media lo muestra.
+    fila = control.comparar({"consulta": _tiempo(1.0)}, {"consulta": actual})[0]
+
+    assert fila["regresion"] is True
+
+
+@pytest.mark.parametrize(
+    "actual",
+    [
+        pytest.param(_tiempo(1.0, INTERMITENTE + 0.99), id="solo la mediana"),
+        pytest.param(_tiempo(1.0, 1.0, INTERMITENTE + 0.99), id="solo la media"),
+        pytest.param(_tiempo(INTERMITENTE + 0.99, 1.0), id="solo el minimo"),
+    ],
+)
+def test_un_solo_estadistico_bajo_el_umbral_alto_no_rechaza(actual):
+    fila = control.comparar({"consulta": _tiempo(1.0)}, {"consulta": actual})[0]
+
+    assert fila["regresion"] is False
+
+
+def test_una_regresion_real_rechaza_aunque_una_ronda_salga_bien():
+    fila = _resumir_y_comparar(
+        base=[(1.0, 1.1), (1.0, 1.1), (1.0, 1.1)],
+        actual=[(1.5, 1.6), (1.0, 1.1), (1.5, 1.6)],
+    )
+
+    assert fila["regresion"] is True
+
+
+# ---- medir_alternado
+
+
+def test_mide_alternado_y_resume_cada_lado(monkeypatch, tmp_path):
     corridas = []
     tiempos = iter([5.0, 7.0, 6.0, 4.0, 9.0, 8.0])
 
     def falso(src, corpus, salida):
         assert corpus == "corpus"
         corridas.append((src, salida.name))
-        return {"consulta": next(tiempos)}
+        return {"consulta": _tiempo(next(tiempos))}
 
     monkeypatch.setattr(control, "correr_benchmarks", falso)
 
@@ -138,8 +191,8 @@ def test_mide_alternado_y_resume_con_la_mediana(monkeypatch, tmp_path):
         ("B", "base-3.json"),
         ("A", "actual-3.json"),
     ]
-    assert base == {"consulta": 5.0}
-    assert actual == {"consulta": 7.0}
+    assert base == {"consulta": _tiempo(5.0)}
+    assert actual == {"consulta": _tiempo(7.0)}
 
 
 # ---- correr_benchmarks
@@ -227,13 +280,20 @@ def test_si_falla_la_suite_el_control_rechaza(monkeypatch, tmp_path):
         control.correr_benchmarks(tmp_path, tmp_path, tmp_path / "salida.json")
 
 
-def test_correr_benchmarks_devuelve_el_minimo_de_cada_uno(monkeypatch, tmp_path):
+def test_correr_benchmarks_devuelve_el_minimo_y_la_mediana(monkeypatch, tmp_path):
     salida = tmp_path / "salida.json"
 
     def falso(_orden, **_opciones):
         salida.write_text(
             json.dumps(
-                {"benchmarks": [{"name": "consulta", "stats": {"min": 0.5, "mean": 9}}]}
+                {
+                    "benchmarks": [
+                        {
+                            "name": "consulta",
+                            "stats": {"min": 0.5, "median": 0.6, "mean": 0.7, "max": 9},
+                        }
+                    ]
+                }
             ),
             encoding="utf-8",
         )
@@ -241,7 +301,9 @@ def test_correr_benchmarks_devuelve_el_minimo_de_cada_uno(monkeypatch, tmp_path)
 
     monkeypatch.setattr(control.subprocess, "run", falso)
 
-    assert control.correr_benchmarks(tmp_path, tmp_path, salida) == {"consulta": 0.5}
+    assert control.correr_benchmarks(tmp_path, tmp_path, salida) == {
+        "consulta": {"minimo": 0.5, "mediana": 0.6, "media": 0.7}
+    }
 
 
 # ---- control_benchmark
@@ -256,13 +318,16 @@ def _simular_medicion(monkeypatch, base, actual):
 
 
 def test_benchmark_aprobado_deja_sus_reportes(monkeypatch, reportes, capsys):
-    _simular_medicion(monkeypatch, {"consulta": 1.0}, {"consulta": 1.0})
+    _simular_medicion(
+        monkeypatch, {"consulta": _tiempo(1.0)}, {"consulta": _tiempo(1.0)}
+    )
 
     control.control_benchmark("HEAD^1")
 
     reporte = json.loads((reportes / "benchmark.json").read_text(encoding="utf-8"))
     assert reporte["base"] == "HEAD^1"
     assert reporte["tolerancia"] == TOLERANCIA
+    assert reporte["tolerancia_intermitente"] == INTERMITENTE
     assert reporte["benchmarks"][0]["regresion"] is False
     assert "Aprobado" in capsys.readouterr().out
     assert "Aprobado" in (reportes / "resumen.md").read_text(encoding="utf-8")
@@ -271,8 +336,8 @@ def test_benchmark_aprobado_deja_sus_reportes(monkeypatch, reportes, capsys):
 def test_benchmark_con_una_regresion_rechaza_y_deja_el_reporte(monkeypatch, reportes):
     _simular_medicion(
         monkeypatch,
-        {"consulta": 1.0, "indice": 1.0},
-        {"consulta": 1.0, "indice": 2.0},
+        {"consulta": _tiempo(1.0), "indice": _tiempo(1.0)},
+        {"consulta": _tiempo(1.0), "indice": _tiempo(2.0)},
     )
 
     with pytest.raises(SystemExit, match="regresión"):
@@ -458,6 +523,7 @@ def test_la_documentacion_tiene_los_valores_vigentes():
     texto = (RAIZ / "docs" / "rendimiento.md").read_text(encoding="utf-8")
 
     assert f"**{TOLERANCIA:.0%}**".replace("%", " %") in texto
+    assert f"**{INTERMITENTE:.0%}**".replace("%", " %") in texto
 
     for limite in control.LIMITES_MB.values():
         assert f"{limite:.2f} |".replace(".", ",") in texto

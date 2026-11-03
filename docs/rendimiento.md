@@ -410,57 +410,66 @@ Las mediciones de esta página son campañas manuales sobre 50.000 documentos. A
 
 [`benchmarks/test_motor.py`](https://github.com/JoniMora/pef-26/blob/master/benchmarks/test_motor.py) mide con pytest-benchmark diez operaciones: tokenizar, contar términos, indexar en secuencia y en paralelo, cargar el índice de disco, la búsqueda secuencial, la consulta de uno y de varios términos, la consulta con caché caliente y `GET /buscar`.
 
-`make benchmark` las compara contra la rama base **en el mismo job** y rechaza si alguna tarda más de un **10 %** por encima:
+`make benchmark` las compara contra la rama base **en el mismo job**. Una operación tiene una regresión si cumple una de estas dos condiciones:
+
+- **Regresión pareja:** el mínimo y la mediana suben más de un **10 %**. Una regresión así desplaza toda la distribución, y cada estadístico por separado falla por su lado.
+- **Regresión intermitente:** el mínimo, la mediana o la media suben más de un **30 %**. Cubre lo que la primera no ve: si pocas iteraciones tardan mucho más, el mínimo no se mueve, y tampoco la mediana, pero la media sí.
+
+Cómo se mide:
 
 - **Mismo código de medición:** los dos lados corren la suite de la rama actual, porque la rama base puede no tenerla. La suite verifica de dónde importó el motor: si los dos lados midieran lo mismo, el control nunca rechazaría.
 - **Mismos datos:** el corpus se genera una sola vez y lo usan los dos.
-- **Corridas alternadas:** 3 rondas por lado, en orden alternado, para repartir la deriva de la máquina.
-- **Mediana de los mínimos:** de cada ronda se toma el mejor tiempo, que descarta las iteraciones lentas, y entre rondas, la mediana, que descarta una ronda anómala.
+- **Corridas alternadas:** 3 rondas por lado, en orden alternado, para repartir la deriva de la máquina. De cada estadístico se toma la mediana entre rondas, que descarta una ronda anómala.
 
-**Por qué 10 %.** Como la rama que agregó este control no cambia `src/`, cada corrida del job compara el código contra sí mismo. En 15 corridas de GitHub Actions:
+**Por qué esos valores.** Como la rama que agregó este control no cambia `src/`, cada corrida del job compara el código contra sí mismo. En 28 corridas de GitHub Actions, contando los dos sentidos, porque qué lado sale más lento es azar:
 
-| Benchmark | Tiempo en la rama base (ms) | Razón actual/base |
+| Benchmark | Mediana en la rama base (ms) | Mayor razón de la regla pareja | Mayor razón de un solo estadístico |
+| :--- | ---: | ---: | ---: |
+| `api_buscar` | 0,49 a 1,15 | 1,038 | 1,168 |
+| `busqueda_secuencial` | 19,5 a 33,1 | 1,017 | 1,025 |
+| `cargar_indice_de_disco` | 12,5 a 24,6 | 1,022 | 1,076 |
+| `consulta_con_cache_caliente` | 0,0013 a 0,0025 | 1,029 | 1,037 |
+| `consulta_de_un_termino` | 0,18 a 0,37 | 1,027 | 1,115 |
+| `consulta_de_varios_terminos` | 0,45 a 0,91 | 1,030 | 1,038 |
+| `contar_terminos` | 0,029 a 0,059 | 1,028 | 1,053 |
+| `indexar_en_paralelo` | 102 a 200 | 1,020 | 1,036 |
+| `indexar_secuencial` | 125 a 252 | 1,024 | 1,035 |
+| `tokenizar` | 0,020 a 0,038 | 1,038 | 1,056 |
+
+En 560 comparaciones, la regla pareja llegó como máximo a 3,8 % y un solo estadístico a 16,8 %, así que ninguna superó su umbral. La tabla también justifica comparar en el mismo job: entre corridas, el mismo benchmark llegó a tardar 2,33 veces más según el runner, y ningún límite fijo en milisegundos serviría.
+
+**Cómo se llegó a esta regla.** Las dos versiones anteriores fallaron con datos reales:
+
+1. **El mínimo de todas las rondas**, con el argumento de que el ruido solo suma tiempo. Es falso: en la corrida 15 rechazó un cambio sano, con una razón de 1,117, porque una sola iteración de 2.714 dio 0,2499 ms, con una mediana de 0,2868 ms en esa misma ronda.
+2. **La mediana de los mínimos de cada ronda**, elegida con esas 15 corridas. En las 13 siguientes llegó a una razón de 0,897: aprobó de casualidad, porque con los lados invertidos era otro falso rechazo.
+
+El mínimo es sensible a iteraciones aisladas, y la mediana, al proceso: `api_buscar` da 0,65 o 0,75 ms según el proceso, en una misma corrida. Exigir los dos resuelve ambos casos:
+
+| Regla | Mayor diferencia | Casos sobre el 10 % |
 | :--- | ---: | ---: |
-| `api_buscar` | 0,60 a 1,02 | 0,955 a 1,023 |
-| `busqueda_secuencial` | 19,9 a 32,8 | 0,975 a 1,025 |
-| `cargar_indice_de_disco` | 17,5 a 23,5 | 0,978 a 1,011 |
-| `consulta_con_cache_caliente` | 0,0017 a 0,0024 | 0,972 a 1,022 |
-| `consulta_de_un_termino` | 0,28 a 0,37 | 0,986 a 1,022 |
-| `consulta_de_varios_terminos` | 0,65 a 0,88 | 0,987 a 1,022 |
-| `contar_terminos` | 0,038 a 0,057 | 0,992 a 1,028 |
-| `indexar_en_paralelo` | 138 a 192 | 0,991 a 1,020 |
-| `indexar_secuencial` | 179 a 250 | 0,989 a 1,031 |
-| `tokenizar` | 0,025 a 0,038 | 0,969 a 1,053 |
+| Mínimo de todas las rondas | 13,9 % | 3 |
+| Mediana de los mínimos | 11,5 % | 1 |
+| Mediana de las medianas | 16,8 % | 3 |
+| Mínimo y mediana a la vez | 3,8 % | 0 |
 
-En 150 comparaciones, la mayor diferencia fue de 5,3 %. La tolerancia es casi el doble, para no rechazar un cambio sano si toca un runner más ruidoso. La tabla también justifica el método: entre corridas, el mismo benchmark llegó a tardar 1,69 veces más según el runner, así que ningún límite fijo en milisegundos serviría.
-
-**Por qué no el mínimo de todas las rondas.** Fue la primera versión, con el argumento de que el ruido solo suma tiempo, y es falso. En la corrida 15 rechazó un cambio sano: una sola iteración de 2.714 dio 0,2499 ms, con una mediana de 0,2868 ms en esa misma ronda, y la razón fue de 1,117. Con los datos crudos de las 15 corridas se compararon cuatro formas de resumir:
-
-| Estadístico | Mayor diferencia | Casos sobre el 10 % |
-| :--- | ---: | ---: |
-| Mínimo de todas las rondas | 11,7 % | 1 |
-| Mediana de los mínimos de cada ronda | 5,3 % | 0 |
-| Mínimo de las medianas de cada ronda | 13,8 % | 2 |
-| Mediana de las medianas de cada ronda | 16,8 % | 2 |
-
-Las medianas por ronda salen peor porque `api_buscar` es bimodal entre procesos: en una misma corrida da 0,65 o 0,75 ms según el proceso. El mínimo de la ronda evita eso, y la mediana entre rondas evita que una sola muestra decida.
+La regla se eligió mirando las primeras 28 corridas. Un rechazo aislado y por poco todavía puede ser ruido: se relanza el job, y una regresión real vuelve a rechazar.
 
 **Qué detecta.** Regresiones provocadas en un árbol aparte y medidas en macOS. La razón es la del benchmark más afectado:
 
 | Regresión provocada | Benchmark | Razón | Resultado |
 | :--- | :--- | ---: | :--- |
-| Trabajo extra grande en `rankear()` | `consulta_de_un_termino` | 156,14 | Rechazada |
+| Trabajo extra grande en `rankear()` | `consulta_de_un_termino` | 156,27 | Rechazada |
+| `GET /buscar` con 1 ms más | `api_buscar` | 2,49 | Rechazada |
+| Perder el `lru_cache` de `normalize()` | `tokenizar`, y cuatro más | 2,33 | Rechazada |
 | Perder el *heap*: `sorted()` completo | `consulta_de_un_termino` | 2,09 | Rechazada |
-| Perder el `lru_cache` de `normalize()` | `tokenizar`, y cuatro más | 2,27 | Rechazada |
-| `GET /buscar` con 1 ms más | `api_buscar` | 2,39 | Rechazada |
 | Trabajo extra mediano en `rankear()` | `consulta_de_un_termino` | 1,76 | Rechazada |
-| Cargar el índice con 10 ms más | `cargar_indice_de_disco` | 1,49 | Rechazada |
-| Trabajo extra en `QueryCache.get()` | `consulta_con_cache_caliente` | 1,44 | Rechazada |
+| Cargar el índice con 10 ms más | `cargar_indice_de_disco` | 1,54 | Rechazada |
+| Trabajo extra en `QueryCache.get()` | `consulta_con_cache_caliente` | 1,42 | Rechazada |
 | Trabajo extra chico en `rankear()` | `consulta_de_un_termino` | 1,34 | Rechazada |
-| Indexar en secuencia con 100 ms más | `indexar_secuencial` | 1,32 | Rechazada |
+| Indexar en secuencia con 100 ms más | `indexar_secuencial` | 1,33 | Rechazada |
 | Indexar en paralelo con 100 ms más | `indexar_en_paralelo` | 1,32 | Rechazada |
-| Búsqueda secuencial con 20 ms más | `busqueda_secuencial` | 1,30 | Rechazada |
-| Trabajo extra mínimo en `rankear()` | `consulta_de_un_termino` | 1,18 | Rechazada |
+| Búsqueda secuencial con 20 ms más | `busqueda_secuencial` | 1,31 | Rechazada |
+| Trabajo extra mínimo en `rankear()` | `consulta_de_un_termino` | 1,16 | Rechazada |
 | Perder el `lru_cache` de `stem()` | `tokenizar` | 1,13 | Rechazada |
 | Trabajo extra ínfimo en `rankear()` | `consulta_de_un_termino` | 1,07 | Aprobada: está por debajo de la tolerancia |
 
@@ -468,6 +477,7 @@ Cada falla movió solo los benchmarks que pasan por ese código. Si los dos lado
 
 **Límites del control:**
 
+- **Regresiones intermitentes moderadas:** si pocas iteraciones tardan un poco más, ningún estadístico llega a su umbral.
 - **Regresiones acumuladas:** cada pull request se compara contra su rama base, así que varias regresiones menores al 10 % pasan una por una. Por eso sigue el [Performance Gate](matriz-controles.md#performance-gate), con un límite fijo y la comparación contra la línea base.
 - **Mide el código, no las dependencias:** los dos lados corren en el mismo entorno, así que la actualización de un paquete no aparece como regresión.
 - **Interfaz de los benchmarks:** si un cambio renombra una función que usa la suite, la rama base no la puede correr y el control rechaza. Hay que separar el cambio en dos pull requests, o dejar un alias mientras tanto.

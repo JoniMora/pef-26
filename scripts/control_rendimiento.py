@@ -43,9 +43,9 @@ DOCUMENTOS = 2000
 SEMILLA = 2026
 
 RONDAS = 3
-# El ruido medido en el CI, comparando el código contra sí mismo, y por qué se
-# resume así, están en docs/rendimiento.md.
+# Cómo se fijaron, con el ruido medido en el CI, está en docs/rendimiento.md.
 TOLERANCIA = 0.10
+TOLERANCIA_INTERMITENTE = 0.30
 
 # El mayor pico medido en el CI y en macOS, con Python 3.14, más un 10 %.
 LIMITES_MB = {
@@ -148,8 +148,8 @@ def correr_benchmarks(src, corpus, salida):
     :type corpus: pathlib.Path
     :param salida: Dónde guardar el JSON de pytest-benchmark.
     :type salida: pathlib.Path
-    :return: Por benchmark, su menor tiempo en segundos.
-    :rtype: dict[str, float]
+    :return: Por benchmark, sus estadísticos en segundos.
+    :rtype: dict[str, dict[str, float]]
     """
     proceso = subprocess.run(  # nosec B603
         [
@@ -184,20 +184,38 @@ def correr_benchmarks(src, corpus, salida):
     resultados = json.loads(salida.read_text(encoding="utf-8"))
 
     return {
-        benchmark["name"]: benchmark["stats"]["min"]
+        benchmark["name"]: {
+            "minimo": benchmark["stats"]["min"],
+            "mediana": benchmark["stats"]["median"],
+            "media": benchmark["stats"]["mean"],
+        }
         for benchmark in resultados["benchmarks"]
+    }
+
+
+def resumir_rondas(rondas):
+    """
+    Resume cada benchmark con la mediana entre rondas de cada estadístico.
+
+    :param rondas: Resultado de :func:`correr_benchmarks` en cada ronda.
+    :type rondas: list[dict[str, dict[str, float]]]
+    :return: Por benchmark, sus estadísticos en segundos.
+    :rtype: dict[str, dict[str, float]]
+    """
+    return {
+        nombre: {
+            estadistico: statistics.median(
+                ronda[nombre][estadistico] for ronda in rondas
+            )
+            for estadistico in rondas[0][nombre]
+        }
+        for nombre in rondas[0]
     }
 
 
 def medir_alternado(src_base, src_actual, corpus, destino, rondas=RONDAS):
     """
-    Mide los dos lados alternados y resume cada benchmark en un solo tiempo.
-
-    Alternar reparte la deriva de la máquina entre los dos lados. De cada ronda
-    se toma el mejor tiempo, que descarta las iteraciones lentas y los procesos
-    que quedaron en un modo más lento. Entre rondas se toma la mediana, que
-    descarta una ronda anómala: el ruido también resta, y una sola iteración más
-    rápida de lo normal bastó para que el mínimo de todas rechazara un cambio sano.
+    Mide los dos lados alternados, para repartir la deriva de la máquina.
 
     :param src_base: Código de la rama base.
     :type src_base: pathlib.Path
@@ -210,65 +228,75 @@ def medir_alternado(src_base, src_actual, corpus, destino, rondas=RONDAS):
     :param rondas: Veces que se mide cada lado; impar, para que la mediana sea una
         medición real.
     :type rondas: int
-    :return: Tupla ``(base, actual)``: por benchmark, su tiempo en segundos.
-    :rtype: tuple[dict[str, float], dict[str, float]]
+    :return: Tupla ``(base, actual)``: el resumen de :func:`resumir_rondas`.
+    :rtype: tuple[dict, dict]
     """
-    lados = {"base": (src_base, {}), "actual": (src_actual, {})}
+    lados = {"base": (src_base, []), "actual": (src_actual, [])}
 
     for ronda in range(rondas):
         orden = ("base", "actual") if ronda % 2 == 0 else ("actual", "base")
 
         for lado in orden:
-            src, tiempos = lados[lado]
+            src, medidas = lados[lado]
             salida = destino / f"{lado}-{ronda + 1}.json"
-
-            for nombre, tiempo in correr_benchmarks(src, corpus, salida).items():
-                tiempos.setdefault(nombre, []).append(tiempo)
+            medidas.append(correr_benchmarks(src, corpus, salida))
 
             print(f"  ronda {ronda + 1}/{rondas}: {lado}", flush=True)
 
-    base, actual = (
-        {nombre: statistics.median(valores) for nombre, valores in tiempos.items()}
-        for _, tiempos in lados.values()
-    )
-
-    return base, actual
+    return resumir_rondas(lados["base"][1]), resumir_rondas(lados["actual"][1])
 
 
-def comparar(base, actual, tolerancia):
+def comparar(base, actual):
     """
-    Compara los tiempos de los dos lados.
+    Compara los dos lados y decide si cada benchmark tiene una regresión.
 
-    :param base: Por benchmark, su tiempo en la rama base.
-    :type base: dict[str, float]
-    :param actual: Por benchmark, su tiempo en la rama actual.
-    :type actual: dict[str, float]
-    :param tolerancia: Aumento relativo que se acepta; 0,25 es un 25 %.
-    :type tolerancia: float
-    :return: Una fila por benchmark, con la razón actual/base y si es una
-        regresión.
+    Una regresión pareja desplaza toda la distribución, así que se exige verla en
+    el mínimo y en la mediana a la vez: cada uno por separado falla por su lado. Una
+    iteración aislada puede salir mucho más rápida que el resto y mover el mínimo,
+    y un proceso puede quedar en un modo más lento y mover la mediana.
+
+    Una regresión intermitente no mueve el mínimo, y si afecta a pocas iteraciones
+    tampoco la mediana. Por eso, por encima de un umbral más alto, alcanza con que
+    la muestre uno solo de los estadísticos, incluida la media.
+
+    :param base: Por benchmark, sus estadísticos en la rama base.
+    :type base: dict[str, dict[str, float]]
+    :param actual: Por benchmark, sus estadísticos en la rama actual.
+    :type actual: dict[str, dict[str, float]]
+    :return: Una fila por benchmark, con sus razones y si es una regresión.
     :rtype: list[dict]
     """
-    return [
-        {
-            "benchmark": nombre,
-            "base_ms": base[nombre] * 1000,
-            "actual_ms": actual[nombre] * 1000,
-            "razon": actual[nombre] / base[nombre],
-            "regresion": actual[nombre] / base[nombre] > 1 + tolerancia,
+    filas = []
+
+    for nombre in sorted(actual):
+        razones = {
+            estadistico: actual[nombre][estadistico] / base[nombre][estadistico]
+            for estadistico in ("minimo", "mediana", "media")
         }
-        for nombre in sorted(actual)
-    ]
+        pareja = min(razones["minimo"], razones["mediana"]) > 1 + TOLERANCIA
+        intermitente = max(razones.values()) > 1 + TOLERANCIA_INTERMITENTE
+
+        filas.append(
+            {
+                "benchmark": nombre,
+                "base_ms": base[nombre]["mediana"] * 1000,
+                "actual_ms": actual[nombre]["mediana"] * 1000,
+                "razon_minimos": razones["minimo"],
+                "razon_medianas": razones["mediana"],
+                "razon_medias": razones["media"],
+                "regresion": pareja or intermitente,
+            }
+        )
+
+    return filas
 
 
-def tabla_benchmark(filas, tolerancia):
+def tabla_benchmark(filas):
     """
     Arma la tabla de resultados del benchmark en Markdown.
 
     :param filas: Resultado de :func:`comparar`.
     :type filas: list[dict]
-    :param tolerancia: Aumento relativo que se acepta.
-    :type tolerancia: float
     :return: El veredicto y un benchmark por fila.
     :rtype: str
     """
@@ -279,13 +307,16 @@ def tabla_benchmark(filas, tolerancia):
         [
             f"## Benchmark contra la rama base: {veredicto}",
             "",
-            f"Tolerancia: {tolerancia:.0%}.",
+            f"Regresión: mínimo y mediana por encima de {TOLERANCIA:.0%}, o cualquier "
+            f"estadístico por encima de {TOLERANCIA_INTERMITENTE:.0%}.",
             "",
-            "| Benchmark | Base (ms) | Actual (ms) | Razón | Resultado |",
-            "| --- | ---: | ---: | ---: | --- |",
+            "| Benchmark | Base (ms) | Actual (ms) | Mínimos | Medianas | Medias "
+            "| Resultado |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
             *(
                 f"| {fila['benchmark']} | {fila['base_ms']:.4f} "
-                f"| {fila['actual_ms']:.4f} | {fila['razon']:.3f} "
+                f"| {fila['actual_ms']:.4f} | {fila['razon_minimos']:.3f} "
+                f"| {fila['razon_medianas']:.3f} | {fila['razon_medias']:.3f} "
                 f"| {'Regresión' if fila['regresion'] else 'Dentro de la tolerancia'} |"
                 for fila in filas
             ),
@@ -310,17 +341,18 @@ def control_benchmark(referencia):
 
         base, actual = medir_alternado(src_base, SRC, corpus, destino)
 
-    filas = comparar(base, actual, TOLERANCIA)
+    filas = comparar(base, actual)
     guardar_reporte(
         "benchmark.json",
         {
             "base": referencia,
             "tolerancia": TOLERANCIA,
+            "tolerancia_intermitente": TOLERANCIA_INTERMITENTE,
             "rondas": RONDAS,
             "benchmarks": filas,
         },
     )
-    agregar_al_resumen(tabla_benchmark(filas, TOLERANCIA))
+    agregar_al_resumen(tabla_benchmark(filas))
 
     if any(fila["regresion"] for fila in filas):
         sys.exit("El benchmark detectó una regresión frente a la rama base.")
