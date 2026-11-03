@@ -667,3 +667,34 @@ def test_sin_scalene_instalado_lo_informa_sin_lanzar_nada(entorno_scalene, monke
         "omitido": f"scalene no está instalado en {entorno_scalene / '.venv' / 'bin'}"
     }
     assert llamadas == []
+
+
+# ---- perfilar_cprofile: el ranking muestra las funciones medidas
+
+
+def test_el_ranking_de_cprofile_omite_las_funciones_del_arnes():
+    def fila(acumulado):
+        return (1, 1, 0.5, acumulado, {})
+
+    estadisticas = SimpleNamespace(
+        stats={
+            ("/repo/src/perfilado.py", 9, "medir_version"): fila(100.0),
+            ("/repo/src/perfilado.py", 8, "_medir_con_indice"): fila(99.0),
+            **{
+                ("/repo/src/motor.py", numero, f"funcion_{numero}"): fila(50.0 - numero)
+                for numero in range(20)
+            },
+        }
+    )
+
+    ranking = perfilado._ranking_cprofile(estadisticas)
+
+    assert len(ranking) == 12
+    assert ranking[0] == {
+        "funcion": "perfilado.py:9(medir_version)",
+        "llamadas": 1,
+        "tottime": 0.5,
+        "cumtime": 100.0,
+    }
+    assert ranking[1]["funcion"] == "motor.py:0(funcion_0)"
+    assert ranking[-1]["funcion"] == "motor.py:10(funcion_10)"

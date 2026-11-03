@@ -583,6 +583,44 @@ def escalabilidad(tamanos, rondas, repeticiones):
 # ============================================================
 
 
+def _ranking_cprofile(estadisticas):
+    """
+    Las 12 funciones con mayor tiempo acumulado de un perfil.
+
+    Omite las ``_medir_*`` en que se divide :func:`medir_version`: acumulan casi
+    todo el tiempo sin hacer trabajo propio, y le quitarían su lugar a las
+    funciones que se quieren ver. Siguen estando en el ``.prof``.
+
+    :param estadisticas: Perfil de una versión.
+    :type estadisticas: pstats.Stats
+    :return: Por función: su nombre con archivo y línea, llamadas, tiempo propio y
+        tiempo acumulado.
+    :rtype: list[dict]
+    """
+    filas = []
+
+    for func, (llamadas, _, propio, acumulado, _) in sorted(
+        estadisticas.stats.items(),
+        key=lambda par: par[1][3],
+        reverse=True,
+    ):
+        archivo, linea, nombre = func
+
+        if nombre.startswith("_medir_"):
+            continue
+
+        filas.append(
+            {
+                "funcion": f"{Path(archivo).name}:{linea}({nombre})",
+                "llamadas": llamadas,
+                "tottime": propio,
+                "cumtime": acumulado,
+            }
+        )
+
+    return filas[:12]
+
+
 def perfilar_cprofile(corpus_dir, versiones):
     """
     Perfil determinista por función de cada versión.
@@ -630,28 +668,10 @@ def perfilar_cprofile(corpus_dir, versiones):
         estadisticas = pstats.Stats(str(destino))
         estadisticas.sort_stats("cumulative")
 
-        filas = []
-
-        for func, (llamadas, _, propio, acumulado, _) in sorted(
-            estadisticas.stats.items(),
-            key=lambda par: par[1][3],
-            reverse=True,
-        )[:12]:
-            archivo, linea, nombre = func
-
-            filas.append(
-                {
-                    "funcion": f"{Path(archivo).name}:{linea}({nombre})",
-                    "llamadas": llamadas,
-                    "tottime": propio,
-                    "cumtime": acumulado,
-                }
-            )
-
         hallazgos[version] = {
             "archivo": str(destino.relative_to(BASE_DIR)),
             "total_s": estadisticas.total_tt,
-            "top": filas,
+            "top": _ranking_cprofile(estadisticas),
         }
 
     return hallazgos
