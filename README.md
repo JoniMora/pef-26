@@ -1326,3 +1326,14 @@ open docs/_build/html/index.html      # Linux: xdg-open
 # (no pisa las existentes) y después hay que sumarla a docs/api/modules.rst
 sphinx-apidoc -o docs/api src
 ```
+
+---
+
+## Pendientes
+
+Verificaciones y ajustes en GitHub que quedan para después:
+
+- **Integrar el PR #8 y proteger `master`**, con "Resultado final" como check obligatorio, incluyendo a los administradores y sin exigir aprobaciones. Hasta entonces, un check en rojo no impide integrar. Después hay que confirmar, con un PR en rojo, que GitHub bloquea el merge.
+- **Quality gate de SonarCloud caído:** solo se vio el caso aprobado. Probarlo deja en SonarCloud una rama de prueba, que se borra desde su panel.
+- **Performance Gate en rojo en GitHub:** solo se verificó en local, con un límite imposible. En el CI corre después de SonarCloud, así que probarlo dispara un análisis.
+- **Corridas de prueba de "Resultado final":** las [6 corridas en rojo](https://github.com/JoniMora/pef-26/actions?query=event%3Aworkflow_dispatch) (Ruff, Bandit, pip-audit, un test roto, cobertura baja y una cancelada) quedan visibles como evidencia. Falta decidir si se usan en la entrega o se borran.
