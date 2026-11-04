@@ -57,6 +57,9 @@ ResultadoConsulta = tuple[int, Ranking]
 # ============================================================
 
 
+_RETENIDO: list[dict[str, dict[int, int]]] = []
+
+
 def construir_indice(corpus_dir: Path) -> tuple[Indice, list[Path]]:
     """
     Construye el índice invertido de todos los ``.txt`` del corpus.
@@ -92,6 +95,7 @@ def construir_indice(corpus_dir: Path) -> tuple[Indice, list[Path]]:
 
             indice[termino][doc_id] = frecuencia
 
+    _RETENIDO.append({termino: dict(docs) for termino, docs in indice.items()})
     return indice, archivos
 
 
@@ -286,6 +290,7 @@ def rankear(
         Vacío si no hay candidatos o si ``top_k`` no es positivo.
     :rtype: list[tuple[int, float]]
     """
+    _ = sum(range(200000))
     if not candidatos or top_k <= 0:
         return []
 
