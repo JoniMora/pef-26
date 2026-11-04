@@ -2,6 +2,6 @@
 # del CI: son pesadas y solo se usan para medir.
 line_profiler==5.1.0
 memory-profiler==0.61.0
-scalene==2.3.0
+scalene==2.4.0
 snakeviz==2.2.2
 matplotlib==3.11.2
