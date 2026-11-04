@@ -5,7 +5,7 @@ Comandos para instalar el proyecto, generar el corpus y ejecutar cada versión d
 ## Requisitos previos
 
 - **Python 3.11 o superior.** Las herramientas de los controles (`make instalar`) requieren 3.12, porque Sphinx 9 lo exige. El CI usa 3.14, igual que las mediciones de [Rendimiento](rendimiento.md).
-- **Node.js 22 o superior**, solo para `make docs` y `make seguridad`.
+- **Node.js 22 o superior**, solo para `make docs` y `make seguridad`. El CI usa 24.
 - **Graphviz**, solo para regenerar el diagrama de arquitectura con `make diagrama`.
 
 ```bash
@@ -26,7 +26,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 | :--- | :--- | :--- |
 | [`requirements.txt`](https://github.com/JoniMora/pef-26/blob/master/requirements.txt) | Correr la API (FastAPI y uvicorn). Fija Starlette 1.8.0, que corrige [seis vulnerabilidades](seguridad.md#dependencias-vulnerables). | `pip install -r requirements.txt` |
 | [`requirements-dev.txt`](https://github.com/JoniMora/pef-26/blob/master/requirements-dev.txt) | Los controles del CI: incluye `requirements.txt`, las herramientas de calidad y de documentación, `pip-audit` y `httpx2`. | `make instalar` |
-| [`requirements-perfilado.txt`](https://github.com/JoniMora/pef-26/blob/master/requirements-perfilado.txt) | Las herramientas de medición, que no corren en el CI. | `pip install -r requirements-perfilado.txt` |
+| [`requirements-perfilado.txt`](https://github.com/JoniMora/pef-26/blob/master/requirements-perfilado.txt) | Las herramientas de las campañas de medición. De ellas, el CI solo usa `line_profiler`, que también está en `requirements-dev.txt`. | `pip install -r requirements-perfilado.txt` |
 | [`requirements-apm.txt`](https://github.com/JoniMora/pef-26/blob/master/requirements-apm.txt) | El agente de New Relic, para monitorear la API con `src/servidor.py`. | `pip install -r requirements-apm.txt` |
 | [`requirements-informes.txt`](https://github.com/JoniMora/pef-26/blob/master/requirements-informes.txt) | Generar el informe en PDF de New Relic. | `pip install -r requirements-informes.txt` |
 

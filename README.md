@@ -47,9 +47,12 @@ make controles
 
 Verificaciones y ajustes en GitHub que quedan para después:
 
-- **Integrar los PR #8, #9, #10, #11 y #12, en ese orden, y proteger `master`**, con "Resultado final" como check obligatorio, incluyendo a los administradores y sin exigir aprobaciones. Hasta entonces, un check en rojo no impide integrar. Después hay que confirmar, con un PR en rojo, que GitHub bloquea el merge.
-- **Activar GitHub Pages**, con origen GitHub Actions, y comprobar la primera publicación al integrar la documentación. Hasta entonces, el job de publicación no se probó y el enlace al sitio no funciona.
-- **Activar las actualizaciones de seguridad de Dependabot** y comprobar su primera corrida: `.github/dependabot.yml` solo tiene efecto desde `master`. Hay que confirmar que regenera los `requirements*.txt` con sus hashes y que sus PR pasan "Resultado final" sin SonarCloud.
+- **Integrar los PR #8, #9, #10, #11 y #12, y por último el que cierra lo pendiente contra la guía, en ese orden, y proteger `master` después del #8**, con "Resultado final" como check obligatorio, incluyendo a los administradores y sin exigir aprobaciones. Hasta entonces, un check en rojo no impide integrar. Después hay que confirmar, con un PR en rojo, que GitHub bloquea el merge. Al integrar:
+  - Usar "Create a merge commit": con PR apilados, un squash deja commits duplicados o conflictos en el siguiente.
+  - Esperar a que termine el CI de cada merge: un push nuevo cancela la corrida anterior de `master`.
+  - Cambiar la base del PR siguiente a `master` no vuelve a correr el CI. Para repetirlo contra `master`, cerrar y reabrir el PR.
+- **Activar GitHub Pages antes de integrar el #9**, con origen GitHub Actions, porque si no `publicar-docs` falla en `master`, y comprobar la primera publicación. Hasta entonces, el job de publicación no se probó y el enlace al sitio no funciona.
+- **Activar las alertas y las actualizaciones de seguridad de Dependabot**, hoy desactivadas, y comprobar su primera corrida: `.github/dependabot.yml` solo tiene efecto desde `master`. Hay que confirmar que regenera los `requirements*.txt` con sus hashes y que sus PR pasan "Resultado final" sin SonarCloud.
 - **Quality gate de SonarCloud caído:** solo se vio el caso aprobado. Probarlo deja en SonarCloud una rama de prueba, que se borra desde su panel.
 - **Benchmark, profiling y memoria en rojo en GitHub:** solo se verificó en local, con regresiones provocadas, y que aprueban en GitHub. Probarlo exige subir una regresión a una rama descartable, y dispara un análisis de SonarCloud.
 - **Performance Gate en rojo en GitHub:** solo se verificó en local, con un límite imposible. En el CI corre después de SonarCloud, así que probarlo dispara un análisis.

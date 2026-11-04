@@ -17,6 +17,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.14"
+  NODE_VERSION: "24"
 
 # Cada comando vive en el Makefile, para que en local dé el mismo resultado
 # (tests/test_ci.py lo verifica). Los criterios de rechazo de cada control
@@ -57,6 +58,13 @@ jobs:
 
       - run: make complejidad
 
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: complejidad
+          path: reportes/lizard.txt
+
   tipado:
     name: Tipado (mypy)
     runs-on: ubuntu-latest
@@ -73,6 +81,13 @@ jobs:
 
       - run: make tipado
 
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tipado
+          path: reportes/mypy.xml
+
   seguridad:
     name: Seguridad (Bandit, pip-audit y npm audit)
     runs-on: ubuntu-latest
@@ -86,6 +101,10 @@ jobs:
           cache-dependency-path: requirements*.txt
 
       - run: make instalar
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - run: make seguridad
 
@@ -127,6 +146,10 @@ jobs:
           cache-dependency-path: requirements*.txt
 
       - run: make instalar
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Construir el sitio y revisar el Markdown
         run: make docs
@@ -192,6 +215,16 @@ jobs:
       # Paso separado y sin cobertura: el tracing distorsiona los tiempos.
       - name: Performance Gate
         run: make rendimiento
+
+      # Al final, para incluir el Performance Gate aunque falle algo antes.
+      - name: Guardar los reportes de las pruebas
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pruebas
+          path: |
+            reportes/pruebas.xml
+            reportes/performance-gate.xml
 
   # Lo más costoso va al final, y solo si los tests pasan.
   benchmark:

@@ -30,9 +30,17 @@ Pillow, re2js y KaTeX aparecieron al ampliar la auditoría a todos los locks: an
 
 ## Política de bloqueo
 
-**Tolerancia cero con excepciones documentadas.** Cualquier hallazgo de Bandit, pip-audit, `npm audit` o gitleaks rechaza el cambio, sea cual sea su severidad.
+**Tolerancia cero con excepciones documentadas.** El umbral de rechazo es la severidad más baja de cada herramienta, así que ningún hallazgo se integra sin una excepción registrada:
 
-- **Por qué no se filtra por severidad:** pip-audit no informa severidad, y bloquear todo es más estricto y fácil de verificar. Si aparece un falso positivo, se justifica; no se baja el umbral.
+| Severidad | Bandit | `npm audit` | pip-audit y gitleaks | Decisión |
+| :--- | :--- | :--- | :--- | :--- |
+| Crítica | No la informa | `critical` | Todo hallazgo: no informan severidad, así que se trata como crítico | Rechaza |
+| Alta | `HIGH` | `high` | — | Rechaza |
+| Media | `MEDIUM` | `moderate` | — | Rechaza |
+| Baja | `LOW` | `low` | — | Rechaza |
+
+- **Por qué se bloquean todas:** pip-audit no informa severidad, así que un umbral intermedio no se podría aplicar a todas las dependencias. Bloquear todo es más estricto y fácil de verificar. Si aparece un falso positivo, se justifica; no se baja el umbral.
+- **Cómo se verifica:** los comandos de `make seguridad` no usan filtros de severidad ni de confianza, y [`tests/test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) falla si se agrega alguno.
 - **Cómo se registra una excepción:** con la marca de la propia herramienta (`# nosec <regla>` en Bandit, `--ignore-vuln <id>` en pip-audit, la huella del hallazgo en `.gitleaksignore` en gitleaks) y una fila en la tabla de abajo, en el mismo pull request. `npm audit` no admite excepciones: se actualiza el paquete o se fuerza una versión con `overrides`.
 - **SonarCloud:** su quality gate se aplica al código nuevo y bloquea desde el CI.
 
