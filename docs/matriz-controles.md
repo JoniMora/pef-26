@@ -37,4 +37,4 @@ El job **Resultado final** es el único check obligatorio para integrar en `mast
 
 ## Política de bloqueo de seguridad
 
-**Tolerancia cero con excepciones documentadas:** cualquier hallazgo de Bandit, pip-audit, `npm audit` o gitleaks rechaza el cambio, sea cual sea su severidad. El motivo, cómo se registra una excepción y las excepciones vigentes están en [Seguridad](seguridad.md#política-de-bloqueo).
+**Tolerancia cero con excepciones documentadas:** cualquier hallazgo de Bandit, pip-audit, `npm audit` o gitleaks rechaza el cambio, sea cual sea su severidad. La decisión por severidad, el motivo, cómo se registra una excepción y las excepciones vigentes están en [Seguridad](seguridad.md#política-de-bloqueo).

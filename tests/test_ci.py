@@ -80,6 +80,22 @@ def test_el_reporte_de_secretos_oculta_los_valores():
     assert "--redact" in comando
 
 
+def test_la_seguridad_no_filtra_por_severidad():
+    # La política rechaza cualquier hallazgo (docs/seguridad.md). Un filtro dejaría
+    # pasar los de menor severidad sin que ningún job falle.
+    makefile = (RAIZ / "Makefile").read_text("utf-8").splitlines()
+    comandos = [
+        linea for linea in makefile if re.search(r"bandit|npm audit|pip-audit", linea)
+    ]
+    filtros = r"--audit-level|--severity-level|--confidence-level|\s-[li]+(\s|$)"
+    configuracion = tomllib.loads((RAIZ / "pyproject.toml").read_text("utf-8"))
+
+    assert comandos
+    assert [linea for linea in comandos if re.search(filtros, linea)] == []
+    assert "skips" not in configuracion["tool"]["bandit"]
+    assert not (RAIZ / ".npmrc").exists()
+
+
 def test_solo_los_pr_de_dependabot_omiten_sonarcloud():
     pasos = WORKFLOW["jobs"]["tests"]["steps"]
     sonar = next(paso for paso in pasos if paso.get("name") == "SonarCloud")
