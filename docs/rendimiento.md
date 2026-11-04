@@ -402,6 +402,118 @@ Construir `src/perfilado.py` expuso cuatro defectos en **cómo se medía**, no e
 
 > Salvo aclaración expresa, **todas las cifras del documento provienen de este equipo**. La única excepción es [Escalabilidad por hardware](#escalabilidad-por-hardware), que contrasta contra un AMD Ryzen 9 9900X de 12 núcleos bajo Windows.
 
+## Controles en el CI
+
+Las mediciones de esta página son campañas manuales sobre 50.000 documentos. Además, en cada pull request corren tres controles más chicos, sobre 2.000 documentos generados con semilla fija. Están en [`scripts/control_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/scripts/control_rendimiento.py), corren en el job "Rendimiento", solo si pasan los tests, y dejan sus reportes en el artefacto `rendimiento`.
+
+### Benchmark
+
+[`benchmarks/test_motor.py`](https://github.com/JoniMora/pef-26/blob/master/benchmarks/test_motor.py) mide con pytest-benchmark diez operaciones: tokenizar, contar términos, indexar en secuencia y en paralelo, cargar el índice de disco, la búsqueda secuencial, la consulta de uno y de varios términos, la consulta con caché caliente y `GET /buscar`.
+
+`make benchmark` las compara contra la rama base **en el mismo job**. Una operación tiene una regresión si cumple una de estas dos condiciones:
+
+- **Regresión pareja:** el mínimo y la mediana suben más de un **10 %**. Una regresión así desplaza toda la distribución, y cada estadístico por separado falla por su lado.
+- **Regresión intermitente:** el mínimo, la mediana o la media suben más de un **30 %**. Cubre lo que la primera no ve: si pocas iteraciones tardan mucho más, el mínimo no se mueve, y tampoco la mediana, pero la media sí.
+
+Cómo se mide:
+
+- **Mismo código de medición:** los dos lados corren la suite de la rama actual, porque la rama base puede no tenerla. La suite verifica de dónde importó el motor: si los dos lados midieran lo mismo, el control nunca rechazaría.
+- **Mismos datos:** el corpus se genera una sola vez y lo usan los dos.
+- **Corridas alternadas:** 3 rondas por lado, en orden alternado, para repartir la deriva de la máquina. De cada estadístico se toma la mediana entre rondas, que descarta una ronda anómala.
+- **Confirmación:** antes de rechazar se repite solo lo sospechoso, 3 rondas más por lado, y decide esa segunda medición. Un período lento de la máquina que cae más sobre un lado mueve todos los estadísticos, igual que una regresión. Lo que los distingue es que la regresión persiste.
+
+**Por qué esos valores.** Como la rama que agregó este control no cambia `src/`, cada corrida del job compara el código contra sí mismo. En 43 corridas de GitHub Actions, contando los dos sentidos, porque qué lado sale más lento es azar:
+
+| Benchmark | Mediana en la rama base (ms) | Regla pareja: mayor razón | Un solo estadístico: mayor razón |
+| :--- | ---: | ---: | ---: |
+| `api_buscar` | 0,46 a 1,15 | 1,038 | 1,168 |
+| `busqueda_secuencial` | 14,2 a 33,5 | 1,019 | 1,036 |
+| `cargar_indice_de_disco` | 12,5 a 24,8 | 1,028 | 1,076 |
+| `consulta_con_cache_caliente` | 0,0013 a 0,0025 | 1,033 | 1,048 |
+| `consulta_de_un_termino` | 0,17 a 0,37 | 1,027 | 1,115 |
+| `consulta_de_varios_terminos` | 0,43 a 0,91 | 1,035 | 1,058 |
+| `contar_terminos` | 0,029 a 0,061 | 1,028 | 1,053 |
+| `indexar_en_paralelo` | 102 a 200 | 1,027 | 1,047 |
+| `indexar_secuencial` | 125 a 252 | 1,024 | 1,035 |
+| `tokenizar` | 0,020 a 0,038 | 1,052 | 1,059 |
+
+En 860 comparaciones, la regla pareja llegó como máximo a 5,2 % y un solo estadístico a 16,8 %, así que ninguna superó su umbral. La tabla también justifica comparar en el mismo job: entre corridas, el mismo benchmark llegó a tardar 2,50 veces más según el runner, y ningún límite fijo en milisegundos serviría.
+
+**Cómo se llegó a esta regla.** Las dos versiones anteriores fallaron con datos reales:
+
+1. **El mínimo de todas las rondas**, con el argumento de que el ruido solo suma tiempo. Es falso: en la corrida 15 rechazó un cambio sano, con una razón de 1,117, porque una sola iteración de 2.714 dio 0,2499 ms, con una mediana de 0,2868 ms en esa misma ronda.
+2. **La mediana de los mínimos de cada ronda**, elegida con esas 15 corridas. En las 13 siguientes llegó a una razón de 0,897: aprobó de casualidad, porque con los lados invertidos era otro falso rechazo.
+
+El mínimo es sensible a iteraciones aisladas, y la mediana, al proceso: `api_buscar` da 0,65 o 0,75 ms según el proceso, en una misma corrida. Exigir los dos resuelve ambos casos:
+
+| Regla | 28 corridas: mayor diferencia | Casos sobre el 10 % | 15 corridas nuevas: mayor diferencia | Casos sobre el 10 % |
+| :--- | ---: | ---: | ---: | ---: |
+| Mínimo de todas las rondas | 13,9 % | 3 | 6,2 % | 0 |
+| Mediana de los mínimos | 11,5 % | 1 | 5,9 % | 0 |
+| Mediana de las medianas | 16,8 % | 3 | 9,4 % | 0 |
+| Mínimo y mediana a la vez | 3,8 % | 0 | 5,2 % | 0 |
+
+La regla se eligió mirando las primeras 28 corridas, así que se validó con 15 nuevas, que no intervinieron en la elección: no hubo ningún falso rechazo. La confirmación se sumó después, por lo que observé con regresiones provocadas en una laptop ocupada: 6 benchmarks sin relación con el cambio superaron la tolerancia. Solo puede evitar rechazos, así que estas cifras siguen valiendo como cota.
+
+**Qué detecta.** Regresiones provocadas en un árbol aparte y medidas en macOS, con las razones del benchmark más afectado:
+
+| Regresión provocada | Benchmark | Mínimos | Medianas | Medias | Resultado |
+| :--- | :--- | ---: | ---: | ---: | :--- |
+| Trabajo extra grande en `rankear()` | `consulta_de_un_termino` | 155,72 | 156,67 | 154,46 | Rechazada |
+| Perder el `lru_cache` de `normalize()` | `tokenizar`, y tres más | 2,42 | 2,42 | 2,83 | Rechazada |
+| `GET /buscar` con 1 ms más | `api_buscar` | 2,40 | 2,38 | 2,28 | Rechazada |
+| Perder el *heap*: `sorted()` completo | `consulta_de_un_termino` | 2,08 | 2,07 | 2,07 | Rechazada |
+| Trabajo extra mediano en `rankear()` | `consulta_de_un_termino` | 1,75 | 1,75 | 1,75 | Rechazada |
+| Cargar el índice con 10 ms más | `cargar_indice_de_disco` | 1,37 | 1,44 | 1,44 | Rechazada |
+| Trabajo extra en `QueryCache.get()` | `consulta_con_cache_caliente` | 1,43 | 1,40 | 1,41 | Rechazada |
+| Indexar en secuencia con 100 ms más | `indexar_secuencial` | 1,33 | 1,36 | 1,34 | Rechazada |
+| Trabajo extra chico en `rankear()` | `consulta_de_un_termino` | 1,34 | 1,35 | 1,35 | Rechazada |
+| Indexar en paralelo con 100 ms más | `indexar_en_paralelo` | 1,24 | 1,13 | 1,12 | Rechazada |
+| Búsqueda secuencial con 20 ms más | `busqueda_secuencial` | 1,21 | 1,23 | 1,24 | Rechazada |
+| Trabajo extra mínimo en `rankear()` | `consulta_de_un_termino` | 1,16 | 1,16 | 1,17 | Rechazada |
+| Perder el `lru_cache` de `stem()` | `tokenizar` | 1,15 | 1,15 | 1,18 | Rechazada |
+| Trabajo extra ínfimo en `rankear()` | `consulta_de_un_termino` | 1,08 | 1,08 | 1,09 | Aprobada: por debajo de los umbrales |
+| **Intermitentes** | | | | | |
+| 100 veces más en el 60 % de las iteraciones | `consulta_de_un_termino` | 1,00 | 154,58 | 90,47 | Rechazada |
+| 100 veces más en el 5 % de las iteraciones | `consulta_de_un_termino` | 1,00 | 1,00 | 9,65 | Rechazada |
+| El doble en el 60 % de las iteraciones | `consulta_de_un_termino` | 1,01 | 2,53 | 1,98 | Rechazada |
+| 20 % más en el 30 % de las iteraciones | `consulta_de_un_termino` | 1,00 | 1,01 | 1,10 | Aprobada: por debajo de los umbrales |
+
+Ningún benchmark sin relación con la falla quedó marcado. Si los dos lados miden el mismo código por error, o si la referencia no existe, el control también rechaza.
+
+**Límites del control:**
+
+- **Regresiones intermitentes moderadas:** si pocas iteraciones tardan un poco más, ningún estadístico llega a su umbral, como en la última fila de la tabla.
+- **Regresiones acumuladas:** cada pull request se compara contra su rama base, así que varias regresiones menores al 10 % pasan una por una. Por eso sigue el [Performance Gate](matriz-controles.md#performance-gate), con un límite fijo y la comparación contra la línea base.
+- **Mide el código, no las dependencias:** los dos lados corren en el mismo entorno, así que la actualización de un paquete no aparece como regresión.
+- **Interfaz de los benchmarks:** si un cambio renombra una función que usa la suite, la rama base no la puede correr y el control rechaza. Hay que separar el cambio en dos pull requests, o dejar un alias mientras tanto.
+
+### Profiling
+
+`make profiling` perfila cada versión con cProfile, por función, y con line_profiler, por línea, reutilizando los perfiladores de `src/perfilado.py`. Deja los `.prof`, los reportes por línea y `ranking.json` en `reportes/profiling/`, y muestra el ranking de la versión `algoritmo` en el resumen de la corrida. Rechaza solo si un perfil no se puede generar o queda vacío: un perfil diagnostica, no aprueba. Corre también cuando el benchmark rechaza, que es cuando más sirve.
+
+line_profiler no cruza el límite de proceso, así que en `concurrencia` y `final` queda registrado como omitido.
+
+### Memoria
+
+`make memoria` mide el pico de `tracemalloc` de cada versión, en un proceso limpio y en su propio paso, porque `tracemalloc` encarece lo que mide. Rechaza si alguna supera su límite:
+
+| Versión | GitHub Actions (MB) | macOS (MB) | Límite (MB) |
+| :--- | ---: | ---: | ---: |
+| `inicial` | 0,53 a 0,54 | 0,53 a 0,54 | 0,60 |
+| `estructura` | 4,42 | 4,42 | 4,87 |
+| `algoritmo` | 4,11 | 4,12 | 4,53 |
+| `concurrencia` | 9,29 | 9,03 | 10,21 |
+| `final` | 9,29 | 9,03 | 10,21 |
+
+**Cómo se fijó el límite.** Es el mayor pico medido, más un 10 %, con Python 3.14. El pico casi no varía: en 20 corridas de GitHub Actions, cuatro versiones variaron como máximo 0,001 MB, e `inicial`, la más chica, un 3 %. Las rutas del corpus son relativas al repositorio porque el índice guarda una por documento: con rutas absolutas, macOS daba un 9 % más que Linux solo por el largo de su carpeta temporal. Si un cambio necesita más memoria con un motivo válido, se sube `LIMITES_MB` en ese mismo pull request, y queda a la vista en la revisión. Lo mismo hay que revisar al cambiar la versión de Python.
+
+Se probó con fallas provocadas: copiar el índice, materializar la lista de rutas en la línea base y reservar un 12 % más en el índice se rechazan, y un 5 % más pasa.
+
+**Asignaciones relevantes.** El reporte `memoria.json` lista además las líneas que retienen más memoria al indexar y consultar. La primera es la que guarda las *postings* en `construir_indice()`.
+
+`tracemalloc` no ve los procesos hijos, así que en `concurrencia` y `final` el pico es el del proceso padre. El reporte incluye también el RSS, pero no se usa como criterio: varía más entre máquinas (de 39 a 47 MB en `final`).
+
 ## Cómo reproducir las mediciones
 
 ### Comparativa automatizada

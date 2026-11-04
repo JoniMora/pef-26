@@ -25,10 +25,13 @@ make seguridad     # Bandit, pip-audit sobre todos los locks y npm audit; report
 make secretos      # gitleaks sobre todo el historial; baja la versión fijada y verifica su hash
 make tests         # tests con cobertura mínima del 80 %; reporte en htmlcov/
 make rendimiento   # Performance Gate
+make benchmark     # tiempos contra BENCHMARK_BASE (por defecto, origin/master); reporte en reportes/
+make profiling     # perfil por función y por línea; reportes en reportes/profiling/
+make memoria       # pico de memoria de cada versión contra su límite; reporte en reportes/
 make docs          # sitio con Sphinx, sin advertencias, y markdownlint
 make enlaces       # enlaces externos; informa, pero no bloquea el CI
 make diagrama      # regenera el diagrama de arquitectura; requiere Graphviz
-make controles     # lint, complejidad, tipado, seguridad, secretos, tests, rendimiento y docs
+make controles     # todos los anteriores, salvo instalar, lock, enlaces y diagrama
 ```
 
 `make resultado-final` lo corre solo el CI: decide a partir de los resultados de los demás jobs, y sin ellos rechaza. SonarCloud también corre solo en el CI, porque necesita el token del proyecto.
@@ -37,7 +40,7 @@ make controles     # lint, complejidad, tipado, seguridad, secretos, tests, rend
 
 ## Pipeline de CI
 
-Corre en cada pull request y en cada push a `master`. Los jobs de lint, complejidad, tipado, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan todos menos el de documentación.
+Corre en cada pull request y en cada push a `master`. Los jobs de lint, complejidad, tipado, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan todos menos el de documentación, y las mediciones de rendimiento, que son las más costosas, solo si pasan los tests.
 
 | Job | Qué hace |
 | :--- | :--- |
@@ -48,6 +51,7 @@ Corre en cada pull request y en cada push a `master`. Los jobs de lint, compleji
 | Secretos (gitleaks) | `make secretos` sobre todo el historial, y guarda el reporte, con los valores ocultos, como artefacto. |
 | Documentación (Sphinx y enlaces) | `make docs`, guarda el sitio como artefacto y `make enlaces`, que informa sin bloquear. |
 | Tests, cobertura y Performance Gate | `make tests`, guarda la cobertura como artefacto, envía el análisis a SonarCloud y corre `make rendimiento`. Los pull requests de Dependabot omiten SonarCloud, porque no reciben su token y no tocan el código que analiza. |
+| Rendimiento (benchmark, profiling y memoria) | Solo si pasan los tests: `make benchmark`, `make profiling` y `make memoria`, y guarda los reportes como artefacto. |
 | Resultado final | Rechaza el cambio si algún job anterior no terminó bien, y deja la tabla de controles en el resumen de la corrida. |
 | Publicar la documentación | Solo en `master` y si "Resultado final" aprueba: publica el sitio en GitHub Pages. |
 
@@ -77,6 +81,9 @@ gh run download <id-de-la-corrida> -n cobertura
 | Cobertura | `make tests` | Ver qué líneas faltan en la salida o en `htmlcov/index.html`, que en el CI es el artefacto `cobertura`. |
 | SonarCloud | Solo en el CI | Abrir el [panel](https://sonarcloud.io/dashboard?id=JoniMora_pef-26) y corregir lo que tiró el quality gate. Si el error es de autenticación, revisar el secreto `SONAR_TOKEN`. |
 | Performance Gate | `make rendimiento` | Una regresión real se confirma con `CORPUS_DOCS=20000 pytest -m rendimiento --no-cov`. Perfilar con [estos comandos](rendimiento.md#cómo-reproducir-las-mediciones). |
+| Benchmark | `make benchmark` | Mirar qué operación rechazó en el resumen de la corrida y abrir su perfil en el artefacto `rendimiento`. El control ya repitió la medición antes de rechazar, así que relanzar el job no es la primera respuesta: una regresión real vuelve a rechazar. En local, `make benchmark BENCHMARK_BASE=<rama>` repite la comparación. Si la mejora de otra parte justifica la regresión, hay que explicarlo en el pull request. Si la rama base no puede correr la suite, ver los [límites del control](rendimiento.md#benchmark). |
+| Profiling | `make profiling` | El error dice qué versión falló. Suele ser un cambio en `medir_version()` o en los perfiladores de `src/perfilado.py`. |
+| Memoria | `make memoria` | `memoria.json` lista las líneas que retienen más memoria. Corregir el aumento o, si tiene un motivo válido, subir `LIMITES_MB` en `scripts/control_rendimiento.py` y actualizar la [tabla de límites](rendimiento.md#memoria). |
 | Sphinx | `make docs` | Corregir la advertencia que imprime. Un enlace interno roto aparece como `myst.xref_missing`; un docstring mal formado, con la ruta del módulo. |
 | markdownlint | `make docs` | `npx markdownlint-cli2 --fix README.md "docs/**/*.md" "#docs/_build"` resuelve los automáticos. La configuración está en [`.markdownlint-cli2.jsonc`](https://github.com/JoniMora/pef-26/blob/master/.markdownlint-cli2.jsonc). |
 | Enlaces externos | `make enlaces` | No bloquea. Revisar el artefacto `enlaces` y corregir el enlace si el problema no es una caída temporal del sitio. |

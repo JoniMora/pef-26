@@ -29,8 +29,9 @@ REPETICIONES = 5
 def _mejor_tiempo(funcion):
     """
     Mínimo de varias corridas: el ruido de un runner compartido
-    (otros procesos, GC, caché de disco) solo puede sumar tiempo,
-    así que el mínimo es la estimación más estable del costo real.
+    (otros procesos, GC, caché de disco) casi siempre suma tiempo.
+    Alcanza para este límite, que es muy holgado; el benchmark, que
+    compara con tolerancia fina, necesita más (scripts/control_rendimiento.py).
     """
 
     tiempos = []

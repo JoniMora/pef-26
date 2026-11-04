@@ -35,8 +35,9 @@ max-complexity = 10
 convention = "pep257"
 
 [tool.ruff.lint.per-file-ignores]
-# Los tests se documentan con su nombre: no se les exige docstring.
+# Los tests y benchmarks se documentan con su nombre: no se les exige docstring.
 "tests/**" = ["D"]
+"benchmarks/**" = ["D"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
@@ -62,7 +63,7 @@ explicit_package_bases = true
 #  Bandit (análisis de seguridad)
 # ─────────────────────────────────────────────────────────────
 [tool.bandit]
-exclude_dirs = ["tests", ".venv", "profiles", "node_modules", ".herramientas", "reportes"]
+exclude_dirs = ["tests", "benchmarks", ".venv", "profiles", "node_modules", ".herramientas", "reportes"]
 
 # ─────────────────────────────────────────────────────────────
 #  Pytest

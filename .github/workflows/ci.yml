@@ -193,13 +193,56 @@ jobs:
       - name: Performance Gate
         run: make rendimiento
 
+  # Lo más costoso va al final, y solo si los tests pasan.
+  benchmark:
+    name: Rendimiento (benchmark, profiling y memoria)
+    needs: [tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Hace falta el commit anterior: es contra lo que se compara.
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: make instalar
+
+      - name: Benchmark contra la rama base
+        run: make benchmark
+        env:
+          # En un PR, HEAD es el merge con la rama base y este es su primer
+          # padre. En master, el commit anterior.
+          BENCHMARK_BASE: HEAD^1
+
+      # También si el benchmark rechaza: es cuando más sirve el perfil.
+      - name: Perfil de CPU
+        if: ${{ !cancelled() }}
+        run: make profiling
+
+      # Paso separado: tracemalloc encarece lo que mide.
+      - name: Memoria
+        if: ${{ !cancelled() }}
+        run: make memoria
+
+      - name: Guardar los reportes
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: rendimiento
+          path: reportes/
+
   # Único check obligatorio para integrar en master: así la protección de
   # rama no se rompe al agregar o renombrar jobs. Todo job nuevo se suma a
   # `needs`. Sin always() quedaría omitido si falla un job, y la protección
   # toma un check omitido como aprobado.
   resultado-final:
     name: Resultado final
-    needs: [lint, complejidad, tipado, seguridad, secretos, documentacion, tests]
+    needs: [lint, complejidad, tipado, seguridad, secretos, documentacion, tests, benchmark]
     if: always()
     runs-on: ubuntu-latest
     steps:
