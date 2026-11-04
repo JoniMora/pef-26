@@ -18,13 +18,13 @@ Con el entorno virtual activado, estos son los mismos comandos que corre el CI: 
 ```bash
 make instalar      # herramientas del pipeline, en las versiones del CI
 make lint          # Ruff: PEP 8, pyflakes, nombres, docstrings, complejidad y formato
-make complejidad   # Lizard: funciones de hasta 50 líneas de código y complejidad 15
-make tipado        # mypy sobre core/, optimizado.py y api.py
+make complejidad   # Lizard: funciones de hasta 50 líneas de código y complejidad 15; reporte en reportes/
+make tipado        # mypy sobre core/, optimizado.py y api.py; reporte en reportes/
 make lock          # regenera los requirements*.txt, con hashes, a partir de los .in
 make seguridad     # Bandit, pip-audit sobre todos los locks y npm audit; reportes en reportes/
 make secretos      # gitleaks sobre todo el historial; baja la versión fijada y verifica su hash
-make tests         # tests con cobertura mínima del 80 %; reporte en htmlcov/
-make rendimiento   # Performance Gate
+make tests         # tests con cobertura mínima del 80 %; reportes en htmlcov/ y reportes/
+make rendimiento   # Performance Gate; reporte en reportes/
 make benchmark     # tiempos contra BENCHMARK_BASE (por defecto, origin/master); reporte en reportes/
 make profiling     # perfil por función y por línea; reportes en reportes/profiling/
 make memoria       # pico de memoria de cada versión contra su límite; reporte en reportes/
@@ -45,12 +45,12 @@ Corre en cada pull request y en cada push a `master`. Los jobs de lint, compleji
 | Job | Qué hace |
 | :--- | :--- |
 | Lint (Ruff) | `make lint`. |
-| Complejidad (Lizard) | `make complejidad`. |
-| Tipado (mypy) | `make tipado`. |
+| Complejidad (Lizard) | `make complejidad`, y guarda la tabla de todas las funciones como artefacto. |
+| Tipado (mypy) | `make tipado`, y guarda el reporte como artefacto. |
 | Seguridad (Bandit, pip-audit y npm audit) | `make seguridad`, y guarda los reportes en JSON como artefacto. |
 | Secretos (gitleaks) | `make secretos` sobre todo el historial, y guarda el reporte, con los valores ocultos, como artefacto. |
 | Documentación (Sphinx y enlaces) | `make docs`, guarda el sitio como artefacto y `make enlaces`, que informa sin bloquear. |
-| Tests, cobertura y Performance Gate | `make tests`, guarda la cobertura como artefacto, envía el análisis a SonarCloud y corre `make rendimiento`. Los pull requests de Dependabot omiten SonarCloud, porque no reciben su token y no tocan el código que analiza. |
+| Tests, cobertura y Performance Gate | `make tests`, guarda la cobertura como artefacto, envía el análisis a SonarCloud, corre `make rendimiento` y guarda los reportes de las pruebas como artefacto. Los pull requests de Dependabot omiten SonarCloud, porque no reciben su token y no tocan el código que analiza. |
 | Rendimiento (benchmark, profiling y memoria) | Solo si pasan los tests: `make benchmark`, `make profiling` y `make memoria`, y guarda los reportes como artefacto. |
 | Resultado final | Rechaza el cambio si algún job anterior no terminó bien, y deja la tabla de controles en el resumen de la corrida. |
 | Publicar la documentación | Solo en `master` y si "Resultado final" aprueba: publica el sitio en GitHub Pages. |

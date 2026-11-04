@@ -57,6 +57,13 @@ jobs:
 
       - run: make complejidad
 
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: complejidad
+          path: reportes/lizard.txt
+
   tipado:
     name: Tipado (mypy)
     runs-on: ubuntu-latest
@@ -72,6 +79,13 @@ jobs:
       - run: make instalar
 
       - run: make tipado
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tipado
+          path: reportes/mypy.xml
 
   seguridad:
     name: Seguridad (Bandit, pip-audit y npm audit)
@@ -192,6 +206,16 @@ jobs:
       # Paso separado y sin cobertura: el tracing distorsiona los tiempos.
       - name: Performance Gate
         run: make rendimiento
+
+      # Al final, para incluir el Performance Gate aunque falle algo antes.
+      - name: Guardar los reportes de las pruebas
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pruebas
+          path: |
+            reportes/pruebas.xml
+            reportes/performance-gate.xml
 
   # Lo más costoso va al final, y solo si los tests pasan.
   benchmark:

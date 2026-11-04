@@ -6,11 +6,11 @@ Todos los controles corren en el CI. Los valores que dependen del entorno, como 
 
 | Control | Herramienta | Comando | Reporte | Se rechaza si | Estado |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| Pruebas | pytest | `make tests` | Salida del job | Falla al menos una prueba | Activo |
+| Pruebas | pytest | `make tests` | Salida del job y artefacto `pruebas` (`pruebas.xml` y `performance-gate.xml`, en JUnit) | Falla al menos una prueba | Activo |
 | Cobertura | pytest-cov | `make tests` | Artefacto `cobertura` (`coverage.xml` y `htmlcov/`) | Cobertura menor al 80 % (`fail_under`) | Activo |
 | Análisis estático | Ruff, SonarCloud | `make lint` (Sonar solo corre en el CI) | Anotaciones en el pull request y panel de SonarCloud | Algún hallazgo de Ruff, un archivo sin formatear o el quality gate caído | Activo |
-| Complejidad | Ruff C901, Lizard | `make lint`, `make complejidad` | Salida del job | Complejidad mayor a 10 (Ruff); más de 50 líneas de código o complejidad mayor a 15 (Lizard) | Activo |
-| Tipado | mypy | `make tipado` | Salida del job | Algún error en `core/`, `optimizado.py` o `api.py`, con `disallow_untyped_defs` | Activo |
+| Complejidad | Ruff C901, Lizard | `make lint`, `make complejidad` | Salida del job y artefacto `complejidad` (`lizard.txt`, con la tabla de todas las funciones) | Complejidad mayor a 10 (Ruff); más de 50 líneas de código o complejidad mayor a 15 (Lizard) | Activo |
+| Tipado | mypy | `make tipado` | Salida del job y artefacto `tipado` (`mypy.xml`, en JUnit) | Algún error en `core/`, `optimizado.py` o `api.py`, con `disallow_untyped_defs` | Activo |
 | Vulnerabilidades del código | Bandit, SonarCloud | `make seguridad` | Salida del job y artefacto `seguridad` (`bandit.json`) | Algún hallazgo sin excepción documentada | Activo |
 | Vulnerabilidades de dependencias | pip-audit, `npm audit` | `make seguridad` | Salida del job y artefacto `seguridad` (`pip-audit-*.json` y `npm-audit.json`) | Alguna vulnerabilidad sin excepción documentada, en cualquier lock | Activo |
 | Secretos | gitleaks | `make secretos` | Salida del job y artefacto `secretos` (`gitleaks.json`), con los valores ocultos | Algún hallazgo en todo el historial, sin excepción documentada | Activo |

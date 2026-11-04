@@ -36,13 +36,17 @@ lint:
 	ruff format --check .
 
 # El generador del informe queda afuera: sus funciones largas son el texto del
-# documento, con complejidad 1.
+# documento, con complejidad 1. Primero la tabla completa, sin frenar, para que
+# exista aunque el control rechace. Después solo lo que supera los límites, que decide.
 complejidad:
+	mkdir -p reportes
+	-lizard src scripts -x "scripts/generar_informe_newrelic.py" -T nloc=50 -C 15 > reportes/lizard.txt
 	lizard src scripts -x "scripts/generar_informe_newrelic.py" -T nloc=50 -C 15 -w
 
 # El alcance y las reglas están en pyproject.toml.
 tipado:
-	mypy
+	mkdir -p reportes
+	mypy --junit-xml reportes/mypy.xml
 
 # Primero los reportes en JSON, sin frenar si hay hallazgos, para que existan
 # aunque el control rechace. Después los mismos análisis, legibles, que deciden.
@@ -70,11 +74,13 @@ secretos: $(GITLEAKS)
 
 # El umbral de cobertura (fail_under) está en pyproject.toml.
 tests:
-	pytest -m "not rendimiento" --cov --cov-report=term-missing --cov-report=xml --cov-report=html
+	mkdir -p reportes
+	pytest -m "not rendimiento" --junitxml=reportes/pruebas.xml --cov --cov-report=term-missing --cov-report=xml --cov-report=html
 
 # Aparte y sin cobertura: el tracing distorsiona los tiempos.
 rendimiento:
-	pytest -m rendimiento --no-cov -v
+	mkdir -p reportes
+	pytest -m rendimiento --junitxml=reportes/performance-gate.xml --no-cov -v
 
 # -W: cualquier advertencia de Sphinx, incluido un enlace interno roto, rechaza.
 # -E: relee todo, para no perder advertencias de páginas que no cambiaron.

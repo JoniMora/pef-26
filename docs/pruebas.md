@@ -43,7 +43,7 @@ CORPUS_DOCS=20000 pytest -m rendimiento --no-cov   # con más volumen
 | [`test_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_rendimiento.py) | 2 | *Performance Gate*: la consulta optimizada responde en menos de 0,5 s y le gana a la línea base. |
 | [`test_perfilado.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_perfilado.py) | 31 | Qué queda adentro de cada ventana cronometrada de `medir_version()`, el orden y el resumen de `comparativa()`, el texto de `responder_preguntas()`, cómo se lanza Scalene y qué se informa en cada resultado, y el ranking de cProfile. |
 | [`test_control_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_control_rendimiento.py) | 44 | El benchmark rechaza solo con la regla medida y después de confirmar, incluidos los tiempos reales de las corridas que fallaron, alterna los lados y mide de verdad el código extraído; la memoria rechaza solo por encima del límite; un perfil vacío rechaza, y los valores vigentes están documentados. |
-| [`test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) | 33 | Todo job se suma a "Resultado final", ningún paso ejecuta un comando sin pasar por `make`, ningún control ignora sus fallos, la seguridad no filtra por severidad, los secretos se buscan en todo el historial, con los valores ocultos, no se relajan los límites de complejidad ni el alcance del tipado, y el benchmark compara contra el commit correcto. |
+| [`test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) | 36 | Todo job se suma a "Resultado final", ningún paso ejecuta un comando sin pasar por `make`, ningún control ignora sus fallos, la seguridad no filtra por severidad, los secretos se buscan en todo el historial, con los valores ocultos, las pruebas, la complejidad y el tipado guardan su reporte aunque rechacen, no se relajan los límites de complejidad ni el alcance del tipado, y el benchmark compara contra el commit correcto. |
 | [`test_resultado_final.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_resultado_final.py) | 9 | "Resultado final" rechaza si un job falló, se canceló o se omitió, y también si no recibe resultados. |
 | [`test_docs.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_docs.py) | 24 | Están las 9 secciones de la documentación, los enlaces al repositorio apuntan a archivos que existen y todo módulo y objetivo de `make` está documentado. |
 | [`test_dependencias.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_dependencias.py) | 16 | Cada versión pedida en un `.in` está en su lock, con hash; la instalación exige los hashes; la auditoría cubre todos los locks, y Dependabot, todos los ecosistemas. |
@@ -93,10 +93,10 @@ pytest tests/test_equivalencia.py -v
 
 | Métrica | Resultado |
 | :--- | ---: |
-| Tests | **279** pasan, ninguno falla |
+| Tests | **282** pasan, ninguno falla |
 | Tests de rendimiento | **2** pasan |
 | Cobertura | **99,57 %** (mínimo exigido: 80 %) |
 
-El CI vuelve a correr todo en cada pull request. El reporte de cobertura de cada corrida queda como artefacto `cobertura` en GitHub Actions. Además, SonarCloud controla la cobertura del código nuevo.
+El CI vuelve a correr todo en cada pull request. De cada corrida quedan como artefactos en GitHub Actions el resultado de cada prueba (`pruebas`) y el reporte de cobertura (`cobertura`). Además, SonarCloud controla la cobertura del código nuevo.
 
 "Resultado final" se probó en GitHub Actions con 6 corridas en rojo provocadas a propósito en una rama descartable: Ruff, Bandit, pip-audit, un test roto, cobertura por debajo del umbral y una corrida cancelada. Rechazó en las seis, y el log de cada falla provocada mostró el error esperado.

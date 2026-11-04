@@ -80,6 +80,25 @@ def test_el_reporte_de_secretos_oculta_los_valores():
     assert "--redact" in comando
 
 
+@pytest.mark.parametrize(
+    "job,reporte",
+    [
+        ("complejidad", "reportes/lizard.txt"),
+        ("tipado", "reportes/mypy.xml"),
+        ("tests", "reportes/pruebas.xml"),
+    ],
+)
+def test_el_control_guarda_su_reporte_aunque_rechace(job, reporte):
+    subidas = [
+        paso
+        for paso in WORKFLOW["jobs"][job]["steps"]
+        if "upload-artifact" in paso.get("uses", "") and reporte in paso["with"]["path"]
+    ]
+
+    assert reporte in (RAIZ / "Makefile").read_text("utf-8")
+    assert [paso["if"] for paso in subidas] == ["always()"]
+
+
 def test_la_seguridad_no_filtra_por_severidad():
     # La política rechaza cualquier hallazgo (docs/seguridad.md). Un filtro dejaría
     # pasar los de menor severidad sin que ningún job falle.
