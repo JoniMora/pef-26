@@ -46,7 +46,7 @@ CORPUS_DOCS=20000 pytest -m rendimiento --no-cov   # con más volumen
 | [`test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) | 39 | Todo job se suma a "Resultado final", ningún paso ejecuta un comando sin pasar por `make`, ningún control ignora sus fallos, la seguridad no filtra por severidad, los jobs con npm fijan la versión de Node, los secretos se buscan en todo el historial, con los valores ocultos, las pruebas, la complejidad y el tipado guardan su reporte aunque rechacen, no se relajan los límites de complejidad ni el alcance del tipado, y el benchmark compara contra el commit correcto. |
 | [`test_resultado_final.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_resultado_final.py) | 9 | "Resultado final" rechaza si un job falló, se canceló o se omitió, y también si no recibe resultados. |
 | [`test_docs.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_docs.py) | 25 | Están las 9 secciones de la documentación, los enlaces al repositorio apuntan a archivos que existen y todo módulo, script y objetivo de `make` está documentado. |
-| [`test_dependencias.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_dependencias.py) | 16 | Cada versión pedida en un `.in` está en su lock, con hash; la instalación exige los hashes; la auditoría cubre todos los locks, y Dependabot, todos los ecosistemas. |
+| [`test_dependencias.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_dependencias.py) | 21 | Cada versión pedida en un `.in` está en su lock, con hash; cada lock tiene una sola versión de cada paquete; la instalación exige los hashes; la auditoría cubre todos los locks, y Dependabot, todos los ecosistemas. |
 
 ## Validación de equivalencia
 
@@ -93,10 +93,12 @@ pytest tests/test_equivalencia.py -v
 
 | Métrica | Resultado |
 | :--- | ---: |
-| Tests | **286** pasan, ninguno falla |
+| Tests | **291** pasan, ninguno falla |
 | Tests de rendimiento | **2** pasan |
 | Cobertura | **99,57 %** (mínimo exigido: 80 %) |
 
 El CI vuelve a correr todo en cada pull request. De cada corrida quedan como artefactos en GitHub Actions el resultado de cada prueba (`pruebas`) y el reporte de cobertura (`cobertura`). Además, SonarCloud controla la cobertura del código nuevo.
 
 "Resultado final" se probó en GitHub Actions con 6 corridas en rojo provocadas a propósito en una rama descartable: Ruff, Bandit, pip-audit, un test roto, cobertura por debajo del umbral y una corrida cancelada. Rechazó en las seis, y el log de cada falla provocada mostró el error esperado.
+
+La protección de `master` se probó con un [pull request descartable](https://github.com/JoniMora/pef-26/pull/17) que agregaba trabajo en `rankear()` y retenía una copia del índice. Pasó lint, tipado y tests. El [benchmark y la memoria lo rechazaron](https://github.com/JoniMora/pef-26/actions/runs/41849000317), con una razón de hasta 13,8 en `consulta_de_un_termino`, y GitHub impidió el merge.

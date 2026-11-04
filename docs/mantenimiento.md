@@ -89,7 +89,7 @@ gh run download <id-de-la-corrida> -n cobertura
 | Enlaces externos | `make enlaces` | No bloquea. Revisar el artefacto `enlaces` y corregir el enlace si el problema no es una caída temporal del sitio. |
 | `tests/test_ci.py` | `pytest tests/test_ci.py` | Sumar el job nuevo a los `needs` de "Resultado final", o mover el comando suelto a un objetivo del `Makefile`. |
 | `tests/test_docs.py` | `pytest tests/test_docs.py` | Corregir el enlace al repositorio, o documentar el módulo o el objetivo nuevo. |
-| `tests/test_dependencias.py` | `pytest tests/test_dependencias.py` | Casi siempre falta `make lock` después de editar un `.in`. |
+| `tests/test_dependencias.py` | `pytest tests/test_dependencias.py` | Casi siempre falta `make lock` después de editar un `.in`. Si un paquete aparece repetido, ver [Actualizar dependencias](#actualizar-dependencias). |
 | markdownlint, `Invalid regular expression flags` | `node --version` | `markdownlint-cli2` requiere Node.js 22 o superior. |
 | Resultado final, sin otro job en rojo | `gh run view <id-de-la-corrida>` | Un job omitido o cancelado también rechaza: volver a correr la corrida. |
 
@@ -98,6 +98,8 @@ gh run download <id-de-la-corrida> -n cobertura
 Las versiones se editan en los `requirements*.in`, y `make lock` genera los `requirements*.txt` con `uv pip compile`: fijan también las dependencias transitivas, con sus hashes, para Linux, macOS y Windows. Los `.txt` no se editan a mano. En Node.js pasa lo mismo con `package.json` y `package-lock.json`.
 
 Dependabot revisa cada semana Python, Node.js y las acciones de GitHub, y abre un pull request con el `.in` y su `.txt` ya regenerados. Pasa por los mismos controles que cualquier otro cambio, salvo SonarCloud. `make lock` conserva lo que ya está fijado: no sube versiones por su cuenta.
+
+**Una sola versión de cada paquete por lock.** Si un paquete nuevo deja de soportar el `--python-version` de un lock, `uv` guarda dos versiones, una por cada rango de Python. Dependabot compara cada paquete con su primera línea: cree que perdió hashes, entra en un cálculo que falla (`ValueError: unknown url type`) y no abre ningún pull request de Python. Por eso `tests/test_dependencias.py` lo rechaza, y lo que hay que hacer es subir el `--python-version` de ese lock en `make lock`. Por el mismo camino puede fallar una versión nueva que publica menos archivos que la anterior: en ese caso, se sube a mano en el `.in` y se corre `make lock`.
 
 gitleaks es un binario, no un paquete de Python: para actualizarlo hay que cambiar `GITLEAKS_VERSION` en el `Makefile` y copiar a `scripts/gitleaks.sha256` los hashes de esa versión, desde el archivo `checksums` de su publicación en GitHub.
 
