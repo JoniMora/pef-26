@@ -10,5 +10,7 @@ sphinx==9.1.0
 # Cliente HTTP del TestClient de FastAPI y del generador de carga.
 # httpx2 es la continuación de httpx: Starlette 1.x depreca usar httpx.
 httpx2==2.13.1
+# Los tests leen ci.yml para verificar las reglas del pipeline.
+pyyaml==6.0.3
 # Auditoría de vulnerabilidades de las dependencias.
 pip-audit==2.10.1

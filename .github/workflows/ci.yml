@@ -18,6 +18,9 @@ concurrency:
 env:
   PYTHON_VERSION: "3.14"
 
+# Cada comando vive en el Makefile, para que en local dé el mismo resultado
+# (tests/test_ci.py lo verifica). Los criterios de rechazo de cada control
+# están en docs/matriz-controles.md.
 jobs:
   lint:
     name: Lint (Ruff)
@@ -31,13 +34,12 @@ jobs:
           cache: pip
           cache-dependency-path: requirements*.txt
 
-      - run: pip install -r requirements-dev.txt
+      - run: make instalar
 
-      # --output-format=github anota cada hallazgo en la línea del PR.
-      - run: ruff check . --output-format=github
-
-      # Falla si algún archivo no respeta el formato de `ruff format`.
-      - run: ruff format --check .
+      - run: make lint
+        env:
+          # Anota cada hallazgo en la línea del PR.
+          RUFF_OUTPUT_FORMAT: github
 
   seguridad:
     name: Seguridad (Bandit y pip-audit)
@@ -51,13 +53,9 @@ jobs:
           cache: pip
           cache-dependency-path: requirements*.txt
 
-      - run: pip install -r requirements-dev.txt
+      - run: make instalar
 
-      - run: bandit -c pyproject.toml -r .
-
-      # Vulnerabilidades conocidas en las dependencias (incluye las de la
-      # API, que requirements-dev.txt trae con -r requirements.txt).
-      - run: pip-audit -r requirements-dev.txt --progress-spinner off
+      - run: make seguridad
 
   tests:
     name: Tests, cobertura y Performance Gate
@@ -75,13 +73,24 @@ jobs:
           cache: pip
           cache-dependency-path: requirements*.txt
 
-      - run: pip install -r requirements-dev.txt
+      - run: make instalar
 
       # El umbral (fail_under = 80) está en pyproject.toml.
       - name: Tests y cobertura (>= 80%)
-        run: pytest -m "not rendimiento" --cov --cov-report=term-missing --cov-report=xml
+        run: make tests
+
+      # También cuando fallan los tests, que es cuando más se necesita.
+      - name: Guardar el reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cobertura
+          path: |
+            coverage.xml
+            htmlcov/
 
       # Lee sonar-project.properties y el coverage.xml del paso anterior.
+      # Falla si cae el quality gate (sonar.qualitygate.wait).
       - name: SonarCloud
         uses: SonarSource/sonarqube-scan-action@v8
         env:
@@ -89,6 +98,20 @@ jobs:
 
       # Paso separado y sin cobertura: el tracing distorsiona los tiempos.
       - name: Performance Gate
+        run: make rendimiento
+
+  # Único check obligatorio para integrar en master: así la protección de
+  # rama no se rompe al agregar o renombrar jobs. Todo job nuevo se suma a
+  # `needs`. Sin always() quedaría omitido si falla un job, y la protección
+  # toma un check omitido como aprobado.
+  resultado-final:
+    name: Resultado final
+    needs: [lint, seguridad, tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - run: make resultado-final
         env:
-          LIMITE_CONSULTA_S: "0.5"
-        run: pytest -m rendimiento --no-cov -v
+          RESULTADOS: ${{ toJSON(needs) }}

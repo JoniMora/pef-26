@@ -695,7 +695,10 @@ El análisis marcó cinco vulnerabilidades, que se revisaron y se aceptaron:
 | :--- | :--- |
 | Lint (Ruff) | `ruff check` y `ruff format --check`. |
 | Seguridad (Bandit y pip-audit) | Análisis de seguridad del código (Bandit) y vulnerabilidades conocidas en las dependencias (pip-audit). |
-| Tests, cobertura y Performance Gate | Corre los tests con una cobertura mínima del 80 %, envía el análisis a SonarCloud y, aparte y sin cobertura, los 2 tests de rendimiento. Solo corre si los dos jobs anteriores pasan. |
+| Tests, cobertura y Performance Gate | Corre los tests con una cobertura mínima del 80 %, guarda el reporte como artefacto, envía el análisis a SonarCloud (el job falla si cae el quality gate) y, aparte y sin cobertura, los 2 tests de rendimiento. Solo corre si los dos jobs anteriores pasan. |
+| Resultado final | Rechaza el cambio si algún job anterior no terminó bien y deja la tabla de controles en el resumen de la corrida. Es el único check que hace falta exigir para integrar en `master`. |
+
+Cada paso llama a un objetivo del [`Makefile`](Makefile), y [`tests/test_ci.py`](tests/test_ci.py) lo verifica. La [matriz de controles](docs/matriz-controles.md) define qué rechaza cada control y qué controles faltan activar.
 
 ---
 
@@ -1297,15 +1300,18 @@ pytest tests/test_equivalencia.py -v
 
 ### Calidad y tests
 
-Los mismos controles que corre el CI:
+Los mismos controles que corre el CI, con el entorno virtual activado:
 
 ```bash
-ruff format --check .                 # formato PEP 8
-ruff check .                          # PEP 8, pyflakes, nombres y docstrings
-bandit -c pyproject.toml -r .         # análisis de seguridad
-pytest -m "not rendimiento" --cov     # tests con cobertura mínima del 80 %
-pytest -m rendimiento --no-cov -v     # Performance Gate
+make instalar      # herramientas del pipeline, en las versiones del CI
+make lint          # Ruff: PEP 8, pyflakes, nombres, docstrings, complejidad y formato
+make seguridad     # Bandit sobre el código y pip-audit sobre las dependencias
+make tests         # tests con cobertura mínima del 80 %; reporte en htmlcov/
+make rendimiento   # Performance Gate
+make controles     # lint, seguridad, tests y rendimiento, en ese orden
 ```
+
+> SonarCloud es el único control que corre solo en el CI, porque necesita el token del proyecto.
 
 > Los tests generan su propio corpus en un directorio temporal, así que no necesitan `data/corpus`. `ruff format .` (sin `--check`) aplica el formato en lugar de solo verificarlo.
 
@@ -1320,3 +1326,14 @@ open docs/_build/html/index.html      # Linux: xdg-open
 # (no pisa las existentes) y después hay que sumarla a docs/api/modules.rst
 sphinx-apidoc -o docs/api src
 ```
+
+---
+
+## Pendientes
+
+Verificaciones y ajustes en GitHub que quedan para después:
+
+- **Integrar el PR #8 y proteger `master`**, con "Resultado final" como check obligatorio, incluyendo a los administradores y sin exigir aprobaciones. Hasta entonces, un check en rojo no impide integrar. Después hay que confirmar, con un PR en rojo, que GitHub bloquea el merge.
+- **Quality gate de SonarCloud caído:** solo se vio el caso aprobado. Probarlo deja en SonarCloud una rama de prueba, que se borra desde su panel.
+- **Performance Gate en rojo en GitHub:** solo se verificó en local, con un límite imposible. En el CI corre después de SonarCloud, así que probarlo dispara un análisis.
+- **Corridas de prueba de "Resultado final":** las [6 corridas en rojo](https://github.com/JoniMora/pef-26/actions?query=event%3Aworkflow_dispatch) (Ruff, Bandit, pip-audit, un test roto, cobertura baja y una cancelada) quedan visibles como evidencia. Falta decidir si se usan en la entrega o se borran.
