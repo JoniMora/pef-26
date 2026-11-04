@@ -4,8 +4,8 @@ Comandos para instalar el proyecto, generar el corpus y ejecutar cada versión d
 
 ## Requisitos previos
 
-- **Python 3.11 o superior.** El CI usa 3.14, igual que las mediciones de [Rendimiento](rendimiento.md).
-- **Node.js**, solo para `make docs`, que corre markdownlint con `npx`.
+- **Python 3.11 o superior.** Las herramientas de los controles (`make instalar`) requieren 3.12, porque Sphinx 9 lo exige. El CI usa 3.14, igual que las mediciones de [Rendimiento](rendimiento.md).
+- **Node.js 22 o superior**, solo para `make docs` y `make seguridad`.
 - **Graphviz**, solo para regenerar el diagrama de arquitectura con `make diagrama`.
 
 ```bash
@@ -20,7 +20,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
 ## Dependencias
 
-`baseline.py`, `optimizado.py` y `concurrente.py` usan solo la biblioteca estándar: para correrlos no hay que instalar nada. El resto depende de para qué se use:
+`baseline.py`, `optimizado.py` y `concurrente.py` usan solo la biblioteca estándar: para correrlos no hay que instalar nada. El resto depende de para qué se use. Cada `requirements*.txt` es un lock generado desde su `.in`, con todas las dependencias fijadas y sus hashes: `pip` rechaza un paquete cuyo hash no coincida. Para cambiar una versión, ver [Actualizar dependencias](mantenimiento.md#actualizar-dependencias).
 
 | Archivo | Para qué | Instalación |
 | :--- | :--- | :--- |

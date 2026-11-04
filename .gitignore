@@ -131,3 +131,11 @@ presentacion/guion-orador.txt
 #  docs/_build se reconstruye con sphinx-build.
 # ─────────────────────────────────────────────────────────────
 docs/_build/
+
+# ─────────────────────────────────────────────────────────────
+#  Herramientas y reportes de los controles
+#  Se regeneran con make (ver docs/mantenimiento.md).
+# ─────────────────────────────────────────────────────────────
+node_modules/
+.herramientas/
+reportes/

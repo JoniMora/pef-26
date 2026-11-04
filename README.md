@@ -49,6 +49,7 @@ Verificaciones y ajustes en GitHub que quedan para después:
 
 - **Integrar el PR #8 y proteger `master`**, con "Resultado final" como check obligatorio, incluyendo a los administradores y sin exigir aprobaciones. Hasta entonces, un check en rojo no impide integrar. Después hay que confirmar, con un PR en rojo, que GitHub bloquea el merge.
 - **Activar GitHub Pages**, con origen GitHub Actions, y comprobar la primera publicación al integrar la documentación. Hasta entonces, el job de publicación no se probó y el enlace al sitio no funciona.
+- **Activar las actualizaciones de seguridad de Dependabot** y comprobar su primera corrida: `.github/dependabot.yml` solo tiene efecto desde `master`. Hay que confirmar que regenera los `requirements*.txt` con sus hashes y que sus PR pasan "Resultado final" sin SonarCloud.
 - **Quality gate de SonarCloud caído:** solo se vio el caso aprobado. Probarlo deja en SonarCloud una rama de prueba, que se borra desde su panel.
 - **Performance Gate en rojo en GitHub:** solo se verificó en local, con un límite imposible. En el CI corre después de SonarCloud, así que probarlo dispara un análisis.
 - **Corridas de prueba de "Resultado final":** las [6 corridas en rojo](https://github.com/JoniMora/pef-26/actions?query=event%3Aworkflow_dispatch) (Ruff, Bandit, pip-audit, un test roto, cobertura baja y una cancelada) quedan visibles como evidencia. Falta decidir si se usan en la entrega o se borran.

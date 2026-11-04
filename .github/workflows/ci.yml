@@ -42,7 +42,7 @@ jobs:
           RUFF_OUTPUT_FORMAT: github
 
   seguridad:
-    name: Seguridad (Bandit y pip-audit)
+    name: Seguridad (Bandit, pip-audit y npm audit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -56,6 +56,31 @@ jobs:
       - run: make instalar
 
       - run: make seguridad
+
+      - name: Guardar los reportes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: seguridad
+          path: reportes/
+
+  secretos:
+    name: Secretos (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Historial completo: un secreto en un commit viejo sigue expuesto.
+          fetch-depth: 0
+
+      - run: make secretos
+
+      - name: Guardar el reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: secretos
+          path: reportes/gitleaks.json
 
   documentacion:
     name: Documentación (Sphinx y enlaces)
@@ -93,7 +118,7 @@ jobs:
 
   tests:
     name: Tests, cobertura y Performance Gate
-    needs: [lint, seguridad]
+    needs: [lint, seguridad, secretos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -125,7 +150,9 @@ jobs:
 
       # Lee sonar-project.properties y el coverage.xml del paso anterior.
       # Falla si cae el quality gate (sonar.qualitygate.wait).
+      # Los PR de Dependabot no reciben SONAR_TOKEN y no tocan el código que analiza.
       - name: SonarCloud
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
         uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -140,7 +167,7 @@ jobs:
   # toma un check omitido como aprobado.
   resultado-final:
     name: Resultado final
-    needs: [lint, seguridad, documentacion, tests]
+    needs: [lint, seguridad, secretos, documentacion, tests]
     if: always()
     runs-on: ubuntu-latest
     steps:

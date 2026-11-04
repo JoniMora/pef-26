@@ -1,0 +1,21 @@
+# Herramientas del pipeline de CI. Versiones fijadas: el conjunto de
+# reglas por defecto de Ruff cambia entre versiones y un upgrade
+# silencioso puede romper el pipeline sin que cambie el código.
+-r requirements.in
+ruff==0.17.0
+bandit[toml]==1.9.4
+pytest==9.1.1
+pytest-cov==7.1.0
+sphinx==9.1.0
+# Markdown para Sphinx y el tema del sitio.
+myst-parser==5.1.0
+furo==2025.12.19
+# Cliente HTTP del TestClient de FastAPI y del generador de carga.
+# httpx2 es la continuación de httpx: Starlette 1.x depreca usar httpx.
+httpx2==2.13.1
+# Los tests leen ci.yml para verificar las reglas del pipeline.
+pyyaml==6.0.3
+# Genera los requirements*.txt con hashes a partir de estos archivos.
+uv==0.13.7
+# Auditoría de vulnerabilidades de las dependencias.
+pip-audit==2.10.1

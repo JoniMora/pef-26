@@ -46,7 +46,7 @@ lines-after-imports = 2
 #  Bandit (análisis de seguridad)
 # ─────────────────────────────────────────────────────────────
 [tool.bandit]
-exclude_dirs = ["tests", ".venv", "profiles"]
+exclude_dirs = ["tests", ".venv", "profiles", "node_modules", ".herramientas", "reportes"]
 
 # ─────────────────────────────────────────────────────────────
 #  Pytest

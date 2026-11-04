@@ -1,0 +1,3 @@
+# Falsos positivos de gitleaks. Cada uno se justifica en docs/seguridad.md.
+# sonar.projectKey es el identificador público del proyecto en SonarCloud.
+c6e0815801f076a8cad3d700b47f75c9799485f2:sonar-project.properties:generic-api-key:3
