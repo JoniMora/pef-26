@@ -1,6 +1,6 @@
 # Herramientas de perfilado que orquesta src/perfilado.py. Quedan fuera
 # del CI: son pesadas y solo se usan para medir.
-line_profiler==5.0.2
+line_profiler==5.1.0
 memory-profiler==0.61.0
 scalene==2.3.0
 snakeviz==2.2.2

@@ -47,7 +47,6 @@ make controles
 
 Verificaciones en GitHub que quedan para después:
 
-- **Dependabot para Python:** su primera corrida falló en todas las actualizaciones, por dos versiones de un mismo paquete en un lock ([Actualizar dependencias](docs/mantenimiento.md#actualizar-dependencias)). La causa se corrigió y se reprodujo en local, pero Dependabot solo corre desde `master`. Hay que confirmar, en su próxima corrida, que abre el PR con el `.in` y el `.txt` regenerados, con hashes.
 - **Quality gate de SonarCloud caído:** solo se vio el caso aprobado. Probarlo deja en SonarCloud una rama de prueba, que se borra desde su panel.
 - **Performance Gate en rojo en GitHub:** solo se verificó en local, con un límite imposible. En el CI corre después de SonarCloud, así que probarlo dispara un análisis.
 - **Corridas de prueba de "Resultado final":** las [6 corridas en rojo](https://github.com/JoniMora/pef-26/actions?query=event%3Aworkflow_dispatch) (Ruff, Bandit, pip-audit, un test roto, cobertura baja y una cancelada) quedan visibles como evidencia. Falta decidir si se usan en la entrega o se borran.
