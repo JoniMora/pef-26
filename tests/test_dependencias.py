@@ -60,6 +60,16 @@ def test_cada_paquete_del_lock_tiene_hash(lock):
     assert [req for req in requisitos if "--hash=sha256:" not in req] == []
 
 
+@pytest.mark.parametrize("lock", LOCKS, ids=lambda lock: lock.name)
+def test_el_lock_tiene_una_sola_version_de_cada_paquete(lock):
+    # Dependabot compara cada paquete con su primera línea en el lock. Con dos
+    # versiones, cree que perdió hashes y fallan todas las actualizaciones de Python
+    # (docs/mantenimiento.md).
+    nombres = [_nombre(PIN.match(req)[1]) for req in _requisitos_del_lock(lock)]
+
+    assert sorted({nombre for nombre in nombres if nombres.count(nombre) > 1}) == []
+
+
 def test_la_instalacion_exige_los_hashes():
     makefile = (RAIZ / "Makefile").read_text("utf-8")
 

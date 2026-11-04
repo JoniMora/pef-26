@@ -22,14 +22,16 @@ instalar:
 	$(PYTHON) -m pip install --require-hashes -r requirements-dev.txt
 
 # Regenera los requirements*.txt, con hashes, a partir de los .in. Se editan los
-# .in, nunca los .txt. El de desarrollo pide 3.12 porque Sphinx 9 lo exige; el
-# resto, el mínimo del proyecto.
+# .in, nunca los .txt. El de desarrollo pide 3.13 porque las versiones nuevas de
+# Sphinx lo exigen, y el de perfilado, 3.12, para no tener dos versiones de un mismo
+# paquete, algo que Dependabot no sabe actualizar (docs/mantenimiento.md). El resto,
+# el mínimo del proyecto.
 lock:
 	uv pip compile --universal --generate-hashes --python-version 3.11 requirements.in -o requirements.txt
 	uv pip compile --universal --generate-hashes --python-version 3.11 requirements-apm.in -o requirements-apm.txt
-	uv pip compile --universal --generate-hashes --python-version 3.11 requirements-perfilado.in -o requirements-perfilado.txt
+	uv pip compile --universal --generate-hashes --python-version 3.12 requirements-perfilado.in -o requirements-perfilado.txt
 	uv pip compile --universal --generate-hashes --python-version 3.11 requirements-informes.in -o requirements-informes.txt
-	uv pip compile --universal --generate-hashes --python-version 3.12 requirements-dev.in -o requirements-dev.txt
+	uv pip compile --universal --generate-hashes --python-version 3.13 requirements-dev.in -o requirements-dev.txt
 
 lint:
 	ruff check .

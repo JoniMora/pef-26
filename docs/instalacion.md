@@ -4,7 +4,7 @@ Comandos para instalar el proyecto, generar el corpus y ejecutar cada versión d
 
 ## Requisitos previos
 
-- **Python 3.11 o superior.** Las herramientas de los controles (`make instalar`) requieren 3.12, porque Sphinx 9 lo exige. El CI usa 3.14, igual que las mediciones de [Rendimiento](rendimiento.md).
+- **Python 3.11 o superior.** Las herramientas de los controles (`make instalar`) requieren 3.13, porque las versiones nuevas de Sphinx lo exigen, y las de medición (`requirements-perfilado.txt`), 3.12. El CI usa 3.14, igual que las mediciones de [Rendimiento](rendimiento.md).
 - **Node.js 22 o superior**, solo para `make docs` y `make seguridad`. El CI usa 24.
 - **Graphviz**, solo para regenerar el diagrama de arquitectura con `make diagrama`.
 

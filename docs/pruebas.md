@@ -46,7 +46,7 @@ CORPUS_DOCS=20000 pytest -m rendimiento --no-cov   # con más volumen
 | [`test_ci.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_ci.py) | 39 | Todo job se suma a "Resultado final", ningún paso ejecuta un comando sin pasar por `make`, ningún control ignora sus fallos, la seguridad no filtra por severidad, los jobs con npm fijan la versión de Node, los secretos se buscan en todo el historial, con los valores ocultos, las pruebas, la complejidad y el tipado guardan su reporte aunque rechacen, no se relajan los límites de complejidad ni el alcance del tipado, y el benchmark compara contra el commit correcto. |
 | [`test_resultado_final.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_resultado_final.py) | 9 | "Resultado final" rechaza si un job falló, se canceló o se omitió, y también si no recibe resultados. |
 | [`test_docs.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_docs.py) | 25 | Están las 9 secciones de la documentación, los enlaces al repositorio apuntan a archivos que existen y todo módulo, script y objetivo de `make` está documentado. |
-| [`test_dependencias.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_dependencias.py) | 16 | Cada versión pedida en un `.in` está en su lock, con hash; la instalación exige los hashes; la auditoría cubre todos los locks, y Dependabot, todos los ecosistemas. |
+| [`test_dependencias.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_dependencias.py) | 21 | Cada versión pedida en un `.in` está en su lock, con hash; cada lock tiene una sola versión de cada paquete; la instalación exige los hashes; la auditoría cubre todos los locks, y Dependabot, todos los ecosistemas. |
 
 ## Validación de equivalencia
 
@@ -93,7 +93,7 @@ pytest tests/test_equivalencia.py -v
 
 | Métrica | Resultado |
 | :--- | ---: |
-| Tests | **286** pasan, ninguno falla |
+| Tests | **291** pasan, ninguno falla |
 | Tests de rendimiento | **2** pasan |
 | Cobertura | **99,57 %** (mínimo exigido: 80 %) |
 
