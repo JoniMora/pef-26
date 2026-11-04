@@ -13,6 +13,8 @@ import yaml
 
 RAIZ = Path(__file__).resolve().parents[1]
 JOB_FINAL = "resultado-final"
+# Corren después del veredicto: no pueden formar parte de lo que decide.
+JOBS_POSTERIORES = {"publicar-docs"}
 
 WORKFLOW = yaml.safe_load((RAIZ / ".github/workflows/ci.yml").read_text("utf-8"))
 OBJETIVOS = re.findall(
@@ -26,7 +28,9 @@ PASOS = [
 def test_resultado_final_depende_de_todos_los_jobs():
     job_final = WORKFLOW["jobs"][JOB_FINAL]
 
-    assert set(job_final["needs"]) == set(WORKFLOW["jobs"]) - {JOB_FINAL}
+    assert set(job_final["needs"]) == (
+        set(WORKFLOW["jobs"]) - {JOB_FINAL} - JOBS_POSTERIORES
+    )
 
 
 def test_resultado_final_corre_aunque_falle_un_job():
@@ -42,3 +46,19 @@ def test_los_pasos_delegan_en_un_objetivo_de_make(paso):
     assert comando[0] == "make"
     assert len(comando) == 2
     assert comando[1] in OBJETIVOS
+
+
+def test_ningun_control_ignora_sus_fallos():
+    # Solo los enlaces externos informan sin bloquear (docs/matriz-controles.md).
+    ignoran = [paso["run"] for paso in PASOS if paso.get("continue-on-error")]
+
+    assert ignoran == ["make enlaces"]
+    assert not any(job.get("continue-on-error") for job in WORKFLOW["jobs"].values())
+
+
+def test_la_documentacion_solo_se_publica_desde_master_si_todo_aprueba():
+    publicar = WORKFLOW["jobs"]["publicar-docs"]
+
+    assert publicar["needs"] == [JOB_FINAL]
+    assert "refs/heads/master" in publicar["if"]
+    assert "always()" not in publicar["if"]

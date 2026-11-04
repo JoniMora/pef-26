@@ -57,6 +57,40 @@ jobs:
 
       - run: make seguridad
 
+  documentacion:
+    name: Documentación (Sphinx y enlaces)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: make instalar
+
+      - name: Construir el sitio y revisar el Markdown
+        run: make docs
+
+      - name: Guardar el sitio
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/_build/html
+
+      # Informa sin bloquear: la caída de un sitio ajeno no debe frenar un cambio.
+      - name: Revisar los enlaces externos
+        continue-on-error: true
+        run: make enlaces
+
+      - name: Guardar el informe de enlaces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: enlaces
+          path: docs/_build/linkcheck/output.txt
+
   tests:
     name: Tests, cobertura y Performance Gate
     needs: [lint, seguridad]
@@ -106,7 +140,7 @@ jobs:
   # toma un check omitido como aprobado.
   resultado-final:
     name: Resultado final
-    needs: [lint, seguridad, tests]
+    needs: [lint, seguridad, documentacion, tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -115,3 +149,19 @@ jobs:
       - run: make resultado-final
         env:
           RESULTADOS: ${{ toJSON(needs) }}
+
+  # Solo cuando el cambio ya se integró y "Resultado final" aprobó.
+  publicar-docs:
+    name: Publicar la documentación
+    needs: [resultado-final]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v5

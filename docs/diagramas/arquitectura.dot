@@ -1,0 +1,64 @@
+// Diagrama de componentes. Regenerar con `make diagrama`.
+digraph arquitectura {
+    graph [rankdir=TB, bgcolor="white", fontname="Helvetica", fontsize=13, nodesep=0.3, ranksep=0.55, labeljust=l, pad=0.25, compound=true];
+    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#5b6b7b", fontname="Helvetica", fontsize=11, margin="0.12,0.07"];
+    edge [color="#5b6b7b", fontname="Helvetica", fontsize=9, arrowsize=0.7];
+
+    subgraph cluster_clientes {
+        label="Clientes"; color="#c5ced8"; style="rounded";
+        cliente [label="Cliente HTTP\n(curl, navegador)"];
+        trafico [label="generar_trafico.py\ncarga de prueba"];
+    }
+
+    subgraph cluster_servicio {
+        label="Servicio web"; color="#c5ced8"; style="rounded";
+        servidor [label="servidor.py\nlanzador (uvicorn)"];
+        api [label="api.py\nGET /buscar, POST /reindexar"];
+    }
+
+    subgraph cluster_motor {
+        label="Motor de búsqueda (solo biblioteca estándar)"; labelloc=b; color="#c5ced8"; style="rounded";
+        disco [label="indice_en_disco.py\nguarda y carga el índice"];
+        concurrente [label="concurrente.py\nindexación MapReduce"];
+        optimizado [label="optimizado.py\níndice, TF-IDF, heap, caché"];
+        lectura [label="core/lectura.py\nlectura por bloques"];
+        texto [label="core/procesamiento_texto.py\nnormalización y stemming"];
+    }
+
+    subgraph cluster_medicion {
+        label="Medición (no corre con la API)"; color="#c5ced8"; style="rounded";
+        baseline [label="baseline.py\nlínea base y corpus"];
+        perfilado [label="perfilado.py\narnés de medición"];
+        perfilar [label="perfilar_api.py\nperfila sin HTTP"];
+    }
+
+    subgraph cluster_datos {
+        label="Datos"; color="#c5ced8"; style="rounded";
+        corpus [shape=cylinder, label="data/corpus\ndocumentos .txt"];
+        guardado [shape=cylinder, label="data/indice_corpus\nmanifiesto y lotes JSON"];
+    }
+
+    newrelic [label="New Relic\n(opcional)", fillcolor="#fff4e0", color="#b98a3a"];
+
+    cliente -> api [label="HTTP"];
+    trafico -> api [label="HTTP"];
+    servidor -> api;
+    servidor -> newrelic [style=dashed, label="métricas"];
+
+    api -> disco;
+    api -> optimizado;
+    disco -> concurrente;
+    concurrente -> optimizado;
+    concurrente -> lectura;
+    optimizado -> lectura;
+    optimizado -> texto;
+    lectura -> texto;
+
+    perfilar -> api;
+    perfilado -> baseline;
+    perfilado -> disco [lhead=cluster_motor];
+
+    disco -> guardado [style=dashed];
+    lectura -> corpus [style=dashed];
+    baseline -> corpus [style=dashed];
+}

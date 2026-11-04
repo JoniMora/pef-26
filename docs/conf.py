@@ -17,8 +17,17 @@ author = "JoniMora, Jorge"
 # -- Configuración general ---------------------------------------------------
 
 extensions = [
+    "myst_parser",
     "sphinx.ext.autodoc",
 ]
+
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".md": "markdown",
+}
+
+# Genera anclas en los encabezados, para enlazar secciones entre páginas.
+myst_heading_anchors = 4
 
 # Documenta el constructor junto con la clase y respeta el orden del código.
 autoclass_content = "both"
@@ -38,5 +47,14 @@ language = "es"
 
 # -- Salida HTML -------------------------------------------------------------
 
-html_theme = "alabaster"
+html_theme = "furo"
+html_title = project
 html_static_path = ["_static"]
+
+# -- Enlaces externos (make enlaces) -----------------------------------------
+
+linkcheck_retries = 3
+linkcheck_timeout = 20
+# Los enlaces al propio repositorio los verifica tests/test_docs.py: un archivo
+# nuevo da 404 hasta que se integra en master.
+linkcheck_ignore = [r"https://github\.com/JoniMora/pef-26/"]
