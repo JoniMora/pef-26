@@ -43,6 +43,22 @@ combine-as-imports = true
 lines-after-imports = 2
 
 # ─────────────────────────────────────────────────────────────
+#  mypy (tipado estático)
+# ─────────────────────────────────────────────────────────────
+[tool.mypy]
+# Se exige en el motor y la API. Los demás módulos se leen para conocer sus
+# tipos, pero sus errores no se informan.
+files = ["src/core", "src/optimizado.py", "src/api.py"]
+follow_imports = "silent"
+disallow_untyped_defs = true
+warn_unused_ignores = true
+# Igual que en Ruff, la versión mínima soportada.
+python_version = "3.11"
+# Los módulos de src/ se importan como top-level.
+mypy_path = "src"
+explicit_package_bases = true
+
+# ─────────────────────────────────────────────────────────────
 #  Bandit (análisis de seguridad)
 # ─────────────────────────────────────────────────────────────
 [tool.bandit]

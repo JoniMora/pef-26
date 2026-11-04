@@ -27,6 +27,7 @@ import heapq
 import math
 import time
 from collections import OrderedDict
+from collections.abc import Iterator
 from pathlib import Path
 from threading import Lock
 
@@ -41,13 +42,22 @@ from core.procesamiento_texto import tokenizar
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_CORPUS = BASE_DIR / "data" / "corpus"
 
+# término -> {doc_id: frecuencia}
+Indice = dict[str, dict[int, int]]
+# Pares (doc_id, score), de mayor a menor score.
+Ranking = list[tuple[int, float]]
+# (términos normalizados, top_k)
+ClaveConsulta = tuple[tuple[str, ...], int]
+# (total de coincidencias, ranking)
+ResultadoConsulta = tuple[int, Ranking]
+
 
 # ============================================================
 # ÍNDICE INVERTIDO
 # ============================================================
 
 
-def construir_indice(corpus_dir):
+def construir_indice(corpus_dir: Path) -> tuple[Indice, list[Path]]:
     """
     Construye el índice invertido de todos los ``.txt`` del corpus.
 
@@ -65,7 +75,7 @@ def construir_indice(corpus_dir):
         ordenada de rutas, cuya posición es el doc_id.
     :rtype: tuple[dict[str, dict[int, int]], list[pathlib.Path]]
     """
-    indice = {}
+    indice: Indice = {}
 
     archivos = sorted(corpus_dir.glob("*.txt"))
 
@@ -103,7 +113,7 @@ class QueryCache:
     que existía y la movía al final (``KeyError``).
     """
 
-    def __init__(self, maxsize=1024):
+    def __init__(self, maxsize: int = 1024) -> None:
         """
         Crea una caché vacía.
 
@@ -111,14 +121,14 @@ class QueryCache:
         :type maxsize: int
         """
         self.maxsize = maxsize
-        self.cache = OrderedDict()
+        self.cache: OrderedDict[ClaveConsulta, ResultadoConsulta] = OrderedDict()
 
         self.hits = 0
         self.misses = 0
 
         self._bloqueo = Lock()
 
-    def get(self, clave):
+    def get(self, clave: ClaveConsulta) -> ResultadoConsulta | None:
         """
         Devuelve el resultado guardado para una clave y lo marca como reciente.
 
@@ -127,7 +137,7 @@ class QueryCache:
         :param clave: Clave de la consulta, ``(terminos, top_k)``.
         :type clave: tuple
         :return: El resultado guardado, o ``None`` si la clave no está.
-        :rtype: object | None
+        :rtype: tuple[int, list[tuple[int, float]]] | None
         """
         with self._bloqueo:
             if clave not in self.cache:
@@ -141,14 +151,14 @@ class QueryCache:
 
             return self.cache[clave]
 
-    def put(self, clave, valor):
+    def put(self, clave: ClaveConsulta, valor: ResultadoConsulta) -> None:
         """
         Guarda un resultado y, si se supera el límite, descarta el más viejo.
 
         :param clave: Clave de la consulta, ``(terminos, top_k)``.
         :type clave: tuple
         :param valor: Resultado que se guarda.
-        :type valor: object
+        :type valor: tuple[int, list[tuple[int, float]]]
         """
         with self._bloqueo:
             if clave in self.cache:
@@ -160,7 +170,7 @@ class QueryCache:
             if len(self.cache) > self.maxsize:
                 self.cache.popitem(last=False)
 
-    def info(self):
+    def info(self) -> dict[str, int]:
         """
         Devuelve las estadísticas de uso de la caché.
 
@@ -177,7 +187,7 @@ class QueryCache:
 # ============================================================
 
 
-def normalizar_consulta(consulta):
+def normalizar_consulta(consulta: str) -> tuple[str, ...]:
     """
     Convierte la consulta en una tupla canónica de términos.
 
@@ -195,7 +205,7 @@ def normalizar_consulta(consulta):
     return tuple(sorted(set(tokens)))
 
 
-def buscar(indice, terminos):
+def buscar(indice: Indice, terminos: tuple[str, ...]) -> set[int]:
     """
     Busca los documentos que contienen todos los términos de la consulta.
 
@@ -244,7 +254,13 @@ def buscar(indice, terminos):
 # ============================================================
 
 
-def rankear(indice, terminos, candidatos, top_k, total_docs):
+def rankear(
+    indice: Indice,
+    terminos: tuple[str, ...],
+    candidatos: set[int],
+    top_k: int,
+    total_docs: int,
+) -> Ranking:
     """
     Puntúa los candidatos con TF-IDF y devuelve los ``top_k`` mejores.
 
@@ -278,7 +294,7 @@ def rankear(indice, terminos, candidatos, top_k, total_docs):
         for termino in terminos
     ]
 
-    def puntuados():
+    def puntuados() -> Iterator[tuple[float, int]]:
         """
         Genera el score de cada candidato al vuelo, sin guardarlos.
 
@@ -326,7 +342,9 @@ class Buscador:
     :func:`construir_indice` y se reutiliza en todas las consultas.
     """
 
-    def __init__(self, indice, archivos, cache_size=1024):
+    def __init__(
+        self, indice: Indice, archivos: list[Path], cache_size: int = 1024
+    ) -> None:
         """
         Inicializa el buscador con un índice y su caché de consultas.
 
@@ -343,7 +361,7 @@ class Buscador:
 
         self.cache = QueryCache(cache_size)
 
-    def buscar(self, consulta, top_k=10):
+    def buscar(self, consulta: str, top_k: int = 10) -> ResultadoConsulta:
         """
         Resuelve una consulta y devuelve sus mejores resultados.
 
@@ -390,7 +408,7 @@ class Buscador:
 # ============================================================
 
 
-def mostrar_resultados(resultados, archivos):
+def mostrar_resultados(resultados: Ranking, archivos: list[Path]) -> None:
     """
     Imprime el ranking en la consola, un documento por línea.
 
@@ -419,7 +437,9 @@ def mostrar_resultados(resultados, archivos):
 # ============================================================
 
 
-def resolver_consulta(indice, archivos, consulta, top_k, cache_size):
+def resolver_consulta(
+    indice: Indice, archivos: list[Path], consulta: str, top_k: int, cache_size: int
+) -> Buscador:
     """
     Resuelve una consulta desde la línea de comandos e imprime el resultado.
 
@@ -470,7 +490,7 @@ def resolver_consulta(indice, archivos, consulta, top_k, cache_size):
 # ============================================================
 
 
-def main():
+def main() -> None:
     """
     Ejecuta el buscador optimizado desde la línea de comandos.
 

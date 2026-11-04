@@ -18,6 +18,8 @@ Con el entorno virtual activado, estos son los mismos comandos que corre el CI: 
 ```bash
 make instalar      # herramientas del pipeline, en las versiones del CI
 make lint          # Ruff: PEP 8, pyflakes, nombres, docstrings, complejidad y formato
+make complejidad   # Lizard: funciones de hasta 50 líneas de código y complejidad 15
+make tipado        # mypy sobre core/, optimizado.py y api.py
 make lock          # regenera los requirements*.txt, con hashes, a partir de los .in
 make seguridad     # Bandit, pip-audit sobre todos los locks y npm audit; reportes en reportes/
 make secretos      # gitleaks sobre todo el historial; baja la versión fijada y verifica su hash
@@ -26,7 +28,7 @@ make rendimiento   # Performance Gate
 make docs          # sitio con Sphinx, sin advertencias, y markdownlint
 make enlaces       # enlaces externos; informa, pero no bloquea el CI
 make diagrama      # regenera el diagrama de arquitectura; requiere Graphviz
-make controles     # lint, seguridad, secretos, tests, rendimiento y docs, en ese orden
+make controles     # lint, complejidad, tipado, seguridad, secretos, tests, rendimiento y docs
 ```
 
 `make resultado-final` lo corre solo el CI: decide a partir de los resultados de los demás jobs, y sin ellos rechaza. SonarCloud también corre solo en el CI, porque necesita el token del proyecto.
@@ -35,11 +37,13 @@ make controles     # lint, seguridad, secretos, tests, rendimiento y docs, en es
 
 ## Pipeline de CI
 
-Corre en cada pull request y en cada push a `master`. Los jobs de lint, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan los tres primeros.
+Corre en cada pull request y en cada push a `master`. Los jobs de lint, complejidad, tipado, seguridad, secretos y documentación corren en paralelo, y los tests solo si pasan todos menos el de documentación.
 
 | Job | Qué hace |
 | :--- | :--- |
 | Lint (Ruff) | `make lint`. |
+| Complejidad (Lizard) | `make complejidad`. |
+| Tipado (mypy) | `make tipado`. |
 | Seguridad (Bandit, pip-audit y npm audit) | `make seguridad`, y guarda los reportes en JSON como artefacto. |
 | Secretos (gitleaks) | `make secretos` sobre todo el historial, y guarda el reporte, con los valores ocultos, como artefacto. |
 | Documentación (Sphinx y enlaces) | `make docs`, guarda el sitio como artefacto y `make enlaces`, que informa sin bloquear. |
@@ -62,6 +66,8 @@ gh run download <id-de-la-corrida> -n cobertura
 | :--- | :--- | :--- |
 | `ruff check` | `make lint` | Corregir el hallazgo; `ruff check . --fix` resuelve los automáticos. Si es C901, extraer funciones hasta bajar de 10. |
 | `ruff format --check` | `make lint` | Correr `ruff format .`. |
+| Lizard | `make complejidad` | Dividir la función: en el mensaje, `NLOC` son las líneas de código y `CCN` la complejidad. Si mide tiempos, leer antes [cómo se dividió el arnés](#división-de-las-funciones-largas). |
+| mypy | `make tipado` | Corregir el tipo. En `core/`, `optimizado.py` y `api.py`, toda función anota sus parámetros y su retorno. |
 | Bandit | `make seguridad` | Corregir el código. Si es un falso positivo, marcarlo con `# nosec <regla>` y agregarlo a [Falsos positivos y excepciones](seguridad.md#falsos-positivos-y-excepciones). |
 | pip-audit | `make seguridad` | Subir la versión en el `.in` que corresponda y correr `make lock`. Si viene de una dependencia transitiva, `make lock` no la sube sola: fijarla en el `.in`. Sin versión corregida, registrar una excepción con `--ignore-vuln` en el `Makefile`, con su motivo. |
 | `npm audit` | `make seguridad` | Subir la versión en `package.json` o forzarla con `overrides`, regenerar el lock con `npm install --package-lock-only` y comprobar que `make docs` siga funcionando. |
@@ -141,6 +147,12 @@ def buscar(indice, terminos):
     """
 ```
 
+## Tipado
+
+mypy verifica `core/`, `optimizado.py` y `api.py`, con `disallow_untyped_defs`: toda función de esos módulos anota sus parámetros y su retorno. Es el código que resuelve las consultas; el arnés de medición y las herramientas de carga quedan afuera. De `indice_en_disco.py` se anotan las dos funciones que llama la API, para que los tipos lleguen sin cortarse hasta `Buscador`.
+
+Las anotaciones no cambian la medición: comparadas contra el mismo código sin anotar, con el método de la [división de las funciones largas](#división-de-las-funciones-largas), sobre 5.000 documentos y con Python 3.14, no hay diferencias sistemáticas.
+
 ## Análisis estático con SonarCloud
 
 SonarCloud analiza cada pull request desde el CI, junto con la cobertura que genera `pytest-cov`. Según [`sonar-project.properties`](https://github.com/JoniMora/pef-26/blob/master/sonar-project.properties), analiza `src/` como código y `tests/` como tests. `src/perfilado.py` se analiza como el resto, pero queda fuera de la cobertura porque es el arnés de medición y no el motor. Panel del proyecto: <https://sonarcloud.io/dashboard?id=JoniMora_pef-26>.
@@ -170,6 +182,46 @@ Los hallazgos de seguridad aceptados están en [Falsos positivos y excepciones](
 
 Con este cambio, el código duplicado que mide SonarCloud pasa de 42 líneas (1,1 %) a 0.
 
-Para que la complejidad no vuelva a crecer, Ruff aplica ahora la regla **C901 con un máximo de 10 por función**. La función más compleja del proyecto es `medir_version()`, con 10, justo en el límite. Tampoco quedan funciones muertas ni imports sin usar: Ruff controla los imports en el CI (F401), y las 82 funciones y clases de `src/` tienen al menos una referencia.
+Para que la complejidad no vuelva a crecer, Ruff aplica la regla **C901 con un máximo de 10 por función**, y Lizard limita además cada función a **50 líneas de código y complejidad 15**. Hoy el máximo de Ruff es 7, y la función más larga, `main()` de `perfilar_api.py`, tiene 48 líneas. Tampoco quedan funciones muertas ni imports sin usar: Ruff controla los imports en el CI (F401), y las 134 funciones y clases de `src/` tienen al menos una referencia.
 
-**Verificación.** El motor está cubierto por los tests, que pasan sin cambios. `perfilado.py` es el arnés de medición y no tiene tests, así que su refactorización se verificó comparando salidas contra la versión anterior: el reporte HTML sale idéntico byte a byte en 7 variantes de resultados, los 10 gráficos también, y una corrida completa de `--todo` produce la misma salida y el mismo `perfilado.json`, salvo los tiempos medidos. La salida por consola de `optimizado.py` y `concurrente.py` también es idéntica.
+**Verificación.** El motor está cubierto por los tests, que pasan sin cambios. `perfilado.py` es el arnés de medición y entonces no tenía tests, así que esa refactorización se verificó comparando salidas contra la versión anterior: el reporte HTML sale idéntico byte a byte en 7 variantes de resultados, los 10 gráficos también, y una corrida completa de `--todo` produce la misma salida y el mismo `perfilado.json`, salvo los tiempos medidos. La salida por consola de `optimizado.py` y `concurrente.py` también es idéntica.
+
+### División de las funciones largas
+
+Al activar Lizard, cinco funciones superaban las 50 líneas de código. Se dividieron sin cambiar lo que hacen:
+
+| Función | Líneas | Complejidad (Lizard) | División |
+| :--- | ---: | ---: | :--- |
+| `responder_preguntas()` | 118 | 8 | Una función por pregunta, y una constante para la respuesta que no depende de las mediciones. |
+| `comparativa()` | 61 | 23 | Avisar la sobrecarga, medir las rondas, medir la memoria y resumir cada versión. |
+| `medir_version()` | 61 | 12 | Una función por forma de medir: sin índice, con índice, con `sorted()` y con el buscador. |
+| `perfilar_scalene()` | 56 | 10 | Ubicar el ejecutable y correr una versión. |
+| `main()` de `concurrente.py` | 53 | 6 | `_crear_parser()`, igual que en `perfilado.py`. |
+
+Las cuatro primeras son del arnés de medición, y ahí un error no rompe nada visible: solo cambia lo que se mide. Por eso se trabajó en este orden:
+
+1. **Primero los tests**, contra el código sin cambios ([`tests/test_perfilado.py`](https://github.com/JoniMora/pef-26/blob/master/tests/test_perfilado.py)). Las operaciones medidas se reemplazan por dobles que avanzan un reloj falso con un costo primo distinto, así el tiempo informado se descompone de una sola manera: si una operación entra o sale de una ventana cronometrada, el número cambia.
+2. **Probar los tests con fallas provocadas.** De 47 fallas sobre el código original se escaparon 3, y eso obligó a reforzarlos. Después detectaron las 47, y las 52 sobre el código dividido.
+3. **Dividir sin tocarlos.** Las funciones nuevas se llaman fuera de las ventanas cronometradas, y estas conservan las mismas instrucciones, comparadas con `dis`.
+
+Dos detalles no se pueden simplificar sin cambiar lo que se mide:
+
+- `normalizar_consulta()` se llama en todas las versiones con índice, aunque solo `estructura` use el resultado. Calienta el `lru_cache` de `normalize()` y `stem()` en el proceso que mide. El índice paralelo se construye en otros procesos, y sin esa llamada la primera consulta cronometrada pagaría esos fallos.
+- El ranking de cProfile omite las funciones `_medir_*`. Acumulan casi todo el tiempo sin hacer trabajo propio, y le quitarían su lugar en el top 12 a funciones del motor. Siguen estando en el `.prof`.
+
+**Corrida real.** Para saber cuánto varía una medición por sí sola, el código viejo se comparó contra una copia de sí mismo (A/A) y contra el nuevo (A/B), con las corridas alternadas. Sobre 50.000 documentos y 3 rondas:
+
+| Versión | Consulta A/A | Consulta A/B | Indexación A/A | Indexación A/B | RSS A/A | RSS A/B |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Implementación inicial | 0,24 % | −0,84 % | — | — | 2,80 % | −1,21 % |
+| Estructura optimizada | 0,19 % | +0,14 % | 0,48 % | +1,22 % | 0,10 % | +0,15 % |
+| Algoritmo optimizado | 0,44 % | +0,52 % | 0,13 % | −1,50 % | 0,17 % | −0,01 % |
+| Concurrencia/paralelismo | 0,55 % | −0,04 % | 5,74 % | −0,49 % | 0,20 % | −0,61 % |
+| Versión final | 1,93 % | −2,36 % | 8,17 % | −10,13 % | 1,09 % | +0,13 % |
+
+- **Tiempos:** no hay una dirección. A/B supera a A/A en varias filas, por poco y hacia los dos lados: `estructura` y `algoritmo` construyen el mismo índice y se mueven en sentidos opuestos, y el −10,13 % de `final` no aparece en `concurrencia`, que construye igual. Una sola comparación A/A con 3 rondas subestima el ruido.
+- **Memoria:** el pico de `tracemalloc` difiere como máximo un 0,10 %. Con 5.000 documentos y 6 rondas, el RSS sale entre 0,1 y 0,2 MB más alto en las cinco versiones, probablemente porque el script es más largo. Con 50.000 no se nota.
+- **Resultados:** las cinco versiones devuelven 47.797 coincidencias, y 4.762 con 5.000 documentos.
+- **Salidas:** con el mismo `perfilado.json`, el reporte HTML, los 10 gráficos y la tabla comparativa salen idénticos byte a byte. Una corrida real de todos los perfiladores deja un JSON con la misma forma. El top 12 de cProfile solo cambia en las últimas filas, que también varían entre corridas del mismo código.
+
+Scalene termina con error en `algoritmo`, `concurrencia` y `final` con los dos códigos, en Python 3.14, así que esa falla no viene de esta división.

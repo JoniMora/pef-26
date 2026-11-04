@@ -17,6 +17,8 @@ Un bloque puede cortar dos cosas, y las dos se resuelven:
 
 import codecs
 from collections import Counter
+from collections.abc import Iterator
+from pathlib import Path
 
 from core.procesamiento_texto import tokenizar
 
@@ -26,7 +28,9 @@ from core.procesamiento_texto import tokenizar
 TAMANO_BLOQUE = 64 * 1024
 
 
-def leer_en_bloques(ruta, tamano_bloque=None):
+def leer_en_bloques(
+    ruta: str | Path, tamano_bloque: int | None = None
+) -> Iterator[str]:
     """
     Lee un archivo de texto por bloques sin cortar caracteres ni palabras.
 
@@ -82,7 +86,7 @@ def leer_en_bloques(ruta, tamano_bloque=None):
         yield texto
 
 
-def contar_terminos(ruta, tamano_bloque=None):
+def contar_terminos(ruta: str | Path, tamano_bloque: int | None = None) -> Counter[str]:
     """
     Cuenta los términos de un documento leyéndolo por bloques.
 
@@ -94,7 +98,7 @@ def contar_terminos(ruta, tamano_bloque=None):
     :rtype: collections.Counter
     :raises OSError: Si el archivo no se puede abrir.
     """
-    frecuencias = Counter()
+    frecuencias: Counter[str] = Counter()
 
     for fragmento in leer_en_bloques(ruta, tamano_bloque):
         frecuencias.update(tokenizar(fragmento))

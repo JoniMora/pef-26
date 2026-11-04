@@ -4,6 +4,10 @@
 -r requirements.in
 ruff==0.17.0
 bandit[toml]==1.9.4
+# Tamaño y complejidad de las funciones.
+lizard==1.25.0
+# Tipado estático del motor y la API.
+mypy==2.4.1
 pytest==9.1.1
 pytest-cov==7.1.0
 sphinx==9.1.0

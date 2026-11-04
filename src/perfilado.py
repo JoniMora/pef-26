@@ -224,6 +224,139 @@ def _rankear_sorted(indice, terminos, candidatos, top_k, total_docs):
 # ============================================================
 
 
+def _medir_sin_indice(corpus_dir, repeticiones):
+    """
+    Cronometra la línea base: cada consulta relee el corpus completo.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :return: Tupla ``(tiempos, coincidencias, documentos)``, con los tiempos en ms.
+    :rtype: tuple[list[float], int, int]
+    """
+    tiempos = []
+
+    for _ in range(repeticiones):
+        inicio = time.perf_counter()
+        resultados = baseline.busqueda_secuencial(str(corpus_dir), CONSULTA)
+        tiempos.append((time.perf_counter() - inicio) * 1000)
+
+    coincidencias = len(resultados)
+
+    # Generador, no lista: materializar 50.000 Path solo para
+    # contarlos agregaba decenas de MB al pico que se reporta.
+    documentos = sum(1 for _ in corpus_dir.glob("*.txt"))
+
+    return tiempos, coincidencias, documentos
+
+
+def _medir_consultas_sorted(indice, archivos, terminos, repeticiones):
+    """
+    Cronometra la etapa "estructura": intersección más ranking con ``sorted()``.
+
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param archivos: Rutas del corpus.
+    :type archivos: list[pathlib.Path]
+    :param terminos: Términos normalizados de la consulta.
+    :type terminos: tuple[str, ...]
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :return: Tupla ``(tiempos, coincidencias)``, con los tiempos en ms.
+    :rtype: tuple[list[float], int]
+    """
+    tiempos = []
+
+    for _ in range(repeticiones):
+        inicio = time.perf_counter()
+        candidatos = optimizado.buscar(indice, terminos)
+        # En una variable, como `resultados` en las demás versiones: el ranking
+        # se libera al reemplazarlo y no al terminar cada consulta.
+        _ranking = _rankear_sorted(indice, terminos, candidatos, TOP_K, len(archivos))
+        tiempos.append((time.perf_counter() - inicio) * 1000)
+
+    return tiempos, len(candidatos)
+
+
+def _medir_consultas_buscador(version, indice, archivos, repeticiones):
+    """
+    Cronometra las versiones que resuelven con :class:`optimizado.Buscador`.
+
+    :param version: Versión a medir: ``final`` usa la caché caliente, y las demás la
+        fuerzan a fallar.
+    :type version: str
+    :param indice: Índice invertido: término -> {doc_id: frecuencia}.
+    :type indice: dict[str, dict[int, int]]
+    :param archivos: Rutas del corpus.
+    :type archivos: list[pathlib.Path]
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :return: Tupla ``(tiempos, coincidencias)``, con los tiempos en ms.
+    :rtype: tuple[list[float], int]
+    """
+    tiempos = []
+
+    buscador = optimizado.Buscador(indice, archivos)
+
+    if version == "final":
+        # Caché caliente: la primera consulta la puebla y no se mide.
+        buscador.buscar(CONSULTA, TOP_K)
+
+    for _ in range(repeticiones):
+        if version != "final":
+            # Caché forzada a fallo: mide el costo real de resolver.
+            buscador.cache = optimizado.QueryCache(1024)
+
+        inicio = time.perf_counter()
+        coincidencias, resultados = buscador.buscar(CONSULTA, TOP_K)
+        tiempos.append((time.perf_counter() - inicio) * 1000)
+
+    return tiempos, coincidencias
+
+
+def _medir_con_indice(version, corpus_dir, repeticiones):
+    """
+    Cronometra la construcción del índice y las consultas de una versión.
+
+    :param version: Versión a medir, una de ``CON_INDICE``.
+    :type version: str
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param repeticiones: Cantidad de consultas que se cronometran.
+    :type repeticiones: int
+    :return: Tupla ``(indexacion_ms, tiempos, coincidencias, documentos)``, con los
+        tiempos en ms.
+    :rtype: tuple[float, list[float], int, int]
+    """
+    constructor = (
+        concurrente.construir_indice
+        if version in ("concurrencia", "final")
+        else optimizado.construir_indice
+    )
+
+    inicio = time.perf_counter()
+    indice, archivos = constructor(corpus_dir)
+    indexacion_ms = (time.perf_counter() - inicio) * 1000
+
+    # Solo `estructura` usa los términos, pero va en todas: calienta el
+    # lru_cache de normalize y stem en este proceso. El índice paralelo se
+    # construye en otros procesos, y sin esta llamada la primera consulta
+    # cronometrada pagaría esos fallos.
+    terminos = optimizado.normalizar_consulta(CONSULTA)
+
+    if version == "estructura":
+        tiempos, coincidencias = _medir_consultas_sorted(
+            indice, archivos, terminos, repeticiones
+        )
+    else:
+        tiempos, coincidencias = _medir_consultas_buscador(
+            version, indice, archivos, repeticiones
+        )
+
+    return indexacion_ms, tiempos, coincidencias, len(archivos)
+
+
 def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     """
     Mide una versión y devuelve sus métricas.
@@ -250,63 +383,13 @@ def medir_version(version, corpus_dir, repeticiones, con_tracemalloc=False):
     if con_tracemalloc:
         tracemalloc.start()
 
-    indexacion_ms = None
-    tiempos = []
-
     if version == "inicial":
-        # Sin índice: cada consulta relee el corpus completo.
-        for _ in range(repeticiones):
-            inicio = time.perf_counter()
-            resultados = baseline.busqueda_secuencial(str(corpus_dir), CONSULTA)
-            tiempos.append((time.perf_counter() - inicio) * 1000)
-
-        coincidencias = len(resultados)
-
-        # Generador, no lista: materializar 50.000 Path solo para
-        # contarlos agregaba decenas de MB al pico que se reporta.
-        documentos = sum(1 for _ in corpus_dir.glob("*.txt"))
-
+        indexacion_ms = None
+        tiempos, coincidencias, documentos = _medir_sin_indice(corpus_dir, repeticiones)
     else:
-        constructor = (
-            concurrente.construir_indice
-            if version in ("concurrencia", "final")
-            else optimizado.construir_indice
+        indexacion_ms, tiempos, coincidencias, documentos = _medir_con_indice(
+            version, corpus_dir, repeticiones
         )
-
-        inicio = time.perf_counter()
-        indice, archivos = constructor(corpus_dir)
-        indexacion_ms = (time.perf_counter() - inicio) * 1000
-
-        documentos = len(archivos)
-
-        terminos = optimizado.normalizar_consulta(CONSULTA)
-
-        if version == "estructura":
-            for _ in range(repeticiones):
-                inicio = time.perf_counter()
-                candidatos = optimizado.buscar(indice, terminos)
-                resultados = _rankear_sorted(
-                    indice, terminos, candidatos, TOP_K, len(archivos)
-                )
-                tiempos.append((time.perf_counter() - inicio) * 1000)
-
-            coincidencias = len(candidatos)
-
-        else:
-            buscador = optimizado.Buscador(indice, archivos)
-
-            if version == "final":
-                # Caché caliente: la primera consulta la puebla y no se mide.
-                buscador.buscar(CONSULTA, TOP_K)
-
-            for _ in range(repeticiones):
-                if version != "final":
-                    # Caché forzada a fallo: mide el costo real de resolver.
-                    buscador.cache = optimizado.QueryCache(1024)
-
-                inicio = time.perf_counter()
-                coincidencias, resultados = buscador.buscar(CONSULTA, TOP_K)
-                tiempos.append((time.perf_counter() - inicio) * 1000)
 
     if con_tracemalloc:
         _, pico_tracemalloc = tracemalloc.get_traced_memory()
@@ -397,33 +480,19 @@ def _medir_en_subproceso(
     )
 
 
-def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
+def _avisar_sobrecarga(carga, nucleos):
     """
-    Mide las cinco versiones alternándolas dentro de cada ronda.
+    Advierte si la máquina tiene más carga que núcleos.
 
-    Se descartan las primeras `descartar` rondas —el page cache no
-    está en régimen estacionario— y se reporta la mediana del resto.
+    Una máquina sobresuscripta invalida la medición sin avisar: los tiempos salen
+    inflados de forma despareja y aparecen resultados imposibles, como que la
+    versión paralela tarde más que la secuencial usando el mismo código.
 
-    :param corpus_dir: Directorio del corpus.
-    :type corpus_dir: pathlib.Path
-    :param rondas: Rondas que se resumen, sin contar las descartadas.
-    :type rondas: int
-    :param repeticiones: Consultas cronometradas por versión y ronda. La línea base usa
-        3, porque relee el corpus completo en cada una.
-    :type repeticiones: int
-    :param descartar: Rondas iniciales de calentamiento que se descartan.
-    :type descartar: int
-    :return: ``{"resumen": ..., "crudo": ...}``: la mediana de cada versión y todas las
-        mediciones individuales.
-    :rtype: dict
+    :param carga: Carga promedio del último minuto, o ``None`` si no se conoce.
+    :type carga: float | None
+    :param nucleos: Cantidad de núcleos de la máquina.
+    :type nucleos: int
     """
-    # Una máquina sobresuscripta invalida la medición sin avisar: los
-    # tiempos salen inflados de forma despareja y aparecen resultados
-    # imposibles, como que la versión paralela tarde más que la
-    # secuencial usando el mismo código.
-    carga = _carga_del_sistema()
-    nucleos = os.cpu_count() or 1
-
     if carga is not None and carga > nucleos:
         print(
             f"  ⚠ ADVERTENCIA: carga del sistema {carga:.1f} sobre {nucleos} "
@@ -433,6 +502,22 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
             flush=True,
         )
 
+
+def _medir_rondas(corpus_dir, rondas, repeticiones, descartar):
+    """
+    Mide todas las versiones por ronda, cada una en un proceso limpio.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param rondas: Rondas que se resumen, sin contar las descartadas.
+    :type rondas: int
+    :param repeticiones: Consultas cronometradas por versión y ronda.
+    :type repeticiones: int
+    :param descartar: Rondas iniciales de calentamiento.
+    :type descartar: int
+    :return: Por versión, todas sus mediciones, con su ronda y si se descarta.
+    :rtype: dict[str, list[dict]]
+    """
     crudo = {version: [] for version in VERSIONES}
 
     for ronda in range(rondas + descartar):
@@ -457,8 +542,21 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
                 flush=True,
             )
 
-    # La atribución de memoria va en su propia pasada: activar
-    # tracemalloc durante el cronometrado contaminaría los tiempos.
+    return crudo
+
+
+def _medir_picos_de_memoria(corpus_dir):
+    """
+    Mide el pico de ``tracemalloc`` de cada versión, sin cronometrar.
+
+    Va en su propia pasada: activar tracemalloc durante el cronometrado
+    contaminaría los tiempos.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :return: Pico en MB por versión.
+    :rtype: dict[str, float]
+    """
     print("  pasada de memoria (tracemalloc, sin cronometrar)", flush=True)
 
     picos = {}
@@ -467,40 +565,89 @@ def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
         medicion = _medir_en_subproceso(version, corpus_dir, 1, con_tracemalloc=True)
         picos[version] = medicion["tracemalloc_mb"]
 
-    resumen = {}
+    return picos
 
-    for version in VERSIONES:
-        utiles = [medicion for medicion in crudo[version] if not medicion["descartada"]]
 
-        indexaciones = [
-            medicion["indexacion_ms"]
-            for medicion in utiles
-            if medicion["indexacion_ms"] is not None
-        ]
+def _resumir_version(version, mediciones, pico, carga, nucleos):
+    """
+    Resume una versión con la mediana de sus rondas no descartadas.
 
-        # En Windows sin psutil no hay lectura de RSS: la mediana se
-        # calcula solo sobre las muestras que existen.
-        rss = [
-            medicion["rss_mb"] for medicion in utiles if medicion["rss_mb"] is not None
-        ]
+    :param version: Versión a resumir, una de ``VERSIONES``.
+    :type version: str
+    :param mediciones: Todas las mediciones de la versión.
+    :type mediciones: list[dict]
+    :param pico: Pico de ``tracemalloc`` en MB.
+    :type pico: float
+    :param carga: Carga del sistema al empezar a medir.
+    :type carga: float | None
+    :param nucleos: Cantidad de núcleos de la máquina.
+    :type nucleos: int
+    :return: La fila de la versión en la tabla comparativa.
+    :rtype: dict
+    """
+    utiles = [medicion for medicion in mediciones if not medicion["descartada"]]
 
-        resumen[version] = {
-            "etiqueta": ETIQUETAS[version],
-            "observacion": OBSERVACIONES[version],
-            "documentos": utiles[0]["documentos"],
-            "consulta_ms": statistics.median(
-                medicion["consulta_ms"] for medicion in utiles
-            ),
-            "indexacion_ms": statistics.median(indexaciones) if indexaciones else None,
-            "rss_mb": statistics.median(rss) if rss else None,
-            "tracemalloc_mb": picos[version],
-            "coincidencias": utiles[0]["coincidencias"],
-            "rondas": len(utiles),
-        }
+    indexaciones = [
+        medicion["indexacion_ms"]
+        for medicion in utiles
+        if medicion["indexacion_ms"] is not None
+    ]
 
-    for version in VERSIONES:
-        resumen[version]["carga_al_medir"] = carga
-        resumen[version]["nucleos"] = nucleos
+    # En Windows sin psutil no hay lectura de RSS: la mediana se
+    # calcula solo sobre las muestras que existen.
+    rss = [medicion["rss_mb"] for medicion in utiles if medicion["rss_mb"] is not None]
+
+    return {
+        "etiqueta": ETIQUETAS[version],
+        "observacion": OBSERVACIONES[version],
+        "documentos": utiles[0]["documentos"],
+        "consulta_ms": statistics.median(
+            medicion["consulta_ms"] for medicion in utiles
+        ),
+        "indexacion_ms": statistics.median(indexaciones) if indexaciones else None,
+        "rss_mb": statistics.median(rss) if rss else None,
+        "tracemalloc_mb": pico,
+        "coincidencias": utiles[0]["coincidencias"],
+        "rondas": len(utiles),
+        "carga_al_medir": carga,
+        "nucleos": nucleos,
+    }
+
+
+def comparativa(corpus_dir, rondas, repeticiones, descartar=1):
+    """
+    Mide las cinco versiones alternándolas dentro de cada ronda.
+
+    Se descartan las primeras `descartar` rondas —el page cache no
+    está en régimen estacionario— y se reporta la mediana del resto.
+
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param rondas: Rondas que se resumen, sin contar las descartadas.
+    :type rondas: int
+    :param repeticiones: Consultas cronometradas por versión y ronda. La línea base usa
+        3, porque relee el corpus completo en cada una.
+    :type repeticiones: int
+    :param descartar: Rondas iniciales de calentamiento que se descartan.
+    :type descartar: int
+    :return: ``{"resumen": ..., "crudo": ...}``: la mediana de cada versión y todas las
+        mediciones individuales.
+    :rtype: dict
+    """
+    carga = _carga_del_sistema()
+    nucleos = os.cpu_count() or 1
+
+    _avisar_sobrecarga(carga, nucleos)
+
+    crudo = _medir_rondas(corpus_dir, rondas, repeticiones, descartar)
+    picos = _medir_picos_de_memoria(corpus_dir)
+
+    resumen = {
+        version: _resumir_version(
+            version, crudo[version], picos[version], carga, nucleos
+        )
+        for version in VERSIONES
+    }
 
     return {"resumen": resumen, "crudo": crudo}
 
@@ -583,6 +730,44 @@ def escalabilidad(tamanos, rondas, repeticiones):
 # ============================================================
 
 
+def _ranking_cprofile(estadisticas):
+    """
+    Las 12 funciones con mayor tiempo acumulado de un perfil.
+
+    Omite las ``_medir_*`` en que se divide :func:`medir_version`: acumulan casi
+    todo el tiempo sin hacer trabajo propio, y le quitarían su lugar a las
+    funciones que se quieren ver. Siguen estando en el ``.prof``.
+
+    :param estadisticas: Perfil de una versión.
+    :type estadisticas: pstats.Stats
+    :return: Por función: su nombre con archivo y línea, llamadas, tiempo propio y
+        tiempo acumulado.
+    :rtype: list[dict]
+    """
+    filas = []
+
+    for func, (llamadas, _, propio, acumulado, _) in sorted(
+        estadisticas.stats.items(),
+        key=lambda par: par[1][3],
+        reverse=True,
+    ):
+        archivo, linea, nombre = func
+
+        if nombre.startswith("_medir_"):
+            continue
+
+        filas.append(
+            {
+                "funcion": f"{Path(archivo).name}:{linea}({nombre})",
+                "llamadas": llamadas,
+                "tottime": propio,
+                "cumtime": acumulado,
+            }
+        )
+
+    return filas[:12]
+
+
 def perfilar_cprofile(corpus_dir, versiones):
     """
     Perfil determinista por función de cada versión.
@@ -630,28 +815,10 @@ def perfilar_cprofile(corpus_dir, versiones):
         estadisticas = pstats.Stats(str(destino))
         estadisticas.sort_stats("cumulative")
 
-        filas = []
-
-        for func, (llamadas, _, propio, acumulado, _) in sorted(
-            estadisticas.stats.items(),
-            key=lambda par: par[1][3],
-            reverse=True,
-        )[:12]:
-            archivo, linea, nombre = func
-
-            filas.append(
-                {
-                    "funcion": f"{Path(archivo).name}:{linea}({nombre})",
-                    "llamadas": llamadas,
-                    "tottime": propio,
-                    "cumtime": acumulado,
-                }
-            )
-
         hallazgos[version] = {
             "archivo": str(destino.relative_to(BASE_DIR)),
             "total_s": estadisticas.total_tt,
-            "top": filas,
+            "top": _ranking_cprofile(estadisticas),
         }
 
     return hallazgos
@@ -783,6 +950,85 @@ def perfilar_memoria(corpus_dir, versiones):
 # ============================================================
 
 
+def _ubicar_scalene():
+    """
+    Ruta del ejecutable de Scalene: junto al intérprete o en el venv del proyecto.
+
+    :return: La ruta donde debería estar; puede no existir.
+    :rtype: pathlib.Path
+    """
+    en_windows = sys.platform.startswith("win")
+
+    nombre_ejecutable = "scalene.exe" if en_windows else "scalene"
+    scalene = Path(sys.executable).parent / nombre_ejecutable
+
+    if scalene.exists():
+        return scalene
+
+    return BASE_DIR / ".venv" / ("Scripts" if en_windows else "bin") / nombre_ejecutable
+
+
+def _correr_scalene(scalene, version, corpus_dir, limite_s):
+    """
+    Perfila una versión con Scalene.
+
+    :param scalene: Ruta del ejecutable.
+    :type scalene: pathlib.Path
+    :param version: Versión a perfilar, una de ``VERSIONES``.
+    :type version: str
+    :param corpus_dir: Directorio del corpus.
+    :type corpus_dir: pathlib.Path
+    :param limite_s: Segundos máximos antes de abortar Scalene.
+    :type limite_s: int
+    :return: El JSON de Scalene y su resumen, el error o el motivo de la omisión.
+    :rtype: dict
+    """
+    destino = DIR_PERFILES / f"scalene-{version}.json"
+
+    print(f"  scalene: {version}", flush=True)
+
+    try:
+        proceso = subprocess.run(  # nosec B603
+            [
+                str(scalene),
+                "run",
+                "-o",
+                str(destino),
+                str(SRC_DIR / "perfilado.py"),
+                "---",
+                "--medir",
+                version,
+                "--directorio",
+                str(corpus_dir),
+                "--repeticiones",
+                "1",
+            ],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            timeout=limite_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # Scalene instrumenta el intérprete entero; con los procesos
+        # hijos de `spawn` de la versión concurrente se queda colgado.
+        destino.unlink(missing_ok=True)
+        return {
+            "omitido": f"Scalene excedió {limite_s}s sobre esta versión: su "
+            "instrumentación no acompaña a los procesos hijos "
+            "creados por spawn"
+        }
+
+    if proceso.returncode != 0 or not destino.exists():
+        return {"error": (proceso.stderr or proceso.stdout)[-400:]}
+
+    return {
+        "archivo": str(destino.relative_to(BASE_DIR)),
+        "ver_con": f"{scalene} view {destino.relative_to(BASE_DIR)}",
+        "resumen": _resumir_scalene(destino),
+    }
+
+
 def perfilar_scalene(corpus_dir, versiones, limite_s=150):
     """
     Perfila CPU y memoria línea a línea con Scalene.
@@ -800,73 +1046,15 @@ def perfilar_scalene(corpus_dir, versiones, limite_s=150):
         omisión. Si Scalene no está instalado, ``{"omitido": ...}``.
     :rtype: dict
     """
-    en_windows = sys.platform.startswith("win")
-
-    nombre_ejecutable = "scalene.exe" if en_windows else "scalene"
-    scalene = Path(sys.executable).parent / nombre_ejecutable
-
-    if not scalene.exists():
-        scalene = (
-            BASE_DIR
-            / ".venv"
-            / ("Scripts" if en_windows else "bin")
-            / nombre_ejecutable
-        )
+    scalene = _ubicar_scalene()
 
     if not scalene.exists():
         return {"omitido": f"scalene no está instalado en {scalene.parent}"}
 
-    hallazgos = {}
-
-    for version in versiones:
-        destino = DIR_PERFILES / f"scalene-{version}.json"
-
-        print(f"  scalene: {version}", flush=True)
-
-        try:
-            proceso = subprocess.run(  # nosec B603
-                [
-                    str(scalene),
-                    "run",
-                    "-o",
-                    str(destino),
-                    str(SRC_DIR / "perfilado.py"),
-                    "---",
-                    "--medir",
-                    version,
-                    "--directorio",
-                    str(corpus_dir),
-                    "--repeticiones",
-                    "1",
-                ],
-                cwd=str(BASE_DIR),
-                capture_output=True,
-                text=True,
-                timeout=limite_s,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            # Scalene instrumenta el intérprete entero; con los procesos
-            # hijos de `spawn` de la versión concurrente se queda colgado.
-            destino.unlink(missing_ok=True)
-            hallazgos[version] = {
-                "omitido": f"Scalene excedió {limite_s}s sobre esta versión: su "
-                "instrumentación no acompaña a los procesos hijos "
-                "creados por spawn"
-            }
-            continue
-
-        if proceso.returncode != 0 or not destino.exists():
-            hallazgos[version] = {"error": (proceso.stderr or proceso.stdout)[-400:]}
-            continue
-
-        hallazgos[version] = {
-            "archivo": str(destino.relative_to(BASE_DIR)),
-            "ver_con": f"{scalene} view {destino.relative_to(BASE_DIR)}",
-            "resumen": _resumir_scalene(destino),
-        }
-
-    return hallazgos
+    return {
+        version: _correr_scalene(scalene, version, corpus_dir, limite_s)
+        for version in versiones
+    }
 
 
 def _resumir_scalene(archivo):
@@ -1552,35 +1740,33 @@ def generar_graficos(resultados):
 # ============================================================
 
 
-def responder_preguntas(resultados):
+RESPUESTA_OPTIMIZACION = (
+    "Cuatro incrementos acumulativos: <strong>(1)</strong> índice invertido con "
+    "<code>dict</code> más intersección de <code>set</code>, que cambia el escaneo "
+    "O(n·m) por "
+    "resolución O(1) promedio; <strong>(2)</strong> ranking top-k con "
+    "<code>heapq.nlargest</code> "
+    "en O(r·log k) y memoria auxiliar O(k), más caché LRU de consultas; "
+    "<strong>(3)</strong> indexación MapReduce sobre "
+    "<code>ProcessPoolExecutor</code> para evadir "
+    "el GIL en la fase CPU-bound; <strong>(4)</strong> la combinación de ambas."
+)
+
+
+def _respuesta_cuello(comparativa_, cprofile_):
     """
-    Deriva las respuestas de los números medidos, no de la prosa.
+    Responde cuál es el cuello de botella.
 
-    Si una medición falta, la respuesta lo dice en lugar de inventar
-    un valor.
-
-    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
-    :type resultados: dict
-    :return: Una respuesta en HTML por pregunta (``cuello``, ``optimizacion``,
-        ``impacto``, ``escalabilidad`` y ``tradeoff``). Vacío si falta la comparativa.
-    :rtype: dict[str, str]
+    :param comparativa_: Tabla comparativa, por versión.
+    :type comparativa_: dict[str, dict]
+    :param cprofile_: Perfiles de cProfile, por versión.
+    :type cprofile_: dict[str, dict]
+    :return: La respuesta en HTML.
+    :rtype: str
     """
-    comparativa_ = resultados.get("comparativa")
-    escalabilidad_ = resultados.get("escalabilidad")
-    cprofile_ = resultados.get("cprofile") or {}
-
-    if not comparativa_:
-        return {}
-
     inicial = comparativa_["inicial"]
-    estructura = comparativa_["estructura"]
     algoritmo = comparativa_["algoritmo"]
-    concurrencia = comparativa_["concurrencia"]
-    final = comparativa_["final"]
 
-    respuestas = {}
-
-    # ---- 1. cuello de botella
     top_indexacion = ""
     perfil = cprofile_.get("algoritmo", {}).get("top") or []
 
@@ -1593,7 +1779,7 @@ def responder_preguntas(resultados):
             )
             break
 
-    respuestas["cuello"] = (
+    return (
         "En la línea base, releer y escanear el corpus completo en "
         "<strong>cada</strong> "
         f"consulta: {_ms(inicial['consulta_ms'])} ms por búsqueda, con E/S "
@@ -1605,26 +1791,28 @@ def responder_preguntas(resultados):
         f"tokenización.{top_indexacion}"
     )
 
-    # ---- 2. qué optimización
-    respuestas["optimizacion"] = (
-        "Cuatro incrementos acumulativos: <strong>(1)</strong> índice invertido con "
-        "<code>dict</code> más intersección de <code>set</code>, que cambia el escaneo "
-        "O(n·m) por "
-        "resolución O(1) promedio; <strong>(2)</strong> ranking top-k con "
-        "<code>heapq.nlargest</code> "
-        "en O(r·log k) y memoria auxiliar O(k), más caché LRU de consultas; "
-        "<strong>(3)</strong> indexación MapReduce sobre "
-        "<code>ProcessPoolExecutor</code> para evadir "
-        "el GIL en la fase CPU-bound; <strong>(4)</strong> la combinación de ambas."
-    )
 
-    # ---- 3. impacto
+def _respuesta_impacto(comparativa_):
+    """
+    Responde cuánto mejoró cada optimización.
+
+    :param comparativa_: Tabla comparativa, por versión.
+    :type comparativa_: dict[str, dict]
+    :return: La respuesta en HTML.
+    :rtype: str
+    """
+    inicial = comparativa_["inicial"]
+    estructura = comparativa_["estructura"]
+    algoritmo = comparativa_["algoritmo"]
+    concurrencia = comparativa_["concurrencia"]
+    final = comparativa_["final"]
+
     mejora_consulta = inicial["consulta_ms"] / algoritmo["consulta_ms"]
     mejora_cache = inicial["consulta_ms"] / final["consulta_ms"]
     mejora_heap = estructura["consulta_ms"] / algoritmo["consulta_ms"]
     mejora_indexacion = algoritmo["indexacion_ms"] / concurrencia["indexacion_ms"]
 
-    respuestas["impacto"] = (
+    return (
         f"La consulta pasa de {_ms(inicial['consulta_ms'])} ms a "
         f"{_ms(algoritmo['consulta_ms'])} ms "
         f"(<strong>{_num(mejora_consulta)}×</strong>) y a "
@@ -1639,54 +1827,75 @@ def responder_preguntas(resultados):
         f"(<strong>{_num(mejora_indexacion, 2)}×</strong>)."
     )
 
-    # ---- 4. escalabilidad
-    if escalabilidad_:
-        tamanos = sorted(int(tamano) for tamano in escalabilidad_)
-        menor, mayor = tamanos[0], tamanos[-1]
 
-        ratio_menor = (
-            escalabilidad_[str(menor)]["inicial"]["consulta_ms"]
-            / escalabilidad_[str(menor)]["algoritmo"]["consulta_ms"]
-        )
-        ratio_mayor = (
-            escalabilidad_[str(mayor)]["inicial"]["consulta_ms"]
-            / escalabilidad_[str(mayor)]["algoritmo"]["consulta_ms"]
-        )
-        speedup_menor = (
-            escalabilidad_[str(menor)]["algoritmo"]["indexacion_ms"]
-            / escalabilidad_[str(menor)]["concurrencia"]["indexacion_ms"]
-        )
-        speedup_mayor = (
-            escalabilidad_[str(mayor)]["algoritmo"]["indexacion_ms"]
-            / escalabilidad_[str(mayor)]["concurrencia"]["indexacion_ms"]
-        )
+def _respuesta_escalabilidad(escalabilidad_):
+    """
+    Responde si la mejora se sostiene al crecer el corpus.
 
-        respuestas["escalabilidad"] = (
-            "Sí, y se <strong>amplifica</strong>. La ventaja de la consulta indexada "
-            "sobre la línea "
-            f"base crece de <strong>{_num(ratio_menor)}×</strong> con {_num(menor)} "
-            "documentos a "
-            f"<strong>{_num(ratio_mayor)}×</strong> con {_num(mayor)}: la búsqueda "
-            "secuencial crece "
-            "con el corpus mientras la indexada depende de los documentos candidatos, "
-            "no del total. "
-            f"El paralelismo se comporta distinto: su ventaja va de "
-            f"<strong>{_num(speedup_menor, 2)}×</strong> a "
-            f"<strong>{_num(speedup_mayor, 2)}×</strong>, "
-            "porque el costo fijo de levantar los procesos solo se amortiza con "
-            "volumen."
-        )
-    else:
-        respuestas["escalabilidad"] = (
-            "No medido en esta corrida — ejecutar con <code>--escalabilidad</code>."
-        )
+    :param escalabilidad_: Barrido por tamaño de corpus, si se midió.
+    :type escalabilidad_: dict[str, dict] | None
+    :return: La respuesta en HTML, o el aviso de que no se midió.
+    :rtype: str
+    """
+    if not escalabilidad_:
+        return "No medido en esta corrida — ejecutar con <code>--escalabilidad</code>."
 
-    # ---- 5. trade-off
+    tamanos = sorted(int(tamano) for tamano in escalabilidad_)
+    menor, mayor = tamanos[0], tamanos[-1]
+
+    ratio_menor = (
+        escalabilidad_[str(menor)]["inicial"]["consulta_ms"]
+        / escalabilidad_[str(menor)]["algoritmo"]["consulta_ms"]
+    )
+    ratio_mayor = (
+        escalabilidad_[str(mayor)]["inicial"]["consulta_ms"]
+        / escalabilidad_[str(mayor)]["algoritmo"]["consulta_ms"]
+    )
+    speedup_menor = (
+        escalabilidad_[str(menor)]["algoritmo"]["indexacion_ms"]
+        / escalabilidad_[str(menor)]["concurrencia"]["indexacion_ms"]
+    )
+    speedup_mayor = (
+        escalabilidad_[str(mayor)]["algoritmo"]["indexacion_ms"]
+        / escalabilidad_[str(mayor)]["concurrencia"]["indexacion_ms"]
+    )
+
+    return (
+        "Sí, y se <strong>amplifica</strong>. La ventaja de la consulta indexada "
+        "sobre la línea "
+        f"base crece de <strong>{_num(ratio_menor)}×</strong> con {_num(menor)} "
+        "documentos a "
+        f"<strong>{_num(ratio_mayor)}×</strong> con {_num(mayor)}: la búsqueda "
+        "secuencial crece "
+        "con el corpus mientras la indexada depende de los documentos candidatos, "
+        "no del total. "
+        f"El paralelismo se comporta distinto: su ventaja va de "
+        f"<strong>{_num(speedup_menor, 2)}×</strong> a "
+        f"<strong>{_num(speedup_mayor, 2)}×</strong>, "
+        "porque el costo fijo de levantar los procesos solo se amortiza con "
+        "volumen."
+    )
+
+
+def _respuesta_tradeoff(comparativa_):
+    """
+    Responde qué se paga a cambio de la mejora.
+
+    :param comparativa_: Tabla comparativa, por versión.
+    :type comparativa_: dict[str, dict]
+    :return: La respuesta en HTML.
+    :rtype: str
+    """
+    inicial = comparativa_["inicial"]
+    algoritmo = comparativa_["algoritmo"]
+    concurrencia = comparativa_["concurrencia"]
+    final = comparativa_["final"]
+
     equilibrio = final["indexacion_ms"] / (
         inicial["consulta_ms"] - final["consulta_ms"]
     )
 
-    respuestas["tradeoff"] = (
+    return (
         "<strong>Memoria y arranque a cambio de latencia.</strong> El pico de RSS "
         "sube de "
         f"{_mb(inicial['rss_mb'])} MB a {_mb(algoritmo['rss_mb'])} MB con el índice "
@@ -1701,7 +1910,32 @@ def responder_preguntas(resultados):
         "línea base gana."
     )
 
-    return respuestas
+
+def responder_preguntas(resultados):
+    """
+    Deriva las respuestas de los números medidos, no de la prosa.
+
+    Si una medición falta, la respuesta lo dice en lugar de inventar
+    un valor.
+
+    :param resultados: Resultados acumulados en ``profiles/perfilado.json``.
+    :type resultados: dict
+    :return: Una respuesta en HTML por pregunta (``cuello``, ``optimizacion``,
+        ``impacto``, ``escalabilidad`` y ``tradeoff``). Vacío si falta la comparativa.
+    :rtype: dict[str, str]
+    """
+    comparativa_ = resultados.get("comparativa")
+
+    if not comparativa_:
+        return {}
+
+    return {
+        "cuello": _respuesta_cuello(comparativa_, resultados.get("cprofile") or {}),
+        "optimizacion": RESPUESTA_OPTIMIZACION,
+        "impacto": _respuesta_impacto(comparativa_),
+        "escalabilidad": _respuesta_escalabilidad(resultados.get("escalabilidad")),
+        "tradeoff": _respuesta_tradeoff(comparativa_),
+    }
 
 
 # ============================================================

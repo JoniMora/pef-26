@@ -1,0 +1,321 @@
+{
+ "resumen": {
+  "inicial": {
+   "etiqueta": "Implementación inicial",
+   "observacion": "Baseline — escaneo secuencial O(n·m), relee el corpus en cada consulta",
+   "documentos": 56,
+   "consulta_ms": 1121.0,
+   "indexacion_ms": null,
+   "rss_mb": 3121.0,
+   "tracemalloc_mb": 4441.0,
+   "coincidencias": 66,
+   "rondas": 3,
+   "carga_al_medir": 1.5,
+   "nucleos": 8
+  },
+  "estructura": {
+   "etiqueta": "Estructura optimizada",
+   "observacion": "Mejora de búsqueda — índice invertido + set, ranking con sorted() O(r·log r)",
+   "documentos": 57,
+   "consulta_ms": 1144.0,
+   "indexacion_ms": 2144.0,
+   "rss_mb": 3144.0,
+   "tracemalloc_mb": 4484.0,
+   "coincidencias": 67,
+   "rondas": 3,
+   "carga_al_medir": 1.5,
+   "nucleos": 8
+  },
+  "algoritmo": {
+   "etiqueta": "Algoritmo optimizado",
+   "observacion": "Mejor escalabilidad — heap top-k O(r·log k) + caché LRU de consultas",
+   "documentos": 58,
+   "consulta_ms": 1169.0,
+   "indexacion_ms": 2169.0,
+   "rss_mb": 3169.0,
+   "tracemalloc_mb": 4529.0,
+   "coincidencias": 68,
+   "rondas": 3,
+   "carga_al_medir": 1.5,
+   "nucleos": 8
+  },
+  "concurrencia": {
+   "etiqueta": "Concurrencia/paralelismo",
+   "observacion": "Evaluar overhead — indexación MapReduce sobre ProcessPoolExecutor",
+   "documentos": 59,
+   "consulta_ms": 1196.0,
+   "indexacion_ms": 2196.0,
+   "rss_mb": 3196.0,
+   "tracemalloc_mb": 4576.0,
+   "coincidencias": 69,
+   "rondas": 3,
+   "carga_al_medir": 1.5,
+   "nucleos": 8
+  },
+  "final": {
+   "etiqueta": "Versión final",
+   "observacion": "Resultado final — indexación paralela + caché caliente",
+   "documentos": 60,
+   "consulta_ms": 1225.0,
+   "indexacion_ms": 2225.0,
+   "rss_mb": 3225.0,
+   "tracemalloc_mb": 4625.0,
+   "coincidencias": 70,
+   "rondas": 3,
+   "carga_al_medir": 1.5,
+   "nucleos": 8
+  }
+ },
+ "crudo": {
+  "inicial": [
+   {
+    "version": "inicial",
+    "documentos": 51,
+    "consulta_ms": 1001.0,
+    "indexacion_ms": null,
+    "rss_mb": 3001.0,
+    "tracemalloc_mb": 4001.0,
+    "coincidencias": 61,
+    "repeticiones": 3,
+    "ronda": 0,
+    "descartada": true
+   },
+   {
+    "version": "inicial",
+    "documentos": 56,
+    "consulta_ms": 1036.0,
+    "indexacion_ms": null,
+    "rss_mb": 3036.0,
+    "tracemalloc_mb": 4036.0,
+    "coincidencias": 66,
+    "repeticiones": 3,
+    "ronda": 1,
+    "descartada": false
+   },
+   {
+    "version": "inicial",
+    "documentos": 61,
+    "consulta_ms": 1121.0,
+    "indexacion_ms": null,
+    "rss_mb": 3121.0,
+    "tracemalloc_mb": 4121.0,
+    "coincidencias": 71,
+    "repeticiones": 3,
+    "ronda": 2,
+    "descartada": false
+   },
+   {
+    "version": "inicial",
+    "documentos": 66,
+    "consulta_ms": 1256.0,
+    "indexacion_ms": null,
+    "rss_mb": 3256.0,
+    "tracemalloc_mb": 4256.0,
+    "coincidencias": 76,
+    "repeticiones": 3,
+    "ronda": 3,
+    "descartada": false
+   }
+  ],
+  "estructura": [
+   {
+    "version": "estructura",
+    "documentos": 52,
+    "consulta_ms": 1004.0,
+    "indexacion_ms": 2004.0,
+    "rss_mb": 3004.0,
+    "tracemalloc_mb": 4004.0,
+    "coincidencias": 62,
+    "repeticiones": 9,
+    "ronda": 0,
+    "descartada": true
+   },
+   {
+    "version": "estructura",
+    "documentos": 57,
+    "consulta_ms": 1049.0,
+    "indexacion_ms": 2049.0,
+    "rss_mb": 3049.0,
+    "tracemalloc_mb": 4049.0,
+    "coincidencias": 67,
+    "repeticiones": 9,
+    "ronda": 1,
+    "descartada": false
+   },
+   {
+    "version": "estructura",
+    "documentos": 62,
+    "consulta_ms": 1144.0,
+    "indexacion_ms": 2144.0,
+    "rss_mb": 3144.0,
+    "tracemalloc_mb": 4144.0,
+    "coincidencias": 72,
+    "repeticiones": 9,
+    "ronda": 2,
+    "descartada": false
+   },
+   {
+    "version": "estructura",
+    "documentos": 67,
+    "consulta_ms": 1289.0,
+    "indexacion_ms": 2289.0,
+    "rss_mb": 3289.0,
+    "tracemalloc_mb": 4289.0,
+    "coincidencias": 77,
+    "repeticiones": 9,
+    "ronda": 3,
+    "descartada": false
+   }
+  ],
+  "algoritmo": [
+   {
+    "version": "algoritmo",
+    "documentos": 53,
+    "consulta_ms": 1009.0,
+    "indexacion_ms": 2009.0,
+    "rss_mb": 3009.0,
+    "tracemalloc_mb": 4009.0,
+    "coincidencias": 63,
+    "repeticiones": 9,
+    "ronda": 0,
+    "descartada": true
+   },
+   {
+    "version": "algoritmo",
+    "documentos": 58,
+    "consulta_ms": 1064.0,
+    "indexacion_ms": 2064.0,
+    "rss_mb": 3064.0,
+    "tracemalloc_mb": 4064.0,
+    "coincidencias": 68,
+    "repeticiones": 9,
+    "ronda": 1,
+    "descartada": false
+   },
+   {
+    "version": "algoritmo",
+    "documentos": 63,
+    "consulta_ms": 1169.0,
+    "indexacion_ms": 2169.0,
+    "rss_mb": 3169.0,
+    "tracemalloc_mb": 4169.0,
+    "coincidencias": 73,
+    "repeticiones": 9,
+    "ronda": 2,
+    "descartada": false
+   },
+   {
+    "version": "algoritmo",
+    "documentos": 68,
+    "consulta_ms": 1324.0,
+    "indexacion_ms": 2324.0,
+    "rss_mb": 3324.0,
+    "tracemalloc_mb": 4324.0,
+    "coincidencias": 78,
+    "repeticiones": 9,
+    "ronda": 3,
+    "descartada": false
+   }
+  ],
+  "concurrencia": [
+   {
+    "version": "concurrencia",
+    "documentos": 54,
+    "consulta_ms": 1016.0,
+    "indexacion_ms": 2016.0,
+    "rss_mb": 3016.0,
+    "tracemalloc_mb": 4016.0,
+    "coincidencias": 64,
+    "repeticiones": 9,
+    "ronda": 0,
+    "descartada": true
+   },
+   {
+    "version": "concurrencia",
+    "documentos": 59,
+    "consulta_ms": 1081.0,
+    "indexacion_ms": 2081.0,
+    "rss_mb": 3081.0,
+    "tracemalloc_mb": 4081.0,
+    "coincidencias": 69,
+    "repeticiones": 9,
+    "ronda": 1,
+    "descartada": false
+   },
+   {
+    "version": "concurrencia",
+    "documentos": 64,
+    "consulta_ms": 1196.0,
+    "indexacion_ms": 2196.0,
+    "rss_mb": 3196.0,
+    "tracemalloc_mb": 4196.0,
+    "coincidencias": 74,
+    "repeticiones": 9,
+    "ronda": 2,
+    "descartada": false
+   },
+   {
+    "version": "concurrencia",
+    "documentos": 69,
+    "consulta_ms": 1361.0,
+    "indexacion_ms": 2361.0,
+    "rss_mb": 3361.0,
+    "tracemalloc_mb": 4361.0,
+    "coincidencias": 79,
+    "repeticiones": 9,
+    "ronda": 3,
+    "descartada": false
+   }
+  ],
+  "final": [
+   {
+    "version": "final",
+    "documentos": 55,
+    "consulta_ms": 1025.0,
+    "indexacion_ms": 2025.0,
+    "rss_mb": 3025.0,
+    "tracemalloc_mb": 4025.0,
+    "coincidencias": 65,
+    "repeticiones": 9,
+    "ronda": 0,
+    "descartada": true
+   },
+   {
+    "version": "final",
+    "documentos": 60,
+    "consulta_ms": 1100.0,
+    "indexacion_ms": 2100.0,
+    "rss_mb": 3100.0,
+    "tracemalloc_mb": 4100.0,
+    "coincidencias": 70,
+    "repeticiones": 9,
+    "ronda": 1,
+    "descartada": false
+   },
+   {
+    "version": "final",
+    "documentos": 65,
+    "consulta_ms": 1225.0,
+    "indexacion_ms": 2225.0,
+    "rss_mb": 3225.0,
+    "tracemalloc_mb": 4225.0,
+    "coincidencias": 75,
+    "repeticiones": 9,
+    "ronda": 2,
+    "descartada": false
+   },
+   {
+    "version": "final",
+    "documentos": 70,
+    "consulta_ms": 1400.0,
+    "indexacion_ms": 2400.0,
+    "rss_mb": 3400.0,
+    "tracemalloc_mb": 4400.0,
+    "coincidencias": 80,
+    "repeticiones": 9,
+    "ronda": 3,
+    "descartada": false
+   }
+  ]
+ }
+}

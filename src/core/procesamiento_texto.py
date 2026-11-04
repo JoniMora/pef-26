@@ -55,7 +55,7 @@ STOPWORDS = {
 
 
 @lru_cache(maxsize=10000)
-def normalize(token):
+def normalize(token: str) -> str:
     """
     Normaliza un token: lo pasa a minúsculas y le quita los signos.
 
@@ -73,7 +73,7 @@ def normalize(token):
 
 
 @lru_cache(maxsize=10000)
-def stem(token):
+def stem(token: str) -> str:
     """
     Normaliza plurales del español a su forma singular.
 
@@ -119,7 +119,7 @@ def stem(token):
     return token
 
 
-def tokenizar(texto):
+def tokenizar(texto: str) -> list[str]:
     """
     Convierte un texto en la lista de tokens que se indexan.
 

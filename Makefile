@@ -13,7 +13,7 @@ GITLEAKS_SISTEMA := $(shell uname -s | tr '[:upper:]' '[:lower:]')_$(shell uname
 GITLEAKS_ARCHIVO = gitleaks_$(GITLEAKS_VERSION)_$(GITLEAKS_SISTEMA).tar.gz
 GITLEAKS = .herramientas/gitleaks
 
-.PHONY: instalar lock lint seguridad secretos tests rendimiento docs enlaces diagrama controles resultado-final
+.PHONY: instalar lock lint complejidad tipado seguridad secretos tests rendimiento docs enlaces diagrama controles resultado-final
 
 instalar:
 	$(PYTHON) -m pip install --require-hashes -r requirements-dev.txt
@@ -31,6 +31,15 @@ lock:
 lint:
 	ruff check .
 	ruff format --check .
+
+# El generador del informe queda afuera: sus funciones largas son el texto del
+# documento, con complejidad 1.
+complejidad:
+	lizard src scripts -x "scripts/generar_informe_newrelic.py" -T nloc=50 -C 15 -w
+
+# El alcance y las reglas están en pyproject.toml.
+tipado:
+	mypy
 
 # Primero los reportes en JSON, sin frenar si hay hallazgos, para que existan
 # aunque el control rechace. Después los mismos análisis, legibles, que deciden.
@@ -83,7 +92,7 @@ enlaces:
 diagrama:
 	dot -Tsvg docs/diagramas/arquitectura.dot -o docs/diagramas/arquitectura.svg
 
-controles: lint seguridad secretos tests rendimiento docs
+controles: lint complejidad tipado seguridad secretos tests rendimiento docs
 
 # Solo tiene sentido en el CI: lee los resultados de los jobs de RESULTADOS.
 resultado-final:
