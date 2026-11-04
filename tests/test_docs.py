@@ -64,6 +64,16 @@ def test_la_arquitectura_documenta_todos_los_modulos():
     assert [modulo for modulo in modulos if f"`{modulo}`" not in texto] == []
 
 
+def test_la_arquitectura_documenta_todos_los_scripts():
+    texto = _leer(DOCS / "arquitectura.md")
+    scripts = [
+        ruta.relative_to(RAIZ).as_posix() for ruta in (RAIZ / "scripts").glob("*.py")
+    ]
+
+    assert scripts
+    assert [script for script in scripts if f"`{script}`" not in texto] == []
+
+
 def test_mantenimiento_explica_cada_objetivo_de_make():
     texto = _leer(DOCS / "mantenimiento.md")
     objetivos = re.findall(

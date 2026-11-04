@@ -26,6 +26,8 @@ Las flechas continuas son las dependencias principales y las llamadas HTTP; la l
 | [`scripts/medir_recarga.py`](https://github.com/JoniMora/pef-26/blob/master/scripts/medir_recarga.py) | Medición | Mide de qué se compone una recarga del índice. |
 | [`scripts/control_rendimiento.py`](https://github.com/JoniMora/pef-26/blob/master/scripts/control_rendimiento.py) | Medición | Los controles de benchmark, profiling y memoria del CI. |
 | [`benchmarks/`](https://github.com/JoniMora/pef-26/tree/master/benchmarks) | Medición | Las operaciones que mide el benchmark. |
+| [`scripts/resultado_final.py`](https://github.com/JoniMora/pef-26/blob/master/scripts/resultado_final.py) | CI | Decide el veredicto del job "Resultado final" a partir de los demás jobs. |
+| [`scripts/generar_informe_newrelic.py`](https://github.com/JoniMora/pef-26/blob/master/scripts/generar_informe_newrelic.py) | Informes | Genera el informe en PDF de New Relic. |
 
 La referencia de cada función, generada desde los docstrings, está en [Módulos](api/modules).
 
