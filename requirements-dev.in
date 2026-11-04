@@ -2,7 +2,7 @@
 # reglas por defecto de Ruff cambia entre versiones y un upgrade
 # silencioso puede romper el pipeline sin que cambie el código.
 -r requirements.in
-ruff==0.17.0
+ruff==0.17.3
 bandit[toml]==1.9.4
 # Tamaño y complejidad de las funciones.
 lizard==1.25.0
