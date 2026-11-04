@@ -100,3 +100,5 @@ pytest tests/test_equivalencia.py -v
 El CI vuelve a correr todo en cada pull request. De cada corrida quedan como artefactos en GitHub Actions el resultado de cada prueba (`pruebas`) y el reporte de cobertura (`cobertura`). Además, SonarCloud controla la cobertura del código nuevo.
 
 "Resultado final" se probó en GitHub Actions con 6 corridas en rojo provocadas a propósito en una rama descartable: Ruff, Bandit, pip-audit, un test roto, cobertura por debajo del umbral y una corrida cancelada. Rechazó en las seis, y el log de cada falla provocada mostró el error esperado.
+
+La protección de `master` se probó con un [pull request descartable](https://github.com/JoniMora/pef-26/pull/17) que agregaba trabajo en `rankear()` y retenía una copia del índice. Pasó lint, tipado y tests. El [benchmark y la memoria lo rechazaron](https://github.com/JoniMora/pef-26/actions/runs/41849000317), con una razón de hasta 13,8 en `consulta_de_un_termino`, y GitHub impidió el merge.
