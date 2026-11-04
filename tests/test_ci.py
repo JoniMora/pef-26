@@ -4,6 +4,7 @@ falle: un job nuevo que no bloquea porque nadie lo sumó a "Resultado final",
 o un comando suelto en el YAML que deja de coincidir con el local.
 """
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -97,6 +98,24 @@ def test_el_control_guarda_su_reporte_aunque_rechace(job, reporte):
 
     assert reporte in (RAIZ / "Makefile").read_text("utf-8")
     assert [paso["if"] for paso in subidas] == ["always()"]
+
+
+@pytest.mark.parametrize("job", ["seguridad", "documentacion"])
+def test_los_jobs_con_npm_fijan_la_version_de_node(job):
+    # Sin esto usarían el Node del runner, que cambia con la imagen.
+    pasos = WORKFLOW["jobs"][job]["steps"]
+    nodo = [paso for paso in pasos if "setup-node" in paso.get("uses", "")]
+
+    assert [paso["with"]["node-version"] for paso in nodo] == [
+        "${{ env.NODE_VERSION }}"
+    ]
+
+
+def test_la_version_de_node_del_ci_cumple_lo_que_pide_package_json():
+    paquete = json.loads((RAIZ / "package.json").read_text("utf-8"))
+    minima = re.fullmatch(r">=(\d+)", paquete["engines"]["node"])[1]
+
+    assert int(WORKFLOW["env"]["NODE_VERSION"]) >= int(minima)
 
 
 def test_la_seguridad_no_filtra_por_severidad():

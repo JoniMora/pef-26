@@ -17,6 +17,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.14"
+  NODE_VERSION: "24"
 
 # Cada comando vive en el Makefile, para que en local dé el mismo resultado
 # (tests/test_ci.py lo verifica). Los criterios de rechazo de cada control
@@ -101,6 +102,10 @@ jobs:
 
       - run: make instalar
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - run: make seguridad
 
       - name: Guardar los reportes
@@ -141,6 +146,10 @@ jobs:
           cache-dependency-path: requirements*.txt
 
       - run: make instalar
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Construir el sitio y revisar el Markdown
         run: make docs
